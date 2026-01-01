@@ -1,13 +1,23 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
+import Link from "next/link"; // <--- NEW IMPORT
 import { PieChart, Pie, Cell, ResponsiveContainer } from "recharts";
-import { X, Loader2, ChevronDown } from "lucide-react";
-import { FOOD_CATEGORIES } from "./food-data"; // Import data
+import {
+  Search,
+  Plus,
+  Minus,
+  X,
+  Download,
+  Upload,
+  Save,
+  FileJson,
+  LayoutDashboard,
+} from "lucide-react"; // <--- ADDED LayoutDashboard
+import { FOOD_CATEGORIES, FLATTENED_DB } from "./food-data";
 
 export default function Home() {
-  const [input, setInput] = useState("");
-  const [loading, setLoading] = useState(false);
+  // --- STATE ---
   const [logs, setLogs] = useState([]);
   const [totals, setTotals] = useState({
     calories: 0,
@@ -15,19 +25,38 @@ export default function Home() {
     carbs: 0,
     fats: 0,
   });
+  const [recents, setRecents] = useState([]);
 
-  // Load data
+  // UI States
+  const [qty, setQty] = useState(1);
+  const [query, setQuery] = useState("");
+  const [activeCategory, setActiveCategory] = useState("Recent");
+
+  // Persistence States
+  const [showImportModal, setShowImportModal] = useState(true);
+  const [unsavedChanges, setUnsavedChanges] = useState(false);
+  const fileInputRef = useRef(null);
+
+  // --- INIT ---
   useEffect(() => {
-    const saved = localStorage.getItem("daily_logs");
-    if (saved) {
-      const parsedLogs = JSON.parse(saved);
-      setLogs(parsedLogs);
-      calculateTotals(parsedLogs);
+    const hasData = localStorage.getItem("all_logs");
+    if (!hasData) {
+      setShowImportModal(true);
+    } else {
+      setShowImportModal(true);
     }
   }, []);
 
-  const calculateTotals = (currentLogs) => {
-    const newTotals = currentLogs.reduce(
+  // Recalculate totals whenever logs change
+  useEffect(() => {
+    calculateTotals(logs);
+  }, [logs]);
+
+  const calculateTotals = (data) => {
+    const todayKey = new Date().toISOString().slice(0, 10);
+    const todaysLogs = data.filter((item) => item.date === todayKey);
+
+    const t = todaysLogs.reduce(
       (acc, item) => ({
         calories: acc.calories + (Number(item.calories) || 0),
         protein: acc.protein + (Number(item.protein) || 0),
@@ -36,273 +65,374 @@ export default function Home() {
       }),
       { calories: 0, protein: 0, carbs: 0, fats: 0 }
     );
-    setTotals(newTotals);
+    setTotals(t);
   };
 
-  const handleAdd = async (e) => {
-    e.preventDefault();
-    if (!input.trim()) return;
-
-    setLoading(true);
-    try {
-      const res = await fetch("/api/analyze", {
-        method: "POST",
-        body: JSON.stringify({ query: input }),
-      });
-      let data = await res.json();
-
-      if (data.error) {
-        alert("Food not found! Try picking from the list.");
-        setLoading(false);
-        return;
-      }
-
-      // Parse quantity from input (e.g. '3 roti')
-      let qty = 1;
-      const match = input.trim().match(/^(\d+)\s+/);
-      if (match) {
-        qty = parseInt(match[1], 10);
-      }
-      if (qty > 1) {
-        data = {
-          ...data,
-          calories: data.calories * qty,
-          protein: data.protein * qty,
-          carbs: data.carbs * qty,
-          fats: data.fats * qty,
-          name: `${qty} ${data.name}`,
-        };
-      }
-
-      const updatedLogs = [data, ...logs];
-      setLogs(updatedLogs);
-      calculateTotals(updatedLogs);
-      localStorage.setItem("daily_logs", JSON.stringify(updatedLogs));
-      setInput("");
-    } catch (err) {
-      console.error(err);
-    } finally {
-      setLoading(false);
+  // --- CORE ACTIONS ---
+  const addFood = (foodName) => {
+    let foodData = FLATTENED_DB[foodName.toLowerCase()];
+    if (!foodData) {
+      const key = Object.keys(FLATTENED_DB).find((k) =>
+        k.includes(foodName.toLowerCase())
+      );
+      if (key) foodData = FLATTENED_DB[key];
+      else return alert("Item not found.");
     }
+
+    const newLog = {
+      id: crypto.randomUUID(),
+      name: foodName,
+      qty: qty,
+      calories: Math.round(foodData.calories * qty),
+      protein: Math.round(foodData.protein * qty),
+      carbs: Math.round(foodData.carbs * qty),
+      fats: Math.round(foodData.fats * qty),
+      date: new Date().toISOString().slice(0, 10),
+      timestamp: Date.now(),
+    };
+
+    const newLogs = [newLog, ...logs];
+    setLogs(newLogs);
+
+    localStorage.setItem("all_logs", JSON.stringify(newLogs));
+
+    const newRecents = [
+      foodName,
+      ...recents.filter((r) => r !== foodName),
+    ].slice(0, 10);
+    setRecents(newRecents);
+    localStorage.setItem("recent_foods", JSON.stringify(newRecents));
+
+    setQty(1);
+    setQuery("");
+    setUnsavedChanges(true);
   };
 
-  const handleDelete = (id) => {
-    const updatedLogs = logs.filter((item) => item.id !== id);
-    setLogs(updatedLogs);
-    calculateTotals(updatedLogs);
-    localStorage.setItem("daily_logs", JSON.stringify(updatedLogs));
+  const deleteLog = (id) => {
+    const newLogs = logs.filter((l) => l.id !== id);
+    setLogs(newLogs);
+    localStorage.setItem("all_logs", JSON.stringify(newLogs));
+    setUnsavedChanges(true);
   };
 
-  // Quantity state for dropdown
-  const [dropdownQty, setDropdownQty] = useState(1);
-  // Helper to pre-fill input from dropdown with quantity
-  const handleSelectChange = (e) => {
-    if (e.target.value) {
-      setInput(`${dropdownQty} ${e.target.value}`);
-      setDropdownQty(1); // Reset to 1 after selection
-    }
+  // --- FILE HANDLING ---
+  const handleDownload = () => {
+    const dataStr = JSON.stringify(logs);
+    const blob = new Blob([dataStr], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+
+    const a = document.createElement("a");
+    const date = new Date().toISOString().slice(0, 10);
+    a.href = url;
+    a.download = `nutritrack_backup_${date}.json`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+
+    setUnsavedChanges(false);
   };
 
-  // Chart Data
-  const data = [
-    { name: "Protein", value: totals.protein, color: "#3b82f6" },
-    { name: "Carbs", value: totals.carbs, color: "#22c55e" },
-    { name: "Fats", value: totals.fats, color: "#f59e0b" },
-  ];
-  const isEmpty = totals.calories === 0;
+  const handleImport = (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      try {
+        const importedData = JSON.parse(ev.target.result);
+        if (!Array.isArray(importedData)) throw new Error("Invalid Format");
+
+        setLogs(importedData);
+        localStorage.setItem("all_logs", JSON.stringify(importedData));
+        setShowImportModal(false);
+      } catch (err) {
+        alert("Could not load file. Ensure it is a valid backup.");
+      }
+    };
+    reader.readAsText(file);
+  };
+
+  const getDisplayItems = () => {
+    if (query)
+      return Object.keys(FLATTENED_DB).filter((k) =>
+        k.includes(query.toLowerCase())
+      );
+    if (activeCategory === "Recent") return recents;
+    return Object.keys(FOOD_CATEGORIES[activeCategory] || {});
+  };
 
   return (
-    <main className="container">
-      <header>
-        <h1>Daily Intake</h1>
-        <h2>
-          {new Date().toLocaleDateString("en-US", {
-            weekday: "long",
-            month: "long",
-            day: "numeric",
-          })}
-        </h2>
+    <div className="app-wrapper">
+      {/* 1. IMPORT MODAL */}
+      {showImportModal && (
+        <div className="modal-overlay">
+          <div className="modal-content">
+            <div
+              style={{
+                display: "flex",
+                justifyContent: "center",
+                marginBottom: 16,
+              }}
+            >
+              <FileJson size={48} color="var(--brand)" />
+            </div>
+            <h2 className="modal-title">Welcome Back!</h2>
+            <p className="modal-desc">
+              Would you like to import your previous data to continue where you
+              left off?
+            </p>
+            <div className="modal-actions">
+              <button
+                className="btn-primary"
+                onClick={() => fileInputRef.current.click()}
+              >
+                <Upload
+                  size={18}
+                  style={{ display: "inline", marginRight: 8 }}
+                />
+                Import Backup File
+              </button>
+              <button
+                className="btn-secondary"
+                onClick={() => {
+                  const cached = localStorage.getItem("all_logs");
+                  if (cached) setLogs(JSON.parse(cached));
+                  setShowImportModal(false);
+                }}
+              >
+                No, Use Device Cache
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 2. AUTO-SAVE PROMPT */}
+      {unsavedChanges && (
+        <button className="save-prompt" onClick={handleDownload}>
+          <Save size={20} />
+          <span>Tap to Save Data</span>
+        </button>
+      )}
+
+      <input
+        type="file"
+        ref={fileInputRef}
+        hidden
+        onChange={handleImport}
+        accept=".json"
+      />
+
+      {/* --- HEADER --- */}
+      <header className="header-row">
+        <div>
+          <h1 className="brand-title">NutriTrack.</h1>
+          <div className="date-badge">Today</div>
+        </div>
+        <div style={{ display: "flex", gap: 8 }}>
+          {/* --- NEW DASHBOARD BUTTON --- */}
+          <Link href="/dashboard">
+            <button
+              className="menu-btn"
+              style={{ color: "var(--brand)" }}
+              title="Go to Dashboard"
+            >
+              <LayoutDashboard size={20} />
+            </button>
+          </Link>
+          {/* ---------------------------- */}
+          <button
+            className="menu-btn"
+            onClick={() => fileInputRef.current.click()}
+          >
+            <Upload size={20} />
+          </button>
+          <button className="menu-btn" onClick={handleDownload}>
+            <Download size={20} />
+          </button>
+        </div>
       </header>
 
-      {/* Stats Dashboard */}
-      <section className="stats-grid">
-        <div
-          className="card"
-          style={{ gridColumn: "span 2", padding: "1.5rem" }}
-        >
-          <div style={{ width: "100%", height: "160px", position: "relative" }}>
-            <ResponsiveContainer>
+      {/* --- BENTO STATS --- */}
+      <section className="bento-grid">
+        <div className="stat-card-main">
+          <div className="cal-info">
+            <h3>Today&apos;s Calories</h3>
+            <div className="big-number">{totals.calories}</div>
+            <div className="unit">kcal</div>
+          </div>
+          <div style={{ width: 100, height: 100 }}>
+            <ResponsiveContainer width="100%" height="100%">
               <PieChart>
                 <Pie
-                  data={isEmpty ? [{ value: 1 }] : data}
-                  innerRadius={60}
-                  outerRadius={75}
-                  paddingAngle={5}
+                  data={
+                    totals.calories === 0
+                      ? [{ value: 1 }]
+                      : [
+                          {
+                            name: "P",
+                            value: totals.protein,
+                            color: "#3b82f6",
+                          },
+                          { name: "C", value: totals.carbs, color: "#10b981" },
+                          { name: "F", value: totals.fats, color: "#f59e0b" },
+                        ]
+                  }
+                  innerRadius={34}
+                  outerRadius={45}
                   dataKey="value"
                   stroke="none"
                 >
-                  {isEmpty ? (
-                    <Cell fill="#333" />
+                  {totals.calories === 0 ? (
+                    <Cell fill="#27272a" />
                   ) : (
-                    data.map((entry, index) => (
-                      <Cell key={index} fill={entry.color} />
-                    ))
+                    [
+                      { name: "P", value: totals.protein, color: "#3b82f6" },
+                      { name: "C", value: totals.carbs, color: "#10b981" },
+                      { name: "F", value: totals.fats, color: "#f59e0b" },
+                    ].map((e, i) => <Cell key={i} fill={e.color} />)
                   )}
                 </Pie>
               </PieChart>
             </ResponsiveContainer>
-            <div
-              style={{
-                position: "absolute",
-                top: "50%",
-                left: "50%",
-                transform: "translate(-50%, -50%)",
-                textAlign: "center",
-              }}
-            >
-              <div
-                style={{ fontSize: "2rem", fontWeight: "800", lineHeight: "1" }}
-              >
-                {totals.calories}
-              </div>
-              <div
-                style={{ fontSize: "0.8rem", color: "#666", marginTop: "4px" }}
-              >
-                kcal
-              </div>
-            </div>
           </div>
         </div>
-        <div className="card">
-          <span className="macro-label" style={{ color: "#3b82f6" }}>
-            Protein
-          </span>
-          <span className="macro-value">{totals.protein}g</span>
+        <div className="macro-card">
+          <span
+            className="macro-icon"
+            style={{ background: "var(--protein)" }}
+          ></span>
+          <span className="macro-label">Protein</span>
+          <span className="macro-val">{totals.protein}g</span>
         </div>
-        <div className="card">
-          <span className="macro-label" style={{ color: "#22c55e" }}>
-            Carbs
-          </span>
-          <span className="macro-value">{totals.carbs}g</span>
+        <div className="macro-card">
+          <span
+            className="macro-icon"
+            style={{ background: "var(--carbs)" }}
+          ></span>
+          <span className="macro-label">Carbs</span>
+          <span className="macro-val">{totals.carbs}g</span>
         </div>
-        <div className="card">
-          <span className="macro-label" style={{ color: "#f59e0b" }}>
-            Fats
-          </span>
-          <span className="macro-value">{totals.fats}g</span>
-        </div>
-        <div className="card">
-          <span className="macro-label">Items</span>
-          <span className="macro-value">{logs.length}</span>
+        <div className="macro-card">
+          <span
+            className="macro-icon"
+            style={{ background: "var(--fats)" }}
+          ></span>
+          <span className="macro-label">Fats</span>
+          <span className="macro-val">{totals.fats}g</span>
         </div>
       </section>
 
-      {/* NEW: Smart Categorized Dropdown with Quantity */}
-      <div style={{ marginBottom: "2rem", display: "flex", gap: "0.5rem", alignItems: "center" }}>
-        <div style={{ flex: "0 0 70px" }}>
-          <input
-            type="number"
-            min={1}
-            value={dropdownQty}
-            onChange={e => setDropdownQty(Math.max(1, Number(e.target.value)))}
-            style={{
-              width: "100%",
-              padding: "0.7rem 0.5rem",
-              backgroundColor: "#171717",
-              border: "1px solid #333",
-              color: "#ededed",
-              borderRadius: "12px",
-              fontSize: "0.9rem",
-              textAlign: "center",
-            }}
-            aria-label="Quantity"
-          />
-        </div>
-        <div style={{ flex: 1, position: "relative" }}>
-          <div
-            style={{
-              position: "absolute",
-              right: "1rem",
-              top: "50%",
-              transform: "translateY(-50%)",
-              pointerEvents: "none",
-              color: "#666",
-            }}
-          >
-            <ChevronDown size={16} />
-          </div>
-          <select
-            onChange={handleSelectChange}
-            style={{
-              width: "100%",
-              padding: "1rem",
-              backgroundColor: "#171717",
-              border: "1px solid #333",
-              color: "#ededed",
-              borderRadius: "12px",
-              appearance: "none", // Hides default arrow to use custom icon
-              fontSize: "0.9rem",
-              cursor: "pointer",
-            }}
-            defaultValue=""
-          >
-            <option value="" disabled>
-              Browse food list...
-            </option>
-            {Object.entries(FOOD_CATEGORIES).map(([category, items]) => (
-              <optgroup
-                key={category}
-                label={category}
-                style={{ color: "#a1a1a1", fontStyle: "normal" }}
-              >
-                {Object.keys(items).map((food) => (
-                  <option key={food} value={food} style={{ color: "#ededed" }}>
-                    {food.charAt(0).toUpperCase() + food.slice(1)}
-                  </option>
-                ))}
-              </optgroup>
-            ))}
-          </select>
-        </div>
-      </div>
-
-      {/* Input Area */}
-      <form onSubmit={handleAdd} className="input-group">
-        <input
-          type="text"
-          placeholder="Type e.g. '2 eggs' or pick below..."
-          value={input}
-          onChange={(e) => setInput(e.target.value)}
-          disabled={loading}
-          autoFocus
-        />
-        <button type="submit" className="add-btn" disabled={loading || !input}>
-          {loading ? <Loader2 size={18} className="animate-spin" /> : "Add"}
-        </button>
-      </form>
-
-      {/* Log History */}
-      <div className="food-list">
-        {logs.map((item) => (
-          <div key={item.id} className="food-item">
-            <div className="food-info">
-              <h3>{item.name}</h3>
-              <p>
-                {item.calories} kcal <span style={{ margin: "0 4px" }}>•</span>
-                <span style={{ color: "#3b82f6" }}>P: {item.protein}</span>{" "}
-                <span style={{ color: "#22c55e" }}>C: {item.carbs}</span>{" "}
-                <span style={{ color: "#f59e0b" }}>F: {item.fats}</span>
-              </p>
-            </div>
+      {/* --- COMMAND CENTER --- */}
+      <section className="command-center">
+        <div className="input-row">
+          <div className="qty-wrapper">
             <button
-              onClick={() => handleDelete(item.id)}
-              className="delete-btn"
+              className="qty-btn"
+              onClick={() => setQty(Math.max(1, qty - 1))}
             >
-              <X size={18} />
+              <Minus size={14} />
+            </button>
+            <div className="qty-val">{qty}</div>
+            <button className="qty-btn" onClick={() => setQty(qty + 1)}>
+              <Plus size={14} />
             </button>
           </div>
-        ))}
-      </div>
-    </main>
+          <div className="search-container">
+            <Search className="search-icon" size={16} />
+            <input
+              className="search-input"
+              placeholder="Add food..."
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+            />
+          </div>
+        </div>
+        <div className="suggestions-box">
+          {!query && (
+            <div className="category-scroll-row">
+              <button
+                className={`suggestion-chip ${
+                  activeCategory === "Recent" ? "active" : ""
+                }`}
+                onClick={() => setActiveCategory("Recent")}
+              >
+                Recent
+              </button>
+              {Object.keys(FOOD_CATEGORIES).map((cat) => (
+                <button
+                  key={cat}
+                  className={`suggestion-chip ${
+                    activeCategory === cat ? "active" : ""
+                  }`}
+                  onClick={() => setActiveCategory(cat)}
+                >
+                  {cat.split(" ")[0]}
+                </button>
+              ))}
+            </div>
+          )}
+          <div className="food-grid">
+            {getDisplayItems().map((item) => (
+              <button
+                key={item}
+                className="suggestion-chip"
+                onClick={() => addFood(item)}
+              >
+                {item.charAt(0).toUpperCase() + item.slice(1)}
+              </button>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      {/* --- LOG --- */}
+      <section className="timeline">
+        <div className="timeline-label">Today&apos;s Entries</div>
+        {logs.filter((l) => l.date === new Date().toISOString().slice(0, 10))
+          .length === 0 ? (
+          <div
+            style={{
+              textAlign: "center",
+              color: "var(--text-tertiary)",
+              padding: 20,
+            }}
+          >
+            No items today
+          </div>
+        ) : (
+          logs
+            .filter((l) => l.date === new Date().toISOString().slice(0, 10))
+            .map((log) => (
+              <div key={log.id} className="log-item">
+                <div className="log-details">
+                  <h4>
+                    {log.qty}x{" "}
+                    <span
+                      style={{ color: "white", textTransform: "capitalize" }}
+                    >
+                      {log.name}
+                    </span>
+                  </h4>
+                  <div>
+                    <span>
+                      <b>{log.calories}</b> kcal
+                    </span>
+                    <span style={{ color: "var(--protein)" }}>
+                      P:{log.protein}
+                    </span>
+                  </div>
+                </div>
+                <button
+                  className="delete-action"
+                  onClick={() => deleteLog(log.id)}
+                >
+                  <X size={16} />
+                </button>
+              </div>
+            ))
+        )}
+      </section>
+    </div>
   );
 }
