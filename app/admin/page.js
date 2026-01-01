@@ -2,7 +2,14 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { ArrowLeft, Users, Database, Search, Mail } from "lucide-react";
+import {
+  ArrowLeft,
+  Users,
+  Database,
+  Search,
+  ChevronLeft,
+  LayoutDashboard,
+} from "lucide-react";
 import { supabase } from "../supabase";
 
 // --- COLORS ---
@@ -24,7 +31,7 @@ export default function AdminDashboard() {
     totalLogs: 0,
     activeToday: 0,
   });
-  const [emailMap, setEmailMap] = useState({}); // { uuid: "john@gmail.com" }
+  const [emailMap, setEmailMap] = useState({});
 
   // Selection State
   const [selectedUserId, setSelectedUserId] = useState(null);
@@ -49,28 +56,16 @@ export default function AdminDashboard() {
         .order("created_at", { ascending: false });
 
       if (logError) {
-        alert("Error fetching logs: " + logError.message);
+        alert("Error: " + logError.message);
         setLoading(false);
         return;
       }
 
-      // 2. Fetch Emails (Using our Secure RPC Function)
-      const { data: users, error: userError } = await supabase.rpc(
-        "get_user_emails"
-      );
+      // 2. Fetch Emails (Secure RPC)
+      const { data: users } = await supabase.rpc("get_user_emails");
 
-      if (userError) {
-        console.error(
-          "Could not fetch emails. Did you run the SQL script?",
-          userError
-        );
-      }
-
-      // Create a map: { "abc-123": "john@email.com" }
       const map = {};
-      if (users) {
-        users.forEach((u) => (map[u.id] = u.email));
-      }
+      if (users) users.forEach((u) => (map[u.id] = u.email));
       setEmailMap(map);
 
       setAllLogs(logs);
@@ -89,7 +84,7 @@ export default function AdminDashboard() {
       if (!uniqueUsers[log.user_id]) {
         uniqueUsers[log.user_id] = {
           userId: log.user_id,
-          email: map[log.user_id] || "Unknown (No Email)", // Use the map here
+          email: map[log.user_id] || "Unknown",
           logCount: 0,
           lastActive: log.date,
           totalCals: 0,
@@ -122,7 +117,6 @@ export default function AdminDashboard() {
     return allLogs.filter((l) => l.user_id === selectedUserId);
   };
 
-  // Filter by Email OR ID
   const filteredUsers = userList.filter(
     (u) =>
       (u.email && u.email.toLowerCase().includes(searchQuery.toLowerCase())) ||
@@ -132,7 +126,48 @@ export default function AdminDashboard() {
   const selectedEmail = emailMap[selectedUserId] || selectedUserId;
 
   return (
-    <div className="app-wrapper" style={{ maxWidth: 1000, margin: "0 auto" }}>
+    <div
+      className="app-wrapper"
+      style={{ maxWidth: 1000, margin: "0 auto", paddingBottom: 80 }}
+    >
+      <style jsx>{`
+        /* RESPONSIVE LAYOUT LOGIC */
+        .admin-grid {
+          display: grid;
+          grid-template-columns: 1fr 2fr;
+          gap: 24px;
+          align-items: start;
+        }
+
+        .user-list-panel {
+          display: flex;
+          flex-direction: column;
+        }
+        .detail-panel {
+          display: flex;
+          flex-direction: column;
+          gap: 20px;
+        }
+
+        /* MOBILE OVERRIDES */
+        @media (max-width: 768px) {
+          .admin-grid {
+            display: flex;
+            flex-direction: column;
+          }
+          /* Hide list if user is selected (show details instead) */
+          .user-list-panel {
+            display: ${selectedUserId ? "none" : "flex"};
+            width: 100%;
+          }
+          /* Hide details if no user selected */
+          .detail-panel {
+            display: ${selectedUserId ? "flex" : "none"};
+            width: 100%;
+          }
+        }
+      `}</style>
+
       {/* HEADER */}
       <div
         style={{
@@ -157,19 +192,24 @@ export default function AdminDashboard() {
         >
           <ArrowLeft size={18} /> Back to App
         </button>
+
         <div
           style={{
             display: "flex",
             justifyContent: "space-between",
-            alignItems: "center",
+            alignItems: "flex-end",
+            flexWrap: "wrap",
+            gap: 16,
           }}
         >
           <div>
             <h1 style={{ fontSize: "2rem", fontWeight: 800 }}>Admin Portal</h1>
             <p style={{ color: "#666" }}>
-              Monitoring {globalStats.totalUsers} users.
+              {globalStats.totalUsers} users • {globalStats.totalLogs} logs
             </p>
           </div>
+
+          {/* Quick Stats Badge */}
           <div
             style={{
               background: "#27272a",
@@ -177,20 +217,18 @@ export default function AdminDashboard() {
               borderRadius: 12,
               display: "flex",
               gap: 16,
+              alignItems: "center",
             }}
           >
             <div style={{ textAlign: "center" }}>
-              <div style={{ fontSize: "0.8rem", color: "#aaa" }}>
-                Total Logs
-              </div>
-              <div style={{ fontWeight: 700, fontSize: "1.1rem" }}>
-                {globalStats.totalLogs}
-              </div>
-            </div>
-            <div style={{ width: 1, background: "#444" }}></div>
-            <div style={{ textAlign: "center" }}>
-              <div style={{ fontSize: "0.8rem", color: "#aaa" }}>
-                Active Today
+              <div
+                style={{
+                  fontSize: "0.7rem",
+                  color: "#aaa",
+                  textTransform: "uppercase",
+                }}
+              >
+                Active
               </div>
               <div
                 style={{
@@ -202,28 +240,30 @@ export default function AdminDashboard() {
                 {globalStats.activeToday}
               </div>
             </div>
+            <div style={{ width: 1, height: 24, background: "#444" }}></div>
+            <div style={{ textAlign: "center" }}>
+              <div
+                style={{
+                  fontSize: "0.7rem",
+                  color: "#aaa",
+                  textTransform: "uppercase",
+                }}
+              >
+                Users
+              </div>
+              <div style={{ fontWeight: 700, fontSize: "1.1rem" }}>
+                {globalStats.totalUsers}
+              </div>
+            </div>
           </div>
         </div>
       </div>
 
-      <div
-        style={{
-          display: "grid",
-          gridTemplateColumns: "1fr 2fr",
-          gap: 24,
-          alignItems: "start",
-        }}
-      >
-        {/* LEFT COLUMN: USER LIST */}
+      <div className="admin-grid">
+        {/* --- LEFT COLUMN: USER LIST --- */}
         <section
-          className="chart-card"
-          style={{
-            padding: 0,
-            overflow: "hidden",
-            maxHeight: "80vh",
-            display: "flex",
-            flexDirection: "column",
-          }}
+          className="chart-card user-list-panel"
+          style={{ padding: 0, overflow: "hidden", maxHeight: "80vh" }}
         >
           <div
             style={{
@@ -254,21 +294,24 @@ export default function AdminDashboard() {
                   marginLeft: 8,
                   width: "100%",
                   outline: "none",
+                  fontSize: "16px",
                 }}
               />
             </div>
           </div>
 
-          <div style={{ overflowY: "auto", flex: 1 }}>
+          <div style={{ overflowY: "auto", flex: 1, minHeight: 300 }}>
             {loading ? (
-              <div style={{ padding: 20, textAlign: "center" }}>Loading...</div>
+              <div style={{ padding: 20, textAlign: "center", color: "#666" }}>
+                Loading data...
+              </div>
             ) : (
               filteredUsers.map((user) => (
                 <div
                   key={user.userId}
                   onClick={() => setSelectedUserId(user.userId)}
                   style={{
-                    padding: "12px 16px",
+                    padding: "16px",
                     borderBottom: "1px solid #27272a",
                     cursor: "pointer",
                     background:
@@ -281,22 +324,23 @@ export default function AdminDashboard() {
                         : "3px solid transparent",
                   }}
                 >
-                  {/* SHOW EMAIL HERE */}
                   <div
                     style={{
-                      fontSize: "0.9rem",
+                      fontSize: "0.95rem",
                       color: "#fff",
                       fontWeight: 600,
+                      marginBottom: 4,
+                      overflow: "hidden",
+                      textOverflow: "ellipsis",
                     }}
                   >
                     {user.email}
                   </div>
-
                   <div
                     style={{
                       display: "flex",
                       justifyContent: "space-between",
-                      marginTop: 4,
+                      alignItems: "center",
                     }}
                   >
                     <span style={{ fontSize: "0.75rem", color: "#666" }}>
@@ -321,11 +365,33 @@ export default function AdminDashboard() {
           </div>
         </section>
 
-        {/* RIGHT COLUMN: DETAILS */}
-        <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
+        {/* --- RIGHT COLUMN: DETAILS --- */}
+        <div className="detail-panel">
+          {/* Mobile "Back" Button (Only visible when a user is selected on mobile) */}
+          {selectedUserId && (
+            <button
+              onClick={() => setSelectedUserId(null)}
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: 6,
+                background: "transparent",
+                border: "none",
+                color: "#6366f1",
+                padding: 0,
+                fontSize: "1rem",
+                cursor: "pointer",
+                marginBottom: -10,
+              }}
+              className="mobile-back-btn"
+            >
+              <ChevronLeft size={20} /> Back to List
+            </button>
+          )}
+
           {!selectedUserId && (
             <div
-              className="chart-card"
+              className="chart-card desktop-only-msg"
               style={{
                 height: 300,
                 display: "flex",
@@ -337,12 +403,13 @@ export default function AdminDashboard() {
               }}
             >
               <Users size={48} style={{ opacity: 0.2 }} />
-              <p>Select a user to view their history.</p>
+              <p>Select a user to view details.</p>
             </div>
           )}
 
           {selectedUserId && (
             <>
+              {/* User Summary Card */}
               <div className="chart-card" style={{ padding: 20 }}>
                 <h2
                   style={{
@@ -351,16 +418,17 @@ export default function AdminDashboard() {
                     display: "flex",
                     alignItems: "center",
                     gap: 8,
+                    wordBreak: "break-all",
                   }}
                 >
                   <Database size={16} color="#6366f1" />
-                  User: <span style={{ color: "#fff" }}>{selectedEmail}</span>
+                  <span style={{ color: "#fff" }}>{selectedEmail}</span>
                 </h2>
 
                 <div
                   style={{
                     display: "grid",
-                    gridTemplateColumns: "1fr 1fr 1fr",
+                    gridTemplateColumns: "1fr 1fr",
                     gap: 12,
                   }}
                 >
@@ -371,10 +439,16 @@ export default function AdminDashboard() {
                       borderRadius: 8,
                     }}
                   >
-                    <div style={{ fontSize: "0.8rem", color: "#aaa" }}>
+                    <div
+                      style={{
+                        fontSize: "0.75rem",
+                        color: "#aaa",
+                        textTransform: "uppercase",
+                      }}
+                    >
                       Lifetime Cals
                     </div>
-                    <div style={{ fontSize: "1.2rem", fontWeight: 800 }}>
+                    <div style={{ fontSize: "1.1rem", fontWeight: 800 }}>
                       {getSelectedUserLogs()
                         .reduce((a, b) => a + (b.calories || 0), 0)
                         .toLocaleString()}
@@ -387,12 +461,18 @@ export default function AdminDashboard() {
                       borderRadius: 8,
                     }}
                   >
-                    <div style={{ fontSize: "0.8rem", color: "#aaa" }}>
+                    <div
+                      style={{
+                        fontSize: "0.75rem",
+                        color: "#aaa",
+                        textTransform: "uppercase",
+                      }}
+                    >
                       Avg Protein
                     </div>
                     <div
                       style={{
-                        fontSize: "1.2rem",
+                        fontSize: "1.1rem",
                         fontWeight: 800,
                         color: "#3b82f6",
                       }}
@@ -406,39 +486,13 @@ export default function AdminDashboard() {
                       g
                     </div>
                   </div>
-                  <div
-                    style={{
-                      background: "#27272a",
-                      padding: 12,
-                      borderRadius: 8,
-                    }}
-                  >
-                    <div style={{ fontSize: "0.8rem", color: "#aaa" }}>
-                      Avg Carbs
-                    </div>
-                    <div
-                      style={{
-                        fontSize: "1.2rem",
-                        fontWeight: 800,
-                        color: "#10b981",
-                      }}
-                    >
-                      {Math.round(
-                        getSelectedUserLogs().reduce(
-                          (a, b) => a + (b.carbs || 0),
-                          0
-                        ) / getSelectedUserLogs().length || 0
-                      )}
-                      g
-                    </div>
-                  </div>
                 </div>
               </div>
 
               {/* Log History */}
               <div
                 className="chart-card"
-                style={{ padding: 0, overflow: "hidden" }}
+                style={{ padding: 0, overflow: "hidden", flex: 1 }}
               >
                 <div
                   style={{
@@ -450,12 +504,12 @@ export default function AdminDashboard() {
                 >
                   Log History
                 </div>
-                <div style={{ maxHeight: 400, overflowY: "auto" }}>
+                <div style={{ maxHeight: "60vh", overflowY: "auto" }}>
                   {getSelectedUserLogs().map((log, i) => (
                     <div
                       key={i}
                       style={{
-                        padding: "12px 16px",
+                        padding: "14px 16px",
                         borderBottom: "1px solid #27272a",
                         display: "flex",
                         justifyContent: "space-between",
@@ -463,7 +517,7 @@ export default function AdminDashboard() {
                       }}
                     >
                       <div>
-                        <div style={{ fontSize: "0.9rem", color: "#fff" }}>
+                        <div style={{ fontSize: "0.95rem", color: "#fff" }}>
                           {log.qty}x {log.name}
                         </div>
                         <div style={{ fontSize: "0.75rem", color: "#666" }}>
@@ -471,10 +525,10 @@ export default function AdminDashboard() {
                         </div>
                       </div>
                       <div style={{ textAlign: "right" }}>
-                        <div style={{ fontSize: "0.9rem", fontWeight: 700 }}>
-                          {log.calories} kcal
+                        <div style={{ fontSize: "0.95rem", fontWeight: 700 }}>
+                          {log.calories}
                         </div>
-                        <div style={{ fontSize: "0.7rem", color: "#aaa" }}>
+                        <div style={{ fontSize: "0.75rem", color: "#aaa" }}>
                           <span style={{ color: COLORS.pro }}>
                             P:{log.protein}
                           </span>{" "}
