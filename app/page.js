@@ -11,9 +11,11 @@ import {
   LayoutDashboard,
   LogOut,
   Loader2,
+  ArrowRight,
+  KeyRound,
 } from "lucide-react";
 import { FOOD_CATEGORIES, FLATTENED_DB } from "./food-data";
-import { supabase } from "./supabase"; // Import your client
+import { supabase } from "./supabase";
 
 export default function Home() {
   // --- STATE ---
@@ -32,19 +34,36 @@ export default function Home() {
   const [qty, setQty] = useState(1);
   const [query, setQuery] = useState("");
   const [activeCategory, setActiveCategory] = useState("Recent");
-  const [email, setEmail] = useState(""); // For login
+
+  // Auth States
+  const [email, setEmail] = useState("");
+  const [otp, setOtp] = useState(""); // Stores the code
+  const [isCodeSent, setIsCodeSent] = useState(false); // Toggles between Email and OTP view
   const [authLoading, setAuthLoading] = useState(false);
+
+  // --- DATABASE ACTIONS ---
+  const fetchData = async () => {
+    setLoading(true);
+    const todayKey = new Date().toISOString().slice(0, 10);
+
+    const { data, error } = await supabase
+      .from("food_logs")
+      .select("*")
+      .eq("date", todayKey)
+      .order("created_at", { ascending: false });
+
+    if (!error) setLogs(data);
+    setLoading(false);
+  };
 
   // --- INIT: CHECK AUTH & LOAD DATA ---
   useEffect(() => {
-    // 1. Check active session
     supabase.auth.getSession().then(({ data: { session } }) => {
       setSession(session);
       if (session) fetchData();
       else setLoading(false);
     });
 
-    // 2. Listen for auth changes
     const {
       data: { subscription },
     } = supabase.auth.onAuthStateChange((_event, session) => {
@@ -58,22 +77,6 @@ export default function Home() {
 
     return () => subscription.unsubscribe();
   }, []);
-
-  // --- DATABASE ACTIONS ---
-  const fetchData = async () => {
-    setLoading(true);
-    const todayKey = new Date().toISOString().slice(0, 10);
-
-    // Fetch TODAY's logs only
-    const { data, error } = await supabase
-      .from("food_logs")
-      .select("*")
-      .eq("date", todayKey)
-      .order("created_at", { ascending: false });
-
-    if (!error) setLogs(data);
-    setLoading(false);
-  };
 
   const addFood = async (foodName) => {
     if (!session) return alert("Please sign in to save data!");
@@ -98,11 +101,10 @@ export default function Home() {
       user_id: session.user.id,
     };
 
-    // OPTIMISTIC UPDATE (Update UI immediately)
+    // Optimistic Update
     const tempId = Math.random();
     setLogs([{ ...newLog, id: tempId }, ...logs]);
 
-    // DB INSERT
     const { data, error } = await supabase
       .from("food_logs")
       .insert([newLog])
@@ -110,13 +112,10 @@ export default function Home() {
 
     if (error) {
       alert("Error saving!");
-      setLogs(logs); // Revert on error
+      setLogs(logs);
     } else {
-      // Replace temp ID with real DB ID
       setLogs([data[0], ...logs.filter((l) => l.id !== tempId)]);
     }
-
-    // Save Recent locally (ok to keep local)
     const newRecents = [
       foodName,
       ...recents.filter((r) => r !== foodName),
@@ -129,10 +128,8 @@ export default function Home() {
   };
 
   const deleteLog = async (id) => {
-    // Optimistic Delete
     const oldLogs = logs;
     setLogs(logs.filter((l) => l.id !== id));
-
     const { error } = await supabase.from("food_logs").delete().eq("id", id);
     if (error) {
       alert("Error deleting");
@@ -140,18 +137,44 @@ export default function Home() {
     }
   };
 
-  // --- AUTH ACTIONS ---
-  const handleLogin = async (e) => {
+  // --- NEW AUTH FLOW (OTP CODE) ---
+  const handleSendCode = async (e) => {
     e.preventDefault();
     setAuthLoading(true);
+
+    // We send a magic link, but we will ignore the link and use the token inside it
     const { error } = await supabase.auth.signInWithOtp({ email });
-    if (error) alert(error.message);
-    else alert("Check your email for the login link!");
+
+    if (error) {
+      alert(error.message);
+    } else {
+      setIsCodeSent(true); // Switch UI to "Enter Code"
+    }
+    setAuthLoading(false);
+  };
+
+  const handleVerifyCode = async (e) => {
+    e.preventDefault();
+    setAuthLoading(true);
+
+    const { error } = await supabase.auth.verifyOtp({
+      email,
+      token: otp,
+      type: "email",
+    });
+
+    if (error) {
+      alert("Invalid code or code expired.");
+    }
+    // If success, onAuthStateChange (above) will handle the login and redirect
     setAuthLoading(false);
   };
 
   const handleLogout = async () => {
     await supabase.auth.signOut();
+    setIsCodeSent(false);
+    setOtp("");
+    setEmail("");
   };
 
   // --- CALCS ---
@@ -177,7 +200,7 @@ export default function Home() {
     return Object.keys(FOOD_CATEGORIES[activeCategory] || {});
   };
 
-  // --- RENDER ---
+  // --- LOGIN SCREEN RENDER ---
   if (!session) {
     return (
       <div
@@ -202,48 +225,149 @@ export default function Home() {
               border: "1px solid var(--border)",
             }}
           >
-            <h2 style={{ fontSize: "1.2rem", marginBottom: 8 }}>Sign In</h2>
-            <p style={{ color: "#888", marginBottom: 20, fontSize: "0.9rem" }}>
-              Enter your email to get a magic link. No passwords needed.
-            </p>
-            <form onSubmit={handleLogin}>
-              <input
-                type="email"
-                placeholder="your@email.com"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                style={{
-                  width: "100%",
-                  padding: 12,
-                  borderRadius: 8,
-                  border: "1px solid #333",
-                  background: "#000",
-                  color: "white",
-                  marginBottom: 12,
-                }}
-              />
-              <button
-                disabled={authLoading}
-                style={{
-                  width: "100%",
-                  padding: 12,
-                  borderRadius: 8,
-                  border: "none",
-                  background: "var(--brand)",
-                  color: "white",
-                  fontWeight: 600,
-                  cursor: "pointer",
-                }}
-              >
-                {authLoading ? "Sending..." : "Send Magic Link"}
-              </button>
-            </form>
+            {!isCodeSent ? (
+              /* STEP 1: ASK FOR EMAIL */
+              <>
+                <h2 style={{ fontSize: "1.2rem", marginBottom: 8 }}>Sign In</h2>
+                <p
+                  style={{
+                    color: "#888",
+                    marginBottom: 20,
+                    fontSize: "0.9rem",
+                  }}
+                >
+                  Enter your email to receive a login code.
+                </p>
+                <form onSubmit={handleSendCode}>
+                  <input
+                    type="email"
+                    placeholder="your@email.com"
+                    value={email}
+                    onChange={(e) => setEmail(e.target.value)}
+                    required
+                    style={{
+                      width: "100%",
+                      padding: 12,
+                      borderRadius: 8,
+                      border: "1px solid #333",
+                      background: "#000",
+                      color: "white",
+                      marginBottom: 12,
+                    }}
+                  />
+                  <button
+                    disabled={authLoading}
+                    style={{
+                      width: "100%",
+                      padding: 12,
+                      borderRadius: 8,
+                      border: "none",
+                      background: "var(--brand)",
+                      color: "white",
+                      fontWeight: 600,
+                      cursor: "pointer",
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      gap: 8,
+                    }}
+                  >
+                    {authLoading ? (
+                      <Loader2 className="animate-spin" size={18} />
+                    ) : (
+                      <>
+                        Get Code <ArrowRight size={18} />
+                      </>
+                    )}
+                  </button>
+                </form>
+              </>
+            ) : (
+              /* STEP 2: ASK FOR CODE */
+              <>
+                <h2 style={{ fontSize: "1.2rem", marginBottom: 8 }}>
+                  Enter Code
+                </h2>
+                <p
+                  style={{
+                    color: "#888",
+                    marginBottom: 20,
+                    fontSize: "0.9rem",
+                  }}
+                >
+                  Check your email for the code.
+                </p>
+                <form onSubmit={handleVerifyCode}>
+                  <input
+                    type="text"
+                    placeholder="12345678"
+                    value={otp}
+                    onChange={(e) => setOtp(e.target.value)}
+                    required
+                    maxLength={10}
+                    style={{
+                      width: "100%",
+                      padding: 12,
+                      borderRadius: 8,
+                      border: "1px solid #333",
+                      background: "#000",
+                      color: "white",
+                      marginBottom: 12,
+                      letterSpacing: 4,
+                      textAlign: "center",
+                      fontSize: "1.2rem",
+                    }}
+                  />
+                  <button
+                    disabled={authLoading}
+                    style={{
+                      width: "100%",
+                      padding: 12,
+                      borderRadius: 8,
+                      border: "none",
+                      background: "var(--brand)",
+                      color: "white",
+                      fontWeight: 600,
+                      cursor: "pointer",
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      gap: 8,
+                    }}
+                  >
+                    {authLoading ? (
+                      <Loader2 className="animate-spin" size={18} />
+                    ) : (
+                      <>
+                        Verify <KeyRound size={18} />
+                      </>
+                    )}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setIsCodeSent(false)}
+                    style={{
+                      background: "none",
+                      border: "none",
+                      color: "#666",
+                      marginTop: 16,
+                      fontSize: "0.85rem",
+                      cursor: "pointer",
+                      textDecoration: "underline",
+                    }}
+                  >
+                    Wrong email? Go back
+                  </button>
+                </form>
+              </>
+            )}
           </div>
         </div>
       </div>
     );
   }
 
+  // --- MAIN APP RENDER ---
   return (
     <div className="app-wrapper">
       <header className="header-row">
@@ -263,9 +387,8 @@ export default function Home() {
         </div>
       </header>
 
-      {/* --- BENTO STATS --- */}
+      {/* BENTO STATS */}
       <section className="bento-grid">
-        {/* Same Chart Code as before... */}
         <div className="stat-card-main">
           <div className="cal-info">
             <h3>Today's Calories</h3>
@@ -334,9 +457,8 @@ export default function Home() {
         </div>
       </section>
 
-      {/* --- COMMAND CENTER --- */}
+      {/* COMMAND CENTER */}
       <section className="command-center">
-        {/* Same Command Center Code as before... */}
         <div className="input-row">
           <div className="qty-wrapper">
             <button
@@ -398,7 +520,7 @@ export default function Home() {
         </div>
       </section>
 
-      {/* --- LOG --- */}
+      {/* LOG */}
       <section className="timeline">
         <div className="timeline-label">Today's Entries</div>
         {loading ? (
