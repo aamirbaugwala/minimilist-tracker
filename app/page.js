@@ -1,23 +1,24 @@
 "use client";
 
-import { useState, useEffect, useRef } from "react";
-import Link from "next/link"; // <--- NEW IMPORT
+import { useState, useEffect } from "react";
+import Link from "next/link";
 import { PieChart, Pie, Cell, ResponsiveContainer } from "recharts";
 import {
   Search,
   Plus,
   Minus,
   X,
-  Download,
-  Upload,
-  Save,
-  FileJson,
   LayoutDashboard,
-} from "lucide-react"; // <--- ADDED LayoutDashboard
+  LogOut,
+  Loader2,
+} from "lucide-react";
 import { FOOD_CATEGORIES, FLATTENED_DB } from "./food-data";
+import { supabase } from "./supabase"; // Import your client
 
 export default function Home() {
   // --- STATE ---
+  const [session, setSession] = useState(null);
+  const [loading, setLoading] = useState(true);
   const [logs, setLogs] = useState([]);
   const [totals, setTotals] = useState({
     calories: 0,
@@ -31,45 +32,52 @@ export default function Home() {
   const [qty, setQty] = useState(1);
   const [query, setQuery] = useState("");
   const [activeCategory, setActiveCategory] = useState("Recent");
+  const [email, setEmail] = useState(""); // For login
+  const [authLoading, setAuthLoading] = useState(false);
 
-  // Persistence States
-  const [showImportModal, setShowImportModal] = useState(true);
-  const [unsavedChanges, setUnsavedChanges] = useState(false);
-  const fileInputRef = useRef(null);
-
-  // --- INIT ---
+  // --- INIT: CHECK AUTH & LOAD DATA ---
   useEffect(() => {
-    const hasData = localStorage.getItem("all_logs");
-    if (!hasData) {
-      setShowImportModal(true);
-    } else {
-      setShowImportModal(true);
-    }
+    // 1. Check active session
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      setSession(session);
+      if (session) fetchData();
+      else setLoading(false);
+    });
+
+    // 2. Listen for auth changes
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange((_event, session) => {
+      setSession(session);
+      if (session) fetchData();
+      else {
+        setLogs([]);
+        setLoading(false);
+      }
+    });
+
+    return () => subscription.unsubscribe();
   }, []);
 
-  // Recalculate totals whenever logs change
-  useEffect(() => {
-    calculateTotals(logs);
-  }, [logs]);
-
-  const calculateTotals = (data) => {
+  // --- DATABASE ACTIONS ---
+  const fetchData = async () => {
+    setLoading(true);
     const todayKey = new Date().toISOString().slice(0, 10);
-    const todaysLogs = data.filter((item) => item.date === todayKey);
 
-    const t = todaysLogs.reduce(
-      (acc, item) => ({
-        calories: acc.calories + (Number(item.calories) || 0),
-        protein: acc.protein + (Number(item.protein) || 0),
-        carbs: acc.carbs + (Number(item.carbs) || 0),
-        fats: acc.fats + (Number(item.fats) || 0),
-      }),
-      { calories: 0, protein: 0, carbs: 0, fats: 0 }
-    );
-    setTotals(t);
+    // Fetch TODAY's logs only
+    const { data, error } = await supabase
+      .from("food_logs")
+      .select("*")
+      .eq("date", todayKey)
+      .order("created_at", { ascending: false });
+
+    if (!error) setLogs(data);
+    setLoading(false);
   };
 
-  // --- CORE ACTIONS ---
-  const addFood = (foodName) => {
+  const addFood = async (foodName) => {
+    if (!session) return alert("Please sign in to save data!");
+
     let foodData = FLATTENED_DB[foodName.toLowerCase()];
     if (!foodData) {
       const key = Object.keys(FLATTENED_DB).find((k) =>
@@ -80,7 +88,6 @@ export default function Home() {
     }
 
     const newLog = {
-      id: crypto.randomUUID(),
       name: foodName,
       qty: qty,
       calories: Math.round(foodData.calories * qty),
@@ -88,14 +95,28 @@ export default function Home() {
       carbs: Math.round(foodData.carbs * qty),
       fats: Math.round(foodData.fats * qty),
       date: new Date().toISOString().slice(0, 10),
-      timestamp: Date.now(),
+      user_id: session.user.id,
     };
 
-    const newLogs = [newLog, ...logs];
-    setLogs(newLogs);
+    // OPTIMISTIC UPDATE (Update UI immediately)
+    const tempId = Math.random();
+    setLogs([{ ...newLog, id: tempId }, ...logs]);
 
-    localStorage.setItem("all_logs", JSON.stringify(newLogs));
+    // DB INSERT
+    const { data, error } = await supabase
+      .from("food_logs")
+      .insert([newLog])
+      .select();
 
+    if (error) {
+      alert("Error saving!");
+      setLogs(logs); // Revert on error
+    } else {
+      // Replace temp ID with real DB ID
+      setLogs([data[0], ...logs.filter((l) => l.id !== tempId)]);
+    }
+
+    // Save Recent locally (ok to keep local)
     const newRecents = [
       foodName,
       ...recents.filter((r) => r !== foodName),
@@ -105,52 +126,47 @@ export default function Home() {
 
     setQty(1);
     setQuery("");
-    setUnsavedChanges(true);
   };
 
-  const deleteLog = (id) => {
-    const newLogs = logs.filter((l) => l.id !== id);
-    setLogs(newLogs);
-    localStorage.setItem("all_logs", JSON.stringify(newLogs));
-    setUnsavedChanges(true);
+  const deleteLog = async (id) => {
+    // Optimistic Delete
+    const oldLogs = logs;
+    setLogs(logs.filter((l) => l.id !== id));
+
+    const { error } = await supabase.from("food_logs").delete().eq("id", id);
+    if (error) {
+      alert("Error deleting");
+      setLogs(oldLogs);
+    }
   };
 
-  // --- FILE HANDLING ---
-  const handleDownload = () => {
-    const dataStr = JSON.stringify(logs);
-    const blob = new Blob([dataStr], { type: "application/json" });
-    const url = URL.createObjectURL(blob);
-
-    const a = document.createElement("a");
-    const date = new Date().toISOString().slice(0, 10);
-    a.href = url;
-    a.download = `nutritrack_backup_${date}.json`;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-
-    setUnsavedChanges(false);
+  // --- AUTH ACTIONS ---
+  const handleLogin = async (e) => {
+    e.preventDefault();
+    setAuthLoading(true);
+    const { error } = await supabase.auth.signInWithOtp({ email });
+    if (error) alert(error.message);
+    else alert("Check your email for the login link!");
+    setAuthLoading(false);
   };
 
-  const handleImport = (e) => {
-    const file = e.target.files[0];
-    if (!file) return;
-
-    const reader = new FileReader();
-    reader.onload = (ev) => {
-      try {
-        const importedData = JSON.parse(ev.target.result);
-        if (!Array.isArray(importedData)) throw new Error("Invalid Format");
-
-        setLogs(importedData);
-        localStorage.setItem("all_logs", JSON.stringify(importedData));
-        setShowImportModal(false);
-      } catch (err) {
-        alert("Could not load file. Ensure it is a valid backup.");
-      }
-    };
-    reader.readAsText(file);
+  const handleLogout = async () => {
+    await supabase.auth.signOut();
   };
+
+  // --- CALCS ---
+  useEffect(() => {
+    const t = logs.reduce(
+      (acc, item) => ({
+        calories: acc.calories + (Number(item.calories) || 0),
+        protein: acc.protein + (Number(item.protein) || 0),
+        carbs: acc.carbs + (Number(item.carbs) || 0),
+        fats: acc.fats + (Number(item.fats) || 0),
+      }),
+      { calories: 0, protein: 0, carbs: 0, fats: 0 }
+    );
+    setTotals(t);
+  }, [logs]);
 
   const getDisplayItems = () => {
     if (query)
@@ -161,103 +177,98 @@ export default function Home() {
     return Object.keys(FOOD_CATEGORIES[activeCategory] || {});
   };
 
-  return (
-    <div className="app-wrapper">
-      {/* 1. IMPORT MODAL */}
-      {showImportModal && (
-        <div className="modal-overlay">
-          <div className="modal-content">
-            <div
-              style={{
-                display: "flex",
-                justifyContent: "center",
-                marginBottom: 16,
-              }}
-            >
-              <FileJson size={48} color="var(--brand)" />
-            </div>
-            <h2 className="modal-title">Welcome Back!</h2>
-            <p className="modal-desc">
-              Would you like to import your previous data to continue where you
-              left off?
+  // --- RENDER ---
+  if (!session) {
+    return (
+      <div
+        style={{
+          minHeight: "100vh",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          background: "var(--bg)",
+          padding: 20,
+        }}
+      >
+        <div style={{ width: "100%", maxWidth: 350, textAlign: "center" }}>
+          <h1 style={{ fontSize: "2rem", fontWeight: 800, marginBottom: 16 }}>
+            NutriTrack.
+          </h1>
+          <div
+            style={{
+              background: "var(--surface)",
+              padding: 24,
+              borderRadius: 16,
+              border: "1px solid var(--border)",
+            }}
+          >
+            <h2 style={{ fontSize: "1.2rem", marginBottom: 8 }}>Sign In</h2>
+            <p style={{ color: "#888", marginBottom: 20, fontSize: "0.9rem" }}>
+              Enter your email to get a magic link. No passwords needed.
             </p>
-            <div className="modal-actions">
+            <form onSubmit={handleLogin}>
+              <input
+                type="email"
+                placeholder="your@email.com"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                style={{
+                  width: "100%",
+                  padding: 12,
+                  borderRadius: 8,
+                  border: "1px solid #333",
+                  background: "#000",
+                  color: "white",
+                  marginBottom: 12,
+                }}
+              />
               <button
-                className="btn-primary"
-                onClick={() => fileInputRef.current.click()}
-              >
-                <Upload
-                  size={18}
-                  style={{ display: "inline", marginRight: 8 }}
-                />
-                Import Backup File
-              </button>
-              <button
-                className="btn-secondary"
-                onClick={() => {
-                  const cached = localStorage.getItem("all_logs");
-                  if (cached) setLogs(JSON.parse(cached));
-                  setShowImportModal(false);
+                disabled={authLoading}
+                style={{
+                  width: "100%",
+                  padding: 12,
+                  borderRadius: 8,
+                  border: "none",
+                  background: "var(--brand)",
+                  color: "white",
+                  fontWeight: 600,
+                  cursor: "pointer",
                 }}
               >
-                No, Use Device Cache
+                {authLoading ? "Sending..." : "Send Magic Link"}
               </button>
-            </div>
+            </form>
           </div>
         </div>
-      )}
+      </div>
+    );
+  }
 
-      {/* 2. AUTO-SAVE PROMPT */}
-      {unsavedChanges && (
-        <button className="save-prompt" onClick={handleDownload}>
-          <Save size={20} />
-          <span>Tap to Save Data</span>
-        </button>
-      )}
-
-      <input
-        type="file"
-        ref={fileInputRef}
-        hidden
-        onChange={handleImport}
-        accept=".json"
-      />
-
-      {/* --- HEADER --- */}
+  return (
+    <div className="app-wrapper">
       <header className="header-row">
         <div>
           <h1 className="brand-title">NutriTrack.</h1>
           <div className="date-badge">Today</div>
         </div>
         <div style={{ display: "flex", gap: 8 }}>
-          {/* --- NEW DASHBOARD BUTTON --- */}
           <Link href="/dashboard">
-            <button
-              className="menu-btn"
-              style={{ color: "var(--brand)" }}
-              title="Go to Dashboard"
-            >
+            <button className="menu-btn" style={{ color: "var(--brand)" }}>
               <LayoutDashboard size={20} />
             </button>
           </Link>
-          {/* ---------------------------- */}
-          <button
-            className="menu-btn"
-            onClick={() => fileInputRef.current.click()}
-          >
-            <Upload size={20} />
-          </button>
-          <button className="menu-btn" onClick={handleDownload}>
-            <Download size={20} />
+          <button className="menu-btn" onClick={handleLogout}>
+            <LogOut size={20} />
           </button>
         </div>
       </header>
 
       {/* --- BENTO STATS --- */}
       <section className="bento-grid">
+        {/* Same Chart Code as before... */}
         <div className="stat-card-main">
           <div className="cal-info">
-            <h3>Today&apos;s Calories</h3>
+            <h3>Today's Calories</h3>
             <div className="big-number">{totals.calories}</div>
             <div className="unit">kcal</div>
           </div>
@@ -325,6 +336,7 @@ export default function Home() {
 
       {/* --- COMMAND CENTER --- */}
       <section className="command-center">
+        {/* Same Command Center Code as before... */}
         <div className="input-row">
           <div className="qty-wrapper">
             <button
@@ -388,9 +400,12 @@ export default function Home() {
 
       {/* --- LOG --- */}
       <section className="timeline">
-        <div className="timeline-label">Today&apos;s Entries</div>
-        {logs.filter((l) => l.date === new Date().toISOString().slice(0, 10))
-          .length === 0 ? (
+        <div className="timeline-label">Today's Entries</div>
+        {loading ? (
+          <div style={{ textAlign: "center", padding: 20, color: "#666" }}>
+            <Loader2 className="animate-spin" />
+          </div>
+        ) : logs.length === 0 ? (
           <div
             style={{
               textAlign: "center",
@@ -401,36 +416,32 @@ export default function Home() {
             No items today
           </div>
         ) : (
-          logs
-            .filter((l) => l.date === new Date().toISOString().slice(0, 10))
-            .map((log) => (
-              <div key={log.id} className="log-item">
-                <div className="log-details">
-                  <h4>
-                    {log.qty}x{" "}
-                    <span
-                      style={{ color: "white", textTransform: "capitalize" }}
-                    >
-                      {log.name}
-                    </span>
-                  </h4>
-                  <div>
-                    <span>
-                      <b>{log.calories}</b> kcal
-                    </span>
-                    <span style={{ color: "var(--protein)" }}>
-                      P:{log.protein}
-                    </span>
-                  </div>
+          logs.map((log) => (
+            <div key={log.id} className="log-item">
+              <div className="log-details">
+                <h4>
+                  {log.qty}x{" "}
+                  <span style={{ color: "white", textTransform: "capitalize" }}>
+                    {log.name}
+                  </span>
+                </h4>
+                <div>
+                  <span>
+                    <b>{log.calories}</b> kcal
+                  </span>
+                  <span style={{ color: "var(--protein)" }}>
+                    P:{log.protein}
+                  </span>
                 </div>
-                <button
-                  className="delete-action"
-                  onClick={() => deleteLog(log.id)}
-                >
-                  <X size={16} />
-                </button>
               </div>
-            ))
+              <button
+                className="delete-action"
+                onClick={() => deleteLog(log.id)}
+              >
+                <X size={16} />
+              </button>
+            </div>
+          ))
         )}
       </section>
     </div>
