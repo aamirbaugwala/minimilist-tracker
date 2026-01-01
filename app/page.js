@@ -531,11 +531,11 @@ export default function Home() {
                 </p>
                 <input
                   type="text"
-                  placeholder="123456"
+                  placeholder="12345678"
                   value={otp}
                   onChange={(e) => setOtp(e.target.value)}
                   required
-                  maxLength={6}
+                  maxLength={10}
                   style={{
                     width: "100%",
                     padding: 12,
