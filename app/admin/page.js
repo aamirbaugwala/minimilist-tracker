@@ -8,7 +8,7 @@ import {
   Database,
   Search,
   ChevronLeft,
-  LayoutDashboard,
+  Calendar,
 } from "lucide-react";
 import { supabase } from "../supabase";
 
@@ -49,27 +49,27 @@ export default function AdminDashboard() {
         return;
       }
 
-      // 1. Fetch Logs
-      const { data: logs, error: logError } = await supabase
-        .from("food_logs")
-        .select("*")
-        .order("created_at", { ascending: false });
+      // 1. Fetch ALL Logs (Secure RPC)
+      const { data: logs, error: logError } = await supabase.rpc(
+        "get_admin_all_logs"
+      );
 
       if (logError) {
-        alert("Error: " + logError.message);
+        // Fallback for dev/testing if RPC isn't set up yet
+        console.error("RPC Error:", logError);
         setLoading(false);
         return;
       }
 
-      // 2. Fetch Emails (Secure RPC)
+      // 2. Fetch Emails
       const { data: users } = await supabase.rpc("get_user_emails");
 
       const map = {};
       if (users) users.forEach((u) => (map[u.id] = u.email));
       setEmailMap(map);
 
-      setAllLogs(logs);
-      processGlobalStats(logs, map);
+      setAllLogs(logs || []);
+      processGlobalStats(logs || [], map);
       setLoading(false);
     };
 
@@ -87,11 +87,9 @@ export default function AdminDashboard() {
           email: map[log.user_id] || "Unknown",
           logCount: 0,
           lastActive: log.date,
-          totalCals: 0,
         };
       }
       uniqueUsers[log.user_id].logCount += 1;
-      uniqueUsers[log.user_id].totalCals += log.calories || 0;
 
       if (log.date > uniqueUsers[log.user_id].lastActive) {
         uniqueUsers[log.user_id].lastActive = log.date;
@@ -112,9 +110,28 @@ export default function AdminDashboard() {
     });
   };
 
-  const getSelectedUserLogs = () => {
+  const getGroupedUserLogs = () => {
     if (!selectedUserId) return [];
-    return allLogs.filter((l) => l.user_id === selectedUserId);
+
+    const userLogs = allLogs.filter((l) => l.user_id === selectedUserId);
+
+    const grouped = userLogs.reduce((acc, log) => {
+      if (!acc[log.date]) {
+        acc[log.date] = {
+          date: log.date,
+          logs: [],
+          totals: { cals: 0, pro: 0, carb: 0, fat: 0 },
+        };
+      }
+      acc[log.date].logs.push(log);
+      acc[log.date].totals.cals += log.calories || 0;
+      acc[log.date].totals.pro += log.protein || 0;
+      acc[log.date].totals.carb += log.carbs || 0;
+      acc[log.date].totals.fat += log.fats || 0;
+      return acc;
+    }, {});
+
+    return Object.values(grouped).sort((a, b) => b.date.localeCompare(a.date));
   };
 
   const filteredUsers = userList.filter(
@@ -124,46 +141,55 @@ export default function AdminDashboard() {
   );
 
   const selectedEmail = emailMap[selectedUserId] || selectedUserId;
+  const groupedData = getGroupedUserLogs();
 
   return (
     <div
       className="app-wrapper"
-      style={{ maxWidth: 1000, margin: "0 auto", paddingBottom: 80 }}
+      style={{ maxWidth: 1200, margin: "0 auto", paddingBottom: 80 }}
     >
       <style jsx>{`
-        /* RESPONSIVE LAYOUT LOGIC */
+        /* --- DESKTOP LAYOUT --- */
         .admin-grid {
           display: grid;
-          grid-template-columns: 1fr 2fr;
+          grid-template-columns: 350px 1fr; /* Fixed width sidebar, fluid details */
           gap: 24px;
           align-items: start;
+          height: calc(100vh - 140px); /* Fill screen minus header */
         }
 
         .user-list-panel {
+          height: 100%;
           display: flex;
           flex-direction: column;
-        }
-        .detail-panel {
-          display: flex;
-          flex-direction: column;
-          gap: 20px;
+          overflow: hidden; /* Contains the scrollbar */
         }
 
-        /* MOBILE OVERRIDES */
-        @media (max-width: 768px) {
+        .detail-panel {
+          height: 100%;
+          overflow-y: auto; /* Independent scrolling for details */
+          padding-right: 4px;
+        }
+
+        /* --- MOBILE LAYOUT --- */
+        @media (max-width: 860px) {
           .admin-grid {
-            display: flex;
-            flex-direction: column;
+            display: block; /* Remove grid to stack items naturally */
+            height: auto;
           }
-          /* Hide list if user is selected (show details instead) */
+
+          /* Logic: If user selected, Hide List. If no user, Hide Details. */
           .user-list-panel {
             display: ${selectedUserId ? "none" : "flex"};
             width: 100%;
+            height: auto;
+            max-height: 80vh;
           }
-          /* Hide details if no user selected */
+
           .detail-panel {
-            display: ${selectedUserId ? "flex" : "none"};
+            display: ${selectedUserId ? "block" : "none"};
             width: 100%;
+            height: auto;
           }
         }
       `}</style>
@@ -208,8 +234,6 @@ export default function AdminDashboard() {
               {globalStats.totalUsers} users • {globalStats.totalLogs} logs
             </p>
           </div>
-
-          {/* Quick Stats Badge */}
           <div
             style={{
               background: "#27272a",
@@ -261,10 +285,8 @@ export default function AdminDashboard() {
 
       <div className="admin-grid">
         {/* --- LEFT COLUMN: USER LIST --- */}
-        <section
-          className="chart-card user-list-panel"
-          style={{ padding: 0, overflow: "hidden", maxHeight: "80vh" }}
-        >
+        <section className="chart-card user-list-panel" style={{ padding: 0 }}>
+          {/* Search Bar */}
           <div
             style={{
               padding: 16,
@@ -300,7 +322,8 @@ export default function AdminDashboard() {
             </div>
           </div>
 
-          <div style={{ overflowY: "auto", flex: 1, minHeight: 300 }}>
+          {/* Scrollable List */}
+          <div style={{ overflowY: "auto", flex: 1 }}>
             {loading ? (
               <div style={{ padding: 20, textAlign: "center", color: "#666" }}>
                 Loading data...
@@ -332,6 +355,7 @@ export default function AdminDashboard() {
                       marginBottom: 4,
                       overflow: "hidden",
                       textOverflow: "ellipsis",
+                      whiteSpace: "nowrap",
                     }}
                   >
                     {user.email}
@@ -365,9 +389,9 @@ export default function AdminDashboard() {
           </div>
         </section>
 
-        {/* --- RIGHT COLUMN: DETAILS --- */}
+        {/* --- RIGHT COLUMN: DETAILED VIEW --- */}
         <div className="detail-panel">
-          {/* Mobile "Back" Button (Only visible when a user is selected on mobile) */}
+          {/* Mobile Back Button */}
           {selectedUserId && (
             <button
               onClick={() => setSelectedUserId(null)}
@@ -378,10 +402,9 @@ export default function AdminDashboard() {
                 background: "transparent",
                 border: "none",
                 color: "#6366f1",
-                padding: 0,
+                padding: "10px 0",
                 fontSize: "1rem",
                 cursor: "pointer",
-                marginBottom: -10,
               }}
               className="mobile-back-btn"
             >
@@ -403,143 +426,213 @@ export default function AdminDashboard() {
               }}
             >
               <Users size={48} style={{ opacity: 0.2 }} />
-              <p>Select a user to view details.</p>
+              <p>Select a user to view detailed history.</p>
             </div>
           )}
 
           {selectedUserId && (
             <>
-              {/* User Summary Card */}
-              <div className="chart-card" style={{ padding: 20 }}>
-                <h2
-                  style={{
-                    fontSize: "1.1rem",
-                    marginBottom: 16,
-                    display: "flex",
-                    alignItems: "center",
-                    gap: 8,
-                    wordBreak: "break-all",
-                  }}
-                >
-                  <Database size={16} color="#6366f1" />
-                  <span style={{ color: "#fff" }}>{selectedEmail}</span>
-                </h2>
-
+              {/* User Info Card */}
+              <div
+                className="chart-card"
+                style={{ padding: 20, marginBottom: 20 }}
+              >
                 <div
                   style={{
-                    display: "grid",
-                    gridTemplateColumns: "1fr 1fr",
+                    display: "flex",
+                    alignItems: "center",
                     gap: 12,
+                    marginBottom: 16,
                   }}
                 >
                   <div
                     style={{
-                      background: "#27272a",
-                      padding: 12,
-                      borderRadius: 8,
+                      background: "rgba(99, 102, 241, 0.2)",
+                      padding: 10,
+                      borderRadius: 50,
+                      color: "#6366f1",
                     }}
                   >
-                    <div
-                      style={{
-                        fontSize: "0.75rem",
-                        color: "#aaa",
-                        textTransform: "uppercase",
-                      }}
-                    >
-                      Lifetime Cals
-                    </div>
-                    <div style={{ fontSize: "1.1rem", fontWeight: 800 }}>
-                      {getSelectedUserLogs()
-                        .reduce((a, b) => a + (b.calories || 0), 0)
-                        .toLocaleString()}
-                    </div>
+                    <Database size={24} />
                   </div>
-                  <div
-                    style={{
-                      background: "#27272a",
-                      padding: 12,
-                      borderRadius: 8,
-                    }}
-                  >
+                  <div style={{ overflow: "hidden" }}>
                     <div
                       style={{
                         fontSize: "0.75rem",
                         color: "#aaa",
                         textTransform: "uppercase",
+                        letterSpacing: 1,
                       }}
                     >
-                      Avg Protein
+                      Selected User
                     </div>
                     <div
                       style={{
                         fontSize: "1.1rem",
-                        fontWeight: 800,
-                        color: "#3b82f6",
+                        fontWeight: 700,
+                        color: "#fff",
+                        whiteSpace: "nowrap",
+                        overflow: "hidden",
+                        textOverflow: "ellipsis",
                       }}
                     >
-                      {Math.round(
-                        getSelectedUserLogs().reduce(
-                          (a, b) => a + (b.protein || 0),
-                          0
-                        ) / getSelectedUserLogs().length || 0
-                      )}
-                      g
+                      {selectedEmail}
                     </div>
                   </div>
                 </div>
               </div>
 
-              {/* Log History */}
+              {/* Daily Breakdown */}
               <div
-                className="chart-card"
-                style={{ padding: 0, overflow: "hidden", flex: 1 }}
+                style={{ display: "flex", flexDirection: "column", gap: 16 }}
               >
-                <div
-                  style={{
-                    padding: 16,
-                    borderBottom: "1px solid #333",
-                    fontSize: "0.9rem",
-                    fontWeight: 600,
-                  }}
-                >
-                  Log History
-                </div>
-                <div style={{ maxHeight: "60vh", overflowY: "auto" }}>
-                  {getSelectedUserLogs().map((log, i) => (
+                {groupedData.length === 0 ? (
+                  <div
+                    style={{ textAlign: "center", color: "#666", padding: 20 }}
+                  >
+                    No logs found for this user.
+                  </div>
+                ) : (
+                  groupedData.map((dayGroup) => (
                     <div
-                      key={i}
+                      key={dayGroup.date}
+                      className="chart-card"
                       style={{
-                        padding: "14px 16px",
-                        borderBottom: "1px solid #27272a",
-                        display: "flex",
-                        justifyContent: "space-between",
-                        alignItems: "center",
+                        padding: 0,
+                        overflow: "hidden",
+                        border: "1px solid #333",
                       }}
                     >
-                      <div>
-                        <div style={{ fontSize: "0.95rem", color: "#fff" }}>
-                          {log.qty}x {log.name}
+                      {/* Summary Header */}
+                      <div
+                        style={{
+                          background: "#202022",
+                          padding: "12px 16px",
+                          display: "flex",
+                          justifyContent: "space-between",
+                          alignItems: "center",
+                          borderBottom: "1px solid #333",
+                        }}
+                      >
+                        <div
+                          style={{
+                            display: "flex",
+                            alignItems: "center",
+                            gap: 8,
+                          }}
+                        >
+                          <Calendar size={16} color="#aaa" />
+                          <span
+                            style={{
+                              fontWeight: 600,
+                              color: "#fff",
+                              fontSize: "0.95rem",
+                            }}
+                          >
+                            {dayGroup.date}
+                          </span>
                         </div>
-                        <div style={{ fontSize: "0.75rem", color: "#666" }}>
-                          {log.date}
-                        </div>
-                      </div>
-                      <div style={{ textAlign: "right" }}>
-                        <div style={{ fontSize: "0.95rem", fontWeight: 700 }}>
-                          {log.calories}
-                        </div>
-                        <div style={{ fontSize: "0.75rem", color: "#aaa" }}>
-                          <span style={{ color: COLORS.pro }}>
-                            P:{log.protein}
-                          </span>{" "}
-                          <span style={{ color: COLORS.carb }}>
-                            C:{log.carbs}
+                        <div style={{ textAlign: "right" }}>
+                          <span
+                            style={{
+                              fontWeight: 800,
+                              color: "#fff",
+                              fontSize: "1rem",
+                            }}
+                          >
+                            {dayGroup.totals.cals} kcal
                           </span>
                         </div>
                       </div>
+
+                      {/* Macro Bar (Visual) */}
+                      <div
+                        style={{ height: 4, width: "100%", display: "flex" }}
+                      >
+                        <div
+                          style={{
+                            flex: dayGroup.totals.pro,
+                            background: COLORS.pro,
+                          }}
+                        ></div>
+                        <div
+                          style={{
+                            flex: dayGroup.totals.carb,
+                            background: COLORS.carb,
+                          }}
+                        ></div>
+                        <div
+                          style={{
+                            flex: dayGroup.totals.fat,
+                            background: COLORS.fat,
+                          }}
+                        ></div>
+                      </div>
+
+                      {/* Food Items */}
+                      <div style={{ padding: "4px 0" }}>
+                        {dayGroup.logs.map((log, i) => (
+                          <div
+                            key={i}
+                            style={{
+                              padding: "12px 16px",
+                              borderBottom:
+                                i === dayGroup.logs.length - 1
+                                  ? "none"
+                                  : "1px solid #27272a",
+                              display: "flex",
+                              justifyContent: "space-between",
+                              alignItems: "center",
+                            }}
+                          >
+                            <div
+                              style={{ fontSize: "0.9rem", color: "#e5e5e5" }}
+                            >
+                              {log.qty}x{" "}
+                              <span style={{ textTransform: "capitalize" }}>
+                                {log.name}
+                              </span>
+                            </div>
+                            <div
+                              style={{
+                                fontSize: "0.9rem",
+                                color: "#888",
+                                textAlign: "right",
+                                minWidth: 60,
+                              }}
+                            >
+                              {log.calories}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+
+                      {/* Footer Totals */}
+                      <div
+                        style={{
+                          background: "#18181b",
+                          padding: "8px 16px",
+                          display: "flex",
+                          gap: 12,
+                          justifyContent: "flex-end",
+                          fontSize: "0.8rem",
+                          color: "#aaa",
+                          borderTop: "1px solid #27272a",
+                        }}
+                      >
+                        <span style={{ color: COLORS.pro }}>
+                          {dayGroup.totals.pro}g P
+                        </span>
+                        <span style={{ color: COLORS.carb }}>
+                          {dayGroup.totals.carb}g C
+                        </span>
+                        <span style={{ color: COLORS.fat }}>
+                          {dayGroup.totals.fat}g F
+                        </span>
+                      </div>
                     </div>
-                  ))}
-                </div>
+                  ))
+                )}
               </div>
             </>
           )}
