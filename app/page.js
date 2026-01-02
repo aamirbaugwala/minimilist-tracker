@@ -702,141 +702,270 @@ export default function Home() {
                   opacity: userProfile.target_calories ? 0.5 : 1,
                 }}
               >
-                <div
-                  style={{
-                    display: "flex",
-                    alignItems: "center",
-                    gap: 6,
-                    marginBottom: 10,
-                  }}
-                >
-                  <Calculator size={16} color="#3b82f6" />{" "}
-                  <span style={{ fontSize: "0.9rem", fontWeight: 600 }}>
-                    Auto-Calculate
-                  </span>
-                </div>
-                <div
-                  style={{
-                    display: "grid",
-                    gridTemplateColumns: "1fr 1fr",
-                    gap: 10,
-                    marginBottom: 10,
-                  }}
-                >
-                  <input
-                    type="number"
-                    placeholder="Weight (kg)"
-                    value={userProfile.weight}
-                    onChange={(e) =>
-                      setUserProfile({ ...userProfile, weight: e.target.value })
-                    }
+                {/* SECTION 2: BIOMETRICS */}
+                <div style={{ opacity: userProfile.target_calories ? 0.5 : 1 }}>
+                  <div
                     style={{
-                      width: "100%",
-                      padding: 12,
-                      background: "#000",
-                      border: "1px solid #333",
-                      color: "#fff",
-                      borderRadius: 8,
-                    }}
-                  />
-                  <input
-                    type="number"
-                    placeholder="Height (cm)"
-                    value={userProfile.height}
-                    onChange={(e) =>
-                      setUserProfile({ ...userProfile, height: e.target.value })
-                    }
-                    style={{
-                      width: "100%",
-                      padding: 12,
-                      background: "#000",
-                      border: "1px solid #333",
-                      color: "#fff",
-                      borderRadius: 8,
-                    }}
-                  />
-                </div>
-                <div
-                  style={{
-                    display: "grid",
-                    gridTemplateColumns: "1fr 2fr",
-                    gap: 10,
-                    marginBottom: 10,
-                  }}
-                >
-                  <input
-                    type="number"
-                    placeholder="Age"
-                    value={userProfile.age}
-                    onChange={(e) =>
-                      setUserProfile({ ...userProfile, age: e.target.value })
-                    }
-                    style={{
-                      width: "100%",
-                      padding: 12,
-                      background: "#000",
-                      border: "1px solid #333",
-                      color: "#fff",
-                      borderRadius: 8,
-                    }}
-                  />
-                  <select
-                    value={userProfile.activity}
-                    onChange={(e) =>
-                      setUserProfile({
-                        ...userProfile,
-                        activity: e.target.value,
-                      })
-                    }
-                    style={{
-                      width: "100%",
-                      padding: 12,
-                      background: "#000",
-                      border: "1px solid #333",
-                      color: "#fff",
-                      borderRadius: 8,
+                      display: "flex",
+                      alignItems: "center",
+                      gap: 6,
+                      marginBottom: 10,
                     }}
                   >
-                    <option value="sedentary">Sedentary</option>
-                    <option value="light">Light</option>
-                    <option value="moderate">Moderate</option>
-                    <option value="active">Active</option>
-                  </select>
-                </div>
-                <div
-                  style={{
-                    display: "grid",
-                    gridTemplateColumns: "1fr 1fr 1fr",
-                    gap: 8,
-                  }}
-                >
-                  {["lose", "maintain", "gain"].map((g) => (
-                    <button
-                      key={g}
-                      onClick={() =>
-                        setUserProfile({ ...userProfile, goal: g })
-                      }
+                    <Calculator size={16} color="#3b82f6" />
+                    <span style={{ fontSize: "0.9rem", fontWeight: 600 }}>
+                      Auto-Calculate
+                    </span>
+                  </div>
+
+                  {/* Row 1: Weight & Height */}
+                  <div
+                    style={{
+                      display: "grid",
+                      gridTemplateColumns: "1fr 1fr",
+                      gap: 10,
+                      marginBottom: 10,
+                    }}
+                  >
+                    <div>
+                      <label
+                        style={{
+                          fontSize: "0.75rem",
+                          color: "#888",
+                          marginBottom: 4,
+                          display: "block",
+                        }}
+                      >
+                        Weight (kg)
+                      </label>
+                      <input
+                        type="number"
+                        value={userProfile.weight}
+                        onChange={(e) =>
+                          setUserProfile({
+                            ...userProfile,
+                            weight: e.target.value,
+                          })
+                        }
+                        style={{
+                          width: "100%",
+                          padding: 12,
+                          background: "#000",
+                          border: "1px solid #333",
+                          color: "#fff",
+                          borderRadius: 8,
+                        }}
+                      />
+                    </div>
+                    <div>
+                      <label
+                        style={{
+                          fontSize: "0.75rem",
+                          color: "#888",
+                          marginBottom: 4,
+                          display: "block",
+                        }}
+                      >
+                        Height (cm)
+                      </label>
+                      <input
+                        type="number"
+                        value={userProfile.height}
+                        onChange={(e) =>
+                          setUserProfile({
+                            ...userProfile,
+                            height: e.target.value,
+                          })
+                        }
+                        style={{
+                          width: "100%",
+                          padding: 12,
+                          background: "#000",
+                          border: "1px solid #333",
+                          color: "#fff",
+                          borderRadius: 8,
+                        }}
+                      />
+                    </div>
+                  </div>
+
+                  {/* Row 2: Age & Gender (THIS IS THE FIX) */}
+                  <div
+                    style={{
+                      display: "grid",
+                      gridTemplateColumns: "1fr 1.5fr",
+                      gap: 10,
+                      marginBottom: 10,
+                    }}
+                  >
+                    <div>
+                      <label
+                        style={{
+                          fontSize: "0.75rem",
+                          color: "#888",
+                          marginBottom: 4,
+                          display: "block",
+                        }}
+                      >
+                        Age
+                      </label>
+                      <input
+                        type="number"
+                        value={userProfile.age}
+                        onChange={(e) =>
+                          setUserProfile({
+                            ...userProfile,
+                            age: e.target.value,
+                          })
+                        }
+                        style={{
+                          width: "100%",
+                          padding: 12,
+                          background: "#000",
+                          border: "1px solid #333",
+                          color: "#fff",
+                          borderRadius: 8,
+                        }}
+                      />
+                    </div>
+                    <div>
+                      <label
+                        style={{
+                          fontSize: "0.75rem",
+                          color: "#888",
+                          marginBottom: 4,
+                          display: "block",
+                        }}
+                      >
+                        Gender
+                      </label>
+                      <div
+                        style={{
+                          display: "flex",
+                          height: 42,
+                          background: "#000",
+                          borderRadius: 8,
+                          border: "1px solid #333",
+                          overflow: "hidden",
+                        }}
+                      >
+                        {["male", "female"].map((g) => (
+                          <button
+                            key={g}
+                            onClick={() =>
+                              setUserProfile({ ...userProfile, gender: g })
+                            }
+                            style={{
+                              flex: 1,
+                              background:
+                                userProfile.gender === g
+                                  ? "#333"
+                                  : "transparent",
+                              border: "none",
+                              color: userProfile.gender === g ? "#fff" : "#666",
+                              textTransform: "capitalize",
+                              fontSize: "0.85rem",
+                              cursor: "pointer",
+                              fontWeight: userProfile.gender === g ? 600 : 400,
+                            }}
+                          >
+                            {g}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Row 3: Activity Level */}
+                  <div style={{ marginBottom: 10 }}>
+                    <label
                       style={{
-                        padding: 12,
-                        background:
-                          userProfile.goal === g
-                            ? g === "lose"
-                              ? "#ef4444"
-                              : g === "gain"
-                              ? "#3b82f6"
-                              : "#22c55e"
-                            : "#000",
-                        border:
-                          userProfile.goal === g ? "none" : "1px solid #333",
-                        borderRadius: 8,
-                        color: "#fff",
-                        textTransform: "capitalize",
-                        fontSize: "0.85rem",
+                        fontSize: "0.75rem",
+                        color: "#888",
+                        marginBottom: 4,
+                        display: "block",
                       }}
                     >
-                      {g}
-                    </button>
-                  ))}
+                      Activity Level
+                    </label>
+                    <select
+                      value={userProfile.activity}
+                      onChange={(e) =>
+                        setUserProfile({
+                          ...userProfile,
+                          activity: e.target.value,
+                        })
+                      }
+                      style={{
+                        width: "100%",
+                        padding: 12,
+                        background: "#000",
+                        border: "1px solid #333",
+                        color: "#fff",
+                        borderRadius: 8,
+                        cursor: "pointer",
+                      }}
+                    >
+                      <option value="sedentary">Sedentary (Office Job)</option>
+                      <option value="light">Light Exercise (1-3 days)</option>
+                      <option value="moderate">
+                        Moderate Exercise (3-5 days)
+                      </option>
+                      <option value="active">Active (6-7 days)</option>
+                    </select>
+                  </div>
+
+                  {/* Row 4: Weekly Goal */}
+                  <div>
+                    <label
+                      style={{
+                        fontSize: "0.75rem",
+                        color: "#888",
+                        marginBottom: 4,
+                        display: "block",
+                      }}
+                    >
+                      Weekly Goal
+                    </label>
+                    <div
+                      style={{
+                        display: "grid",
+                        gridTemplateColumns: "1fr 1fr 1fr",
+                        gap: 8,
+                      }}
+                    >
+                      {["lose", "maintain", "gain"].map((g) => (
+                        <button
+                          key={g}
+                          onClick={() =>
+                            setUserProfile({ ...userProfile, goal: g })
+                          }
+                          style={{
+                            padding: 12,
+                            background:
+                              userProfile.goal === g
+                                ? g === "lose"
+                                  ? "#ef4444"
+                                  : g === "gain"
+                                  ? "#3b82f6"
+                                  : "#22c55e"
+                                : "#000",
+                            border:
+                              userProfile.goal === g
+                                ? "none"
+                                : "1px solid #333",
+                            borderRadius: 8,
+                            color: "#fff",
+                            textTransform: "capitalize",
+                            fontSize: "0.85rem",
+                            cursor: "pointer",
+                          }}
+                        >
+                          {g}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
                 </div>
               </div>
               <button
@@ -1226,7 +1355,7 @@ export default function Home() {
 
       <section className="timeline">
         <div className="timeline-label">
-          Today's Entries{" "}
+          Today&apos;s Entries{" "}
           {hasUnsavedChanges && (
             <span
               style={{ color: "#f59e0b", fontSize: "0.8rem", marginLeft: 8 }}
