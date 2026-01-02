@@ -1,6 +1,68 @@
 // app/food-data.js
 
 export const FOOD_CATEGORIES = {
+  Sandwiches: {
+    "vegetable sandwich": { calories: 180, protein: 5, carbs: 32, fats: 4 }, // 2 slices, veggies
+    "grilled cheese sandwich": {
+      calories: 320,
+      protein: 10,
+      carbs: 30,
+      fats: 18,
+    }, // 2 slices, cheese, butter
+    "egg sandwich": { calories: 250, protein: 12, carbs: 28, fats: 8 }, // 2 slices, boiled egg
+    "chicken sandwich": { calories: 280, protein: 18, carbs: 30, fats: 7 }, // 2 slices, chicken
+    "paneer sandwich": { calories: 260, protein: 12, carbs: 28, fats: 10 }, // 2 slices, paneer
+    "club sandwich": { calories: 400, protein: 18, carbs: 38, fats: 18 }, // 3 slices, chicken, egg, veggies
+    "cheese chutney sandwich": {
+      calories: 220,
+      protein: 7,
+      carbs: 28,
+      fats: 9,
+    }, // 2 slices, cheese, chutney
+    "bombay masala sandwich": {
+      calories: 350,
+      protein: 8,
+      carbs: 50,
+      fats: 12,
+    }, // 3 slices, potato, veggies
+    "tandoori chicken sandwich": {
+      calories: 320,
+      protein: 20,
+      carbs: 32,
+      fats: 10,
+    }, // 2 slices, tandoori chicken
+    "corn & cheese sandwich": {
+      calories: 270,
+      protein: 8,
+      carbs: 34,
+      fats: 10,
+    }, // 2 slices, corn, cheese
+  },
+
+  "Indian Snacks": {
+    "pani puri (6 pcs)": { calories: 150, protein: 2, carbs: 28, fats: 4 },
+    "sev puri (6 pcs)": { calories: 220, protein: 4, carbs: 32, fats: 10 },
+    "dahi puri (6 pcs)": { calories: 180, protein: 5, carbs: 30, fats: 6 },
+    "bhel puri (1 plate)": { calories: 180, protein: 4, carbs: 36, fats: 4 },
+    "ragda pattice": { calories: 320, protein: 10, carbs: 50, fats: 8 },
+    "samosa (1 pc)": { calories: 130, protein: 3, carbs: 18, fats: 6 },
+    "kachori (1 pc)": { calories: 180, protein: 4, carbs: 22, fats: 8 },
+    dabeli: { calories: 220, protein: 5, carbs: 32, fats: 8 },
+    "vada pav": { calories: 290, protein: 6, carbs: 42, fats: 12 },
+    "batata vada": { calories: 180, protein: 3, carbs: 22, fats: 10 },
+    "dhokla (2 pcs)": { calories: 80, protein: 3, carbs: 10, fats: 3 },
+    "pakora (4 pcs)": { calories: 220, protein: 6, carbs: 24, fats: 12 },
+    "aloo tikki (2 pcs)": { calories: 160, protein: 4, carbs: 28, fats: 6 },
+    "chole bhature": { calories: 450, protein: 12, carbs: 60, fats: 18 },
+    "samosa pav": { calories: 320, protein: 7, carbs: 48, fats: 12 },
+    "mirchi bajji (2 pcs)": { calories: 120, protein: 2, carbs: 16, fats: 6 },
+    "moong dal chilla (2 pcs)": {
+      calories: 180,
+      protein: 8,
+      carbs: 24,
+      fats: 4,
+    },
+  },
   "Indian-Chinese Cuisine": {
     "veg manchurian (dry, 6 pcs)": {
       calories: 280,
@@ -222,7 +284,7 @@ export const FOOD_CATEGORIES = {
     "aloo chi bhaji": { calories: 160, protein: 3, carbs: 25, fats: 6 },
     "batata vada": { calories: 180, protein: 3, carbs: 22, fats: 10 },
     "sabudana vada": { calories: 220, protein: 2, carbs: 28, fats: 12 },
-    dhokla: { calories: 150, protein: 5, carbs: 22, fats: 6 }, // Standard serving
+
     "kanda poha": { calories: 270, protein: 5, carbs: 48, fats: 9 },
   },
   Breads: {
@@ -368,10 +430,10 @@ export const FOOD_CATEGORIES = {
     "dosa (plain)": { calories: 180, protein: 4, carbs: 30, fats: 5 },
     "masala dosa": { calories: 380, protein: 8, carbs: 55, fats: 14 },
     vada: { calories: 160, protein: 4, carbs: 18, fats: 10 }, // Medu vada
-    samosa: { calories: 260, protein: 4, carbs: 25, fats: 16 },
+
     "pav bhaji": { calories: 600, protein: 15, carbs: 70, fats: 25 },
     "vada pav": { calories: 290, protein: 6, carbs: 42, fats: 12 },
-    dhokla: { calories: 80, protein: 3, carbs: 10, fats: 3 },
+
     momos: { calories: 40, protein: 2, carbs: 6, fats: 1 },
   },
 
