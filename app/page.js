@@ -166,20 +166,43 @@ export default function Home() {
 
   // --- INIT ---
   const fetchData = async (isBackground = false) => {
+    const {
+      data: { session },
+    } = await supabase.auth.getSession();
+    if (!session) return;
+
     if (!isBackground) setLoading(true);
     const todayKey = new Date().toISOString().slice(0, 10);
+
+    // 1. Fetch Today's Logs (Existing logic)
     const { data, error } = await supabase
       .from("food_logs")
       .select("*")
+      .eq("user_id", session.user.id)
       .eq("date", todayKey)
       .order("created_at", { ascending: false });
+
     if (!error) {
       setLogs(data);
       setHasUnsavedChanges(false);
     }
+
+    // 2. FETCH RECENT ITEMS (Add this new block)
+    const { data: history } = await supabase
+      .from("food_logs")
+      .select("name")
+      .eq("user_id", session.user.id)
+      .order("created_at", { ascending: false })
+      .limit(10); // Get last 10 items
+
+    if (history) {
+      // Remove duplicates so we have a clean list of unique recent foods
+      const uniqueRecents = [...new Set(history.map((h) => h.name))];
+      setRecents(uniqueRecents);
+    }
+
     if (!isBackground) setLoading(false);
   };
-
   const fetchUserData = async () => {
     const { data: meals } = await supabase.from("saved_meals").select("*");
     if (meals) setSavedMeals(meals);
@@ -197,10 +220,19 @@ export default function Home() {
   };
 
   const calculateStreak = async () => {
+    // FIX: Get session directly to prevent null errors
+    const {
+      data: { session },
+    } = await supabase.auth.getSession();
+    if (!session) return;
+
+    // FIX: Added .eq('user_id') to only count YOUR streak, not friends
     const { data } = await supabase
       .from("food_logs")
       .select("date")
+      .eq("user_id", session.user.id)
       .order("date", { ascending: false });
+
     if (!data || data.length === 0) {
       setStreak(0);
       return;
@@ -605,7 +637,6 @@ export default function Home() {
       </div>
     );
 
-  // --- FIXED LAYOUT (Mobile & Laptop) ---
   return (
     <div
       className="app-wrapper"
@@ -613,9 +644,9 @@ export default function Home() {
         minHeight: "100vh",
         paddingBottom: 100,
         width: "100%",
-        overflowX: "hidden", // Ensures no overflow
+        overflowX: "hidden",
         position: "relative",
-        boxSizing: "border-box", // Prevents padding from adding width
+        boxSizing: "border-box",
       }}
     >
       {/* GOAL MODAL */}
@@ -1067,6 +1098,7 @@ export default function Home() {
                         background: "none",
                         border: "none",
                         color: "#ef4444",
+                        cursor: "pointer",
                       }}
                     >
                       <Trash2 size={14} />
@@ -1123,6 +1155,8 @@ export default function Home() {
                         padding: "4px 10px",
                         borderRadius: 20,
                         fontSize: "0.8rem",
+                        cursor: "pointer",
+                        textTransform: "capitalize",
                       }}
                     >
                       + {item}
@@ -1141,6 +1175,7 @@ export default function Home() {
                 color: "#fff",
                 borderRadius: 8,
                 fontWeight: 600,
+                cursor: "pointer",
               }}
             >
               <Save size={16} style={{ display: "inline", marginRight: 6 }} />{" "}
