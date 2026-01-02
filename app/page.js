@@ -11,6 +11,8 @@ import {
   LayoutDashboard,
   LogOut,
   Loader2,
+  ArrowRight,
+  KeyRound,
   Flame,
   Droplets,
   Trash2,
@@ -25,7 +27,7 @@ import { supabase } from "./supabase";
 // --- MEMOIZED STATS ---
 const StatsBoard = memo(({ totals, onAddWater }) => {
   return (
-    <section className="bento-grid">
+    <section className="bento-grid" style={{ marginBottom: 20 }}>
       <div className="stat-card-main">
         <div className="cal-info">
           <h3>Calories</h3>
@@ -602,17 +604,17 @@ export default function Home() {
       </div>
     );
 
-  // --- FIXED LAYOUT ---
+  // --- FIXED LAYOUT (Mobile & Laptop) ---
   return (
-    // FIX: Using width: 100% and overflowX: hidden prevents horizontal scrollbars
     <div
       className="app-wrapper"
       style={{
         minHeight: "100vh",
         paddingBottom: 100,
         width: "100%",
-        overflowX: "hidden",
+        overflowX: "hidden", // Ensures no overflow
         position: "relative",
+        boxSizing: "border-box", // Prevents padding from adding width
       }}
     >
       {/* GOAL MODAL */}
@@ -695,7 +697,11 @@ export default function Home() {
                   }}
                 />
               </div>
-              <div style={{ opacity: userProfile.target_calories ? 0.5 : 1 }}>
+              <div
+                style={{
+                  opacity: userProfile.target_calories ? 0.5 : 1,
+                }}
+              >
                 <div
                   style={{
                     display: "flex",
@@ -1015,7 +1021,14 @@ export default function Home() {
       )}
 
       {/* HEADER */}
-      <header className="header-row">
+      <header
+        className="header-row"
+        style={{
+          padding: "16px 20px",
+          borderBottom: "1px solid #222",
+          width: "100%",
+        }}
+      >
         <div>
           <h1 className="brand-title">NutriTrack.</h1>
           <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
@@ -1112,12 +1125,25 @@ export default function Home() {
               ))}
             </div>
           )}
-          <div className="food-grid">
+          <div
+            className="food-grid"
+            style={{
+              display: "grid",
+              // FIX: LIST VIEW IF SEARCHING (1fr), GRID IF CATEGORY (3 cols)
+              gridTemplateColumns:
+                query || activeCategory === "Meals" ? "1fr" : "repeat(3, 1fr)",
+              gap: 8,
+            }}
+          >
             {activeCategory === "Meals" && !query ? (
               <>
                 <button
                   className="suggestion-chip"
-                  style={{ border: "1px dashed #666", color: "#aaa" }}
+                  style={{
+                    border: "1px dashed #666",
+                    color: "#aaa",
+                    textAlign: "center",
+                  }}
                   onClick={() => openMealBuilder()}
                 >
                   <Plus
@@ -1135,6 +1161,10 @@ export default function Home() {
                       justifyContent: "space-between",
                       gap: 8,
                       paddingRight: 6,
+                      whiteSpace: "normal",
+                      height: "auto",
+                      minHeight: 44,
+                      textAlign: "left",
                     }}
                   >
                     <span onClick={() => loadMeal(meal)} style={{ flex: 1 }}>
@@ -1147,6 +1177,7 @@ export default function Home() {
                         color: "#666",
                         borderLeft: "1px solid #444",
                         paddingLeft: 8,
+                        cursor: "pointer",
                       }}
                     >
                       <span
@@ -1171,6 +1202,18 @@ export default function Home() {
                   key={item.id || item}
                   className="suggestion-chip"
                   onClick={() => addFood(item.name || item)}
+                  style={{
+                    // FIX: TEXT WRAPPING AND LEFT ALIGN FOR LISTS
+                    whiteSpace: "normal",
+                    height: "auto",
+                    minHeight: 44,
+                    wordBreak: "break-word",
+                    textAlign: query ? "left" : "center",
+                    padding: query ? "12px 16px" : "8px",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: query ? "flex-start" : "center",
+                  }}
                 >
                   {(item.name || item).charAt(0).toUpperCase() +
                     (item.name || item).slice(1)}
@@ -1280,6 +1323,7 @@ export default function Home() {
               fontWeight: 700,
               fontSize: "1.1rem",
               boxShadow: "0 10px 25px rgba(0,0,0,0.5)",
+              cursor: "pointer",
             }}
           >
             {isSaving ? (
