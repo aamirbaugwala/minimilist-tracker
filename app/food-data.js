@@ -1,6 +1,40 @@
 // app/food-data.js
 
 export const FOOD_CATEGORIES = {
+  "Bread Slices": {
+    "white bread slice": { calories: 70, protein: 2, carbs: 13, fats: 1 },
+    "brown bread slice": { calories: 60, protein: 2, carbs: 11, fats: 1 },
+    "multigrain bread slice": {
+      calories: 65,
+      protein: 2.5,
+      carbs: 12,
+      fats: 1,
+    },
+    "whole wheat bread slice": {
+      calories: 60,
+      protein: 2.5,
+      carbs: 11,
+      fats: 1,
+    },
+    "milk bread slice": { calories: 75, protein: 2, carbs: 14, fats: 1.5 },
+    "garlic bread slice": { calories: 90, protein: 2, carbs: 13, fats: 4 },
+  },
+
+  "More Indian Foods": {
+    "chicken pulao": { calories: 350, protein: 16, carbs: 45, fats: 10 },
+    "veg cutlet (2 pcs)": { calories: 180, protein: 4, carbs: 28, fats: 6 },
+    "paneer tikka": { calories: 220, protein: 14, carbs: 8, fats: 14 },
+    "dal khichdi": { calories: 220, protein: 7, carbs: 38, fats: 4 },
+    "methi paratha": { calories: 180, protein: 5, carbs: 28, fats: 6 },
+    "palak paratha": { calories: 170, protein: 5, carbs: 27, fats: 5 },
+    "moong dal dosa": { calories: 120, protein: 6, carbs: 18, fats: 2 },
+    "rava upma": { calories: 210, protein: 5, carbs: 36, fats: 6 },
+    "corn chaat": { calories: 150, protein: 4, carbs: 28, fats: 2 },
+    "sprouts chaat": { calories: 120, protein: 7, carbs: 18, fats: 1 },
+    "mutton curry": { calories: 320, protein: 20, carbs: 8, fats: 20 },
+    "paneer bhurji": { calories: 180, protein: 12, carbs: 6, fats: 12 },
+    "bhindi masala": { calories: 120, protein: 3, carbs: 10, fats: 7 },
+  },
   Sandwiches: {
     "vegetable sandwich": { calories: 180, protein: 5, carbs: 32, fats: 4 }, // 2 slices, veggies
     "grilled cheese sandwich": {
@@ -343,7 +377,7 @@ export const FOOD_CATEGORIES = {
     },
     "jeera rice": { calories: 220, protein: 4, carbs: 38, fats: 6 },
     "curd rice": { calories: 280, protein: 7, carbs: 35, fats: 12 },
-    khichdi: { calories: 240, protein: 8, carbs: 38, fats: 6 },
+    "veg mix khichdi": { calories: 240, protein: 8, carbs: 38, fats: 6 },
     "veg pulao": { calories: 230, protein: 5, carbs: 40, fats: 6 },
     "chicken biryani": { calories: 550, protein: 28, carbs: 55, fats: 22 }, // Standard bowl
     "mutton biryani": { calories: 600, protein: 30, carbs: 55, fats: 28 },

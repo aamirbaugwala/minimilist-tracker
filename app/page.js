@@ -20,6 +20,7 @@ import {
   Pencil,
   Target,
   Calculator,
+  Users,
 } from "lucide-react";
 import { FOOD_CATEGORIES, FLATTENED_DB } from "./food-data";
 import { supabase } from "./supabase";
@@ -1190,6 +1191,12 @@ export default function Home() {
               <LayoutDashboard size={20} />
             </button>
           </Link>
+          <Link href="/social">
+            <button className="menu-btn" style={{ color: "#8b5cf6" }}>
+              <Users size={20} />
+            </button>
+          </Link>
+
           <button className="menu-btn" onClick={handleLogout}>
             <LogOut size={20} />
           </button>
