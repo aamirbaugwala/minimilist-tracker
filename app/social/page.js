@@ -32,10 +32,8 @@ export default function SocialPage() {
 
   // --- 1. COMPREHENSIVE TARGET CALCULATOR ---
   const calculateTargets = (prof) => {
-    // Defaults if profile missing
     if (!prof || !prof.weight) return { cals: 2000, p: 150, c: 200, f: 65 };
 
-    // 1. Calories
     let targetCals = 2000;
     if (prof.target_calories) {
       targetCals = Number(prof.target_calories);
@@ -55,7 +53,6 @@ export default function SocialPage() {
       else if (prof.goal === "gain") targetCals += 300;
     }
 
-    // 2. Macros (Standard Logic)
     const weight = Number(prof.weight);
     let targetP, targetF, targetC;
 
@@ -66,7 +63,6 @@ export default function SocialPage() {
       targetP = Math.round(weight * 1.8);
       targetF = Math.round((targetCals * 0.25) / 9);
     } else {
-      // Maintain
       targetP = Math.round(weight * 1.6);
       targetF = Math.round((targetCals * 0.3) / 9);
     }
@@ -93,7 +89,6 @@ export default function SocialPage() {
       .select("*")
       .or(`user_id.eq.${myId},friend_id.eq.${myId}`);
 
-    // --- 2. DATA FETCHER HELPER ---
     const getUserData = async (uid) => {
       const { data: profile } = await supabase
         .from("user_profiles")
@@ -106,7 +101,6 @@ export default function SocialPage() {
         .eq("user_id", uid)
         .eq("date", new Date().toISOString().slice(0, 10));
 
-      // Sum ALL macros now
       const stats = logs?.reduce(
         (acc, item) => ({
           cals: acc.cals + (item.calories || 0),
@@ -117,10 +111,7 @@ export default function SocialPage() {
         { cals: 0, p: 0, c: 0, f: 0 }
       ) || { cals: 0, p: 0, c: 0, f: 0 };
 
-      // Get Targets
       const targets = calculateTargets(profile);
-
-      // Progress Logic
       const progress = Math.round((stats.cals / targets.cals) * 100);
 
       let statusLabel = "Sleeping 😴";
@@ -491,17 +482,24 @@ export default function SocialPage() {
                   key={req.id}
                   style={{
                     background: "#1f1f22",
-                    padding: "15px 20px",
+                    padding: "15px", // Reduced padding slightly
                     borderRadius: 16,
                     border: "1px solid #333",
                     display: "flex",
-                    justifyContent: "space-between",
                     alignItems: "center",
                     marginBottom: 10,
+                    gap: 10, // Added gap for spacing
                   }}
                 >
+                  {/* Left Side: Avatar + Text */}
                   <div
-                    style={{ display: "flex", alignItems: "center", gap: 12 }}
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      gap: 12,
+                      flex: 1, // Takes up remaining space
+                      minWidth: 0, // CRITICAL: Allows text truncation in flexbox
+                    }}
                   >
                     <div
                       style={{
@@ -514,18 +512,35 @@ export default function SocialPage() {
                         justifyContent: "center",
                         fontWeight: 700,
                         fontSize: "1.1rem",
+                        flexShrink: 0, // Prevent avatar shrinking
                       }}
                     >
                       {req.name[0].toUpperCase()}
                     </div>
-                    <div>
-                      <div style={{ fontWeight: 700 }}>{req.name}</div>
+                    <div
+                      style={{
+                        overflow: "hidden", // Hide overflow
+                        whiteSpace: "nowrap", // No wrapping
+                        textOverflow: "ellipsis", // Add "..."
+                      }}
+                    >
+                      <div
+                        style={{
+                          fontWeight: 700,
+                          overflow: "hidden",
+                          textOverflow: "ellipsis",
+                        }}
+                      >
+                        {req.name}
+                      </div>
                       <div style={{ fontSize: "0.75rem", color: "#888" }}>
                         wants to connect
                       </div>
                     </div>
                   </div>
-                  <div style={{ display: "flex", gap: 8 }}>
+
+                  {/* Right Side: Buttons */}
+                  <div style={{ display: "flex", gap: 8, flexShrink: 0 }}>
                     <button
                       onClick={() => acceptRequest(req.id)}
                       style={{
