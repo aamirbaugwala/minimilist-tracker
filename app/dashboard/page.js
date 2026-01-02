@@ -12,7 +12,7 @@ import {
   Flame,
   X,
   Beef,
-  Droplets, // Make sure this is imported
+  Droplets,
 } from "lucide-react";
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip } from "recharts";
 import { supabase } from "../supabase";
@@ -77,15 +77,76 @@ export default function UserDashboard() {
       setProfile(profileData);
       setAllLogs(logData || []);
 
+      // 1. Process Data
       const calculatedTargets = processCalendarData(profileData, logData || []);
 
+      // 2. Select Today
       handleDateSelect(today, logData || [], calculatedTargets);
       setLoading(false);
     };
     init();
   }, []);
 
-  // --- INTERACTIVITY ---
+  // --- 1. STANDARDIZED TARGET CALCULATOR (MATCHING SOCIAL PAGE) ---
+  const calculateTargets = (prof) => {
+    if (!prof || !prof.weight)
+      return {
+        targetCals: 2000,
+        targetMacros: { p: 150, c: 200, f: 60 },
+        waterTarget: 3,
+      };
+
+    // 1. Calories
+    let targetCals = 2000;
+    if (prof.target_calories) {
+      targetCals = Number(prof.target_calories);
+    } else {
+      let bmr = 10 * prof.weight + 6.25 * prof.height - 5 * prof.age;
+      bmr += prof.gender === "male" ? 5 : -161;
+      const multipliers = {
+        sedentary: 1.2,
+        light: 1.375,
+        moderate: 1.55,
+        active: 1.725,
+      };
+      let tdee = bmr * (multipliers[prof.activity] || 1.2);
+
+      targetCals = Math.round(tdee);
+      if (prof.goal === "lose") targetCals -= 500;
+      else if (prof.goal === "gain") targetCals += 300;
+    }
+
+    // 2. Macros
+    const weight = Number(prof.weight);
+    let targetP, targetF, targetC;
+
+    if (prof.goal === "lose") {
+      targetP = Math.round(weight * 2.2);
+      targetF = Math.round((targetCals * 0.3) / 9);
+    } else if (prof.goal === "gain") {
+      targetP = Math.round(weight * 1.8);
+      targetF = Math.round((targetCals * 0.25) / 9);
+    } else {
+      // Maintain
+      targetP = Math.round(weight * 1.6);
+      targetF = Math.round((targetCals * 0.3) / 9);
+    }
+
+    const usedCals = targetP * 4 + targetF * 9;
+    targetC = Math.round(Math.max(0, targetCals - usedCals) / 4);
+
+    // 3. Water Target
+    let waterTarget = Math.round(weight * 0.035 * 10) / 10;
+    if (prof.activity === "active" || prof.activity === "moderate")
+      waterTarget += 0.5;
+
+    return {
+      targetCals,
+      targetMacros: { p: targetP, c: targetC, f: targetF },
+      waterTarget,
+    };
+  };
+
   const handleDateSelect = (dateStr, logsSource, preCalcTargets) => {
     const logsToFilter = logsSource || allLogs;
     const dailyLogs = logsToFilter.filter((l) => l.date === dateStr);
@@ -93,7 +154,7 @@ export default function UserDashboard() {
     setSelectedDate(dateStr);
     setSelectedLogs(dailyLogs);
 
-    // 1. Calculate Daily Sums
+    // Sums
     const eatenCals = dailyLogs.reduce(
       (sum, item) => sum + (item.calories || 0),
       0
@@ -110,7 +171,7 @@ export default function UserDashboard() {
       .filter((i) => i.name === "Water")
       .reduce((acc, item) => acc + item.qty * 0.25, 0);
 
-    // 2. Calculate Top Contributors (FOR THIS DAY ONLY)
+    // Top Contributors
     const foodMap = {};
     dailyLogs.forEach((l) => {
       if (l.name !== "Water") {
@@ -126,7 +187,7 @@ export default function UserDashboard() {
       [...foods].sort((a, b) => b.protein - a.protein).slice(0, 5)
     );
 
-    // 3. Targets & Status
+    // Targets & Status
     const targets = preCalcTargets || calculateTargets(profile);
     let status = "On Track";
     let statusColor = "#22c55e";
@@ -160,47 +221,6 @@ export default function UserDashboard() {
       { name: "Carbs", value: macrosEaten.c, color: COLORS.carb },
       { name: "Fats", value: macrosEaten.f, color: COLORS.fat },
     ]);
-  };
-
-  const calculateTargets = (prof) => {
-    if (!prof)
-      return {
-        targetCals: 2000,
-        targetMacros: { p: 150, c: 200, f: 60 },
-        waterTarget: 3,
-      };
-
-    let bmr = 10 * prof.weight + 6.25 * prof.height - 5 * prof.age;
-    bmr += prof.gender === "male" ? 5 : -161;
-    const multipliers = {
-      sedentary: 1.2,
-      light: 1.375,
-      moderate: 1.55,
-      active: 1.725,
-    };
-    let tdee = bmr * (multipliers[prof.activity] || 1.2);
-
-    let targetCals = Math.round(tdee);
-    if (prof.target_calories) targetCals = Number(prof.target_calories);
-    else if (prof.goal === "lose") targetCals -= 500;
-    else if (prof.goal === "gain") targetCals += 300;
-
-    const weight = Number(prof.weight) || 70;
-    let targetP = Math.round(weight * 1.8);
-    let targetF = Math.round((targetCals * 0.3) / 9);
-    if (prof.goal === "lose") targetP = Math.round(weight * 2.2);
-
-    const usedCals = targetP * 4 + targetF * 9;
-    const targetC = Math.round(Math.max(0, targetCals - usedCals) / 4);
-    let waterTarget = Math.round(weight * 0.035 * 10) / 10;
-    if (prof.activity === "active" || prof.activity === "moderate")
-      waterTarget += 0.5;
-
-    return {
-      targetCals,
-      targetMacros: { p: targetP, c: targetC, f: targetF },
-      waterTarget,
-    };
   };
 
   const processCalendarData = (prof, logs) => {
@@ -524,7 +544,7 @@ export default function UserDashboard() {
             </div>
           </div>
 
-          {/* ROW 2: GRID FOR INSIGHTS */}
+          {/* ROW 2: GRID */}
           <div
             style={{
               display: "grid",
@@ -533,13 +553,14 @@ export default function UserDashboard() {
               marginBottom: 20,
             }}
           >
-            {/* 2. CONSISTENCY CALENDAR */}
+            {/* HYDRATION */}
             <div
               className="chart-card"
               style={{
                 padding: 24,
                 display: "flex",
                 flexDirection: "column",
+                justifyContent: "center",
               }}
             >
               <h3
@@ -581,8 +602,6 @@ export default function UserDashboard() {
                   ></div>
                 ))}
               </div>
-
-              {/* LEGEND */}
               <div
                 style={{
                   display: "flex",
@@ -810,7 +829,7 @@ export default function UserDashboard() {
               </div>
             </div>
 
-            {/* 4. CALORIE CONTRIBUTORS */}
+            {/* TOP CALORIES */}
             <div className="chart-card" style={{ padding: 24 }}>
               <h3
                 style={{
@@ -1123,7 +1142,10 @@ export default function UserDashboard() {
                             {log.qty}x {log.name}{" "}
                             {log.name === "Water" && (
                               <span
-                                style={{ fontSize: "0.8rem", color: "#3b82f6" }}
+                                style={{
+                                  fontSize: "0.8rem",
+                                  color: "#3b82f6",
+                                }}
                               >
                                 {" "}
                                 ({log.qty * 0.25}L)

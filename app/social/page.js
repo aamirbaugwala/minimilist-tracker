@@ -13,6 +13,7 @@ import {
   Search,
   Droplets,
   PieChart as PieIcon,
+  Trash2,
 } from "lucide-react";
 import { supabase } from "../supabase";
 
@@ -32,8 +33,10 @@ export default function SocialPage() {
 
   // --- 1. COMPREHENSIVE TARGET CALCULATOR ---
   const calculateTargets = (prof) => {
-    if (!prof || !prof.weight) return { cals: 2000, p: 150, c: 200, f: 65 };
+    if (!prof || !prof.weight)
+      return { cals: 2000, p: 150, c: 200, f: 65, water: 3 };
 
+    // Calories
     let targetCals = 2000;
     if (prof.target_calories) {
       targetCals = Number(prof.target_calories);
@@ -47,12 +50,12 @@ export default function SocialPage() {
         active: 1.725,
       };
       let tdee = bmr * (multipliers[prof.activity] || 1.2);
-
       targetCals = Math.round(tdee);
       if (prof.goal === "lose") targetCals -= 500;
       else if (prof.goal === "gain") targetCals += 300;
     }
 
+    // Macros
     const weight = Number(prof.weight);
     let targetP, targetF, targetC;
 
@@ -70,7 +73,18 @@ export default function SocialPage() {
     const usedCals = targetP * 4 + targetF * 9;
     targetC = Math.round(Math.max(0, targetCals - usedCals) / 4);
 
-    return { cals: targetCals, p: targetP, c: targetC, f: targetF };
+    // Water
+    let waterTarget = Math.round(weight * 0.035 * 10) / 10;
+    if (prof.activity === "active" || prof.activity === "moderate")
+      waterTarget += 0.5;
+
+    return {
+      cals: targetCals,
+      p: targetP,
+      c: targetC,
+      f: targetF,
+      water: waterTarget,
+    };
   };
 
   const fetchSocialData = async () => {
@@ -107,29 +121,40 @@ export default function SocialPage() {
           p: acc.p + (item.protein || 0),
           c: acc.c + (item.carbs || 0),
           f: acc.f + (item.fats || 0),
+          water:
+            item.name === "Water" ? acc.water + item.qty * 0.25 : acc.water,
         }),
-        { cals: 0, p: 0, c: 0, f: 0 }
-      ) || { cals: 0, p: 0, c: 0, f: 0 };
+        { cals: 0, p: 0, c: 0, f: 0, water: 0 }
+      ) || { cals: 0, p: 0, c: 0, f: 0, water: 0 };
 
       const targets = calculateTargets(profile);
-      const progress = Math.round((stats.cals / targets.cals) * 100);
+
+      // --- NEW SCORING ALGORITHM ---
+      // Calculate % for each metric, capped at 100% so over-consuming one doesn't hide under-consuming another.
+      const getScore = (val, target) =>
+        Math.min(100, (val / target) * 100) || 0;
+
+      const sCal = getScore(stats.cals, targets.cals);
+      const sPro = getScore(stats.p, targets.p);
+      const sCarb = getScore(stats.c, targets.c);
+      const sFat = getScore(stats.f, targets.f);
+      const sWater = getScore(stats.water, targets.water);
+
+      // Average Score across 5 categories
+      const progress = Math.round((sCal + sPro + sCarb + sFat + sWater) / 5);
 
       let statusLabel = "Sleeping 😴";
       let barColor = "#3b82f6";
 
-      if (progress > 0) statusLabel = "On Track 🏃";
-      if (progress >= 80 && progress <= 110) {
-        statusLabel = "Perfect Zone 🔥";
+      if (progress > 0) statusLabel = "Started 🏁";
+      if (progress > 40) statusLabel = "On Track 🏃";
+      if (progress > 75) {
+        statusLabel = "Crushing It 🔥";
         barColor = "#22c55e";
       }
-      if (progress > 110) {
-        if (profile?.goal === "gain") {
-          statusLabel = "Bulking 💪";
-          barColor = "#8b5cf6";
-        } else {
-          statusLabel = "Over Limit ⚠️";
-          barColor = "#ef4444";
-        }
+      if (progress >= 95) {
+        statusLabel = "Perfect Day 🏆";
+        barColor = "#f59e0b";
       }
 
       return {
@@ -161,6 +186,7 @@ export default function SocialPage() {
           requestList.push({ id: link.id, name: data?.email || "Unknown" });
         } else if (link.status === "accepted") {
           const friendData = await getUserData(otherUserId);
+          friendData.relationshipId = link.id;
           friendList.push(friendData);
         }
       }
@@ -205,7 +231,7 @@ export default function SocialPage() {
   };
 
   const removeFriend = async (id) => {
-    if (!confirm("Remove friend?")) return;
+    if (!confirm("Are you sure you want to remove this friend?")) return;
     await supabase.from("friendships").delete().eq("id", id);
     fetchSocialData();
   };
@@ -373,6 +399,7 @@ export default function SocialPage() {
       className="app-wrapper"
       style={{ maxWidth: 800, margin: "0 auto", padding: 20 }}
     >
+      {/* HEADER */}
       <div
         style={{
           display: "flex",
@@ -403,6 +430,7 @@ export default function SocialPage() {
         </div>
       </div>
 
+      {/* TABS */}
       <div
         style={{
           display: "flex",
@@ -482,23 +510,22 @@ export default function SocialPage() {
                   key={req.id}
                   style={{
                     background: "#1f1f22",
-                    padding: "15px", // Reduced padding slightly
+                    padding: "15px",
                     borderRadius: 16,
                     border: "1px solid #333",
                     display: "flex",
                     alignItems: "center",
                     marginBottom: 10,
-                    gap: 10, // Added gap for spacing
+                    gap: 10,
                   }}
                 >
-                  {/* Left Side: Avatar + Text */}
                   <div
                     style={{
                       display: "flex",
                       alignItems: "center",
                       gap: 12,
-                      flex: 1, // Takes up remaining space
-                      minWidth: 0, // CRITICAL: Allows text truncation in flexbox
+                      flex: 1,
+                      minWidth: 0,
                     }}
                   >
                     <div
@@ -512,16 +539,16 @@ export default function SocialPage() {
                         justifyContent: "center",
                         fontWeight: 700,
                         fontSize: "1.1rem",
-                        flexShrink: 0, // Prevent avatar shrinking
+                        flexShrink: 0,
                       }}
                     >
                       {req.name[0].toUpperCase()}
                     </div>
                     <div
                       style={{
-                        overflow: "hidden", // Hide overflow
-                        whiteSpace: "nowrap", // No wrapping
-                        textOverflow: "ellipsis", // Add "..."
+                        overflow: "hidden",
+                        whiteSpace: "nowrap",
+                        textOverflow: "ellipsis",
                       }}
                     >
                       <div
@@ -538,8 +565,6 @@ export default function SocialPage() {
                       </div>
                     </div>
                   </div>
-
-                  {/* Right Side: Buttons */}
                   <div style={{ display: "flex", gap: 8, flexShrink: 0 }}>
                     <button
                       onClick={() => acceptRequest(req.id)}
@@ -696,6 +721,7 @@ export default function SocialPage() {
                       display: "flex",
                       alignItems: "center",
                       gap: 16,
+                      position: "relative",
                     }}
                   >
                     <div
@@ -725,17 +751,45 @@ export default function SocialPage() {
                     >
                       {friend.name[0].toUpperCase()}
                     </div>
+
                     <div style={{ flex: 1 }}>
                       <div
                         style={{
                           display: "flex",
                           justifyContent: "space-between",
-                          alignItems: "baseline",
+                          alignItems: "center",
                           marginBottom: 4,
                         }}
                       >
-                        <div style={{ fontWeight: 700, fontSize: "1rem" }}>
-                          {friend.name}
+                        <div
+                          style={{
+                            display: "flex",
+                            alignItems: "center",
+                            gap: 8,
+                          }}
+                        >
+                          <span style={{ fontWeight: 700, fontSize: "1rem" }}>
+                            {friend.name}
+                          </span>
+                          {!friend.isMe && (
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                removeFriend(friend.relationshipId);
+                              }}
+                              style={{
+                                background: "none",
+                                border: "none",
+                                color: "#666",
+                                cursor: "pointer",
+                                padding: 4,
+                                display: "flex",
+                                alignItems: "center",
+                              }}
+                            >
+                              <Trash2 size={14} />
+                            </button>
+                          )}
                         </div>
                         <div
                           style={{
@@ -747,6 +801,7 @@ export default function SocialPage() {
                           {friend.statusLabel}
                         </div>
                       </div>
+
                       <div
                         style={{
                           width: "100%",
@@ -768,7 +823,6 @@ export default function SocialPage() {
                         ></div>
                       </div>
 
-                      {/* DETAILED STATS ROW */}
                       <div
                         style={{
                           display: "flex",
@@ -827,12 +881,13 @@ export default function SocialPage() {
                         >
                           <Droplets size={12} color="#f59e0b" />
                           <span style={{ color: "#fff" }}>
-                            {friend.stats.f}
+                            {friend.stats.water}
                           </span>
-                          /{friend.targets.f}g
+                          /{friend.targets.water}L
                         </span>
                       </div>
                     </div>
+
                     <button
                       onClick={() =>
                         handleInteract(
