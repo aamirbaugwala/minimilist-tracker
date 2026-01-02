@@ -167,7 +167,7 @@ export default function SocialPage() {
             .select("*")
             .eq("user_id", otherUserId)
             .maybeSingle();
-          requestList.push({ id: link.id, name: data?.username || "Unknown" });
+          requestList.push({ id: link.id, name: data?.email || "Unknown" });
         } else if (link.status === "accepted") {
           const friendData = await getUserData(otherUserId);
           friendList.push(friendData);
