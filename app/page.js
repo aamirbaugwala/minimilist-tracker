@@ -19,37 +19,39 @@ import {
   Target,
   Calculator,
   Users,
-  Lock,
   Shield,
   KeyRound,
   Settings,
-  ChevronRight,
+  Zap,
+  Award,
+  Battery,
+  Utensils, // Added icon
 } from "lucide-react";
 import { FOOD_CATEGORIES, FLATTENED_DB } from "./food-data";
 import { supabase } from "./supabase";
 
-// --- MEMOIZED STATS (REDESIGNED) ---
-// --- MEMOIZED STATS (FIXED MATH) ---
+// --- MEMOIZED STATS ---
 const StatsBoard = memo(({ totals, userProfile, onAddWater }) => {
   // 1. Get Calorie Target
   let targetCals = 2000;
-    if (userProfile.target_calories) {
-      targetCals = Number(prof.target_calories);
-    } else {
-      let bmr = 10 * userProfile.weight + 6.25 * userProfile.height - 5 * userProfile.age;
-      bmr += userProfile.gender === "male" ? 5 : -161;
-      const multipliers = {
-        sedentary: 1.2,
-        light: 1.375,
-        moderate: 1.55,
-        active: 1.725,
-      };
-      let tdee = bmr * (multipliers[userProfile.activity] || 1.2);
+  if (userProfile.target_calories) {
+    targetCals = Number(prof.target_calories);
+  } else {
+    let bmr =
+      10 * userProfile.weight + 6.25 * userProfile.height - 5 * userProfile.age;
+    bmr += userProfile.gender === "male" ? 5 : -161;
+    const multipliers = {
+      sedentary: 1.2,
+      light: 1.375,
+      moderate: 1.55,
+      active: 1.725,
+    };
+    let tdee = bmr * (multipliers[userProfile.activity] || 1.2);
 
-      targetCals = Math.round(tdee);
-      if (userProfile.goal === "lose") targetCals -= 500;
-      else if (userProfile.goal === "gain") targetCals += 300;
-    }
+    targetCals = Math.round(tdee);
+    if (userProfile.goal === "lose") targetCals -= 500;
+    else if (userProfile.goal === "gain") targetCals += 300;
+  }
 
   // 2. Calculate Exact Macro Targets (Matching Social Hub Logic)
   // Default to 70kg if weight is missing to prevent NaN
@@ -65,16 +67,13 @@ const StatsBoard = memo(({ totals, userProfile, onAddWater }) => {
     targetP = Math.round(weight * 1.8); // Moderate protein for bulking
     targetF = Math.round((targetCals * 0.25) / 9); // 25% Fat
   } else {
-    // Maintain
     targetP = Math.round(weight * 1.6);
     targetF = Math.round((targetCals * 0.3) / 9);
   }
 
-  // Carbs fill the rest of the calories
   const usedCals = targetP * 4 + targetF * 9;
   targetC = Math.round(Math.max(0, targetCals - usedCals) / 4);
 
-  // Water Target Calculation
   let targetWater = Math.round(weight * 0.035 * 10) / 10;
   if (
     userProfile?.activity === "active" ||
@@ -82,7 +81,6 @@ const StatsBoard = memo(({ totals, userProfile, onAddWater }) => {
   )
     targetWater += 0.5;
 
-  // Calculate Percentages for Bars (capped at 100%)
   const pct = (val, target) => Math.min(100, Math.round((val / target) * 100));
 
   return (
@@ -98,7 +96,6 @@ const StatsBoard = memo(({ totals, userProfile, onAddWater }) => {
         }}
       >
         <div style={{ display: "flex", alignItems: "center", gap: 20 }}>
-          {/* LEFT: CALORIE RING */}
           <div
             style={{
               position: "relative",
@@ -149,7 +146,6 @@ const StatsBoard = memo(({ totals, userProfile, onAddWater }) => {
             </div>
           </div>
 
-          {/* RIGHT: MACROS STACK */}
           <div
             style={{
               flex: 1,
@@ -158,7 +154,6 @@ const StatsBoard = memo(({ totals, userProfile, onAddWater }) => {
               gap: 14,
             }}
           >
-            {/* Protein */}
             <div>
               <div
                 style={{
@@ -193,8 +188,6 @@ const StatsBoard = memo(({ totals, userProfile, onAddWater }) => {
                 />
               </div>
             </div>
-
-            {/* Carbs */}
             <div>
               <div
                 style={{
@@ -229,8 +222,6 @@ const StatsBoard = memo(({ totals, userProfile, onAddWater }) => {
                 />
               </div>
             </div>
-
-            {/* Fats */}
             <div>
               <div
                 style={{
@@ -282,7 +273,6 @@ const StatsBoard = memo(({ totals, userProfile, onAddWater }) => {
           cursor: "pointer",
         }}
       >
-        {/* Background Fill Animation */}
         <div
           style={{
             position: "absolute",
@@ -297,7 +287,6 @@ const StatsBoard = memo(({ totals, userProfile, onAddWater }) => {
             transition: "0.3s",
           }}
         />
-
         <div
           style={{
             position: "relative",
@@ -362,17 +351,19 @@ export default function Home() {
   });
   const [recents, setRecents] = useState([]);
 
-  // Features
+  // UI State
   const [savedMeals, setSavedMeals] = useState([]);
   const [streak, setStreak] = useState(0);
 
-  // Modals & Tabs
+  // Modals
   const [isCreatingMeal, setIsCreatingMeal] = useState(false);
   const [isSettingGoal, setIsSettingGoal] = useState(false);
-  const [settingsTab, setSettingsTab] = useState("profile"); // 'profile' | 'security'
-  const [showPasswordSetup, setShowPasswordSetup] = useState(false); // New User Flow Modal
+  const [settingsTab, setSettingsTab] = useState("profile");
+  const [showPasswordSetup, setShowPasswordSetup] = useState(false);
+  const [showWelcome, setShowWelcome] = useState(false); // NEW: Welcome Modal State
+  const [welcomeStep, setWelcomeStep] = useState(1); // NEW: Welcome Step
 
-  // Goal State
+  // Data
   const [userProfile, setUserProfile] = useState({
     weight: "",
     height: "",
@@ -382,25 +373,21 @@ export default function Home() {
     goal: "lose",
     target_calories: "",
   });
-
-  // Password Update State
   const [newPassword, setNewPassword] = useState("");
-
-  // Meal Builder State
-  const [editingMealId, setEditingMealId] = useState(null);
-  const [newMealName, setNewMealName] = useState("");
   const [mealBuilderItems, setMealBuilderItems] = useState([]);
   const [mealBuilderQuery, setMealBuilderQuery] = useState("");
+  const [editingMealId, setEditingMealId] = useState(null);
+  const [newMealName, setNewMealName] = useState("");
 
   // UI & Auth
   const [qty, setQty] = useState(1);
   const [query, setQuery] = useState("");
   const [activeCategory, setActiveCategory] = useState("Recent");
   const [email, setEmail] = useState("");
-  const [password, setPassword] = useState(""); // Login Password
+  const [password, setPassword] = useState("");
   const [otp, setOtp] = useState("");
   const [isCodeSent, setIsCodeSent] = useState(false);
-  const [usePasswordLogin, setUsePasswordLogin] = useState(false); // Toggle
+  const [usePasswordLogin, setUsePasswordLogin] = useState(false);
   const [authLoading, setAuthLoading] = useState(false);
 
   // --- INIT ---
@@ -419,7 +406,6 @@ export default function Home() {
       .eq("user_id", session.user.id)
       .eq("date", todayKey)
       .order("created_at", { ascending: false });
-
     if (!error) {
       setLogs(data);
       setHasUnsavedChanges(false);
@@ -431,7 +417,6 @@ export default function Home() {
       .eq("user_id", session.user.id)
       .order("created_at", { ascending: false })
       .limit(50);
-
     if (history) {
       const uniqueRecents = [...new Set(history.map((h) => h.name))];
       setRecents(uniqueRecents);
@@ -461,17 +446,16 @@ export default function Home() {
       data: { session },
     } = await supabase.auth.getSession();
     if (!session) return;
-
     const { data } = await supabase
       .from("food_logs")
       .select("date")
       .eq("user_id", session.user.id)
       .order("date", { ascending: false });
-
     if (!data || data.length === 0) {
       setStreak(0);
       return;
     }
+
     const uniqueDates = [...new Set(data.map((item) => item.date))];
     const today = new Date().toISOString().slice(0, 10);
     const yesterday = new Date(Date.now() - 86400000)
@@ -497,6 +481,7 @@ export default function Home() {
     setStreak(count);
   };
 
+  // --- WELCOME LOGIC ---
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => {
       setSession(session);
@@ -504,6 +489,10 @@ export default function Home() {
         fetchData();
         fetchUserData();
         calculateStreak();
+        const hasSeen = localStorage.getItem("hasSeenWelcome");
+        if (!hasSeen) {
+          setShowWelcome(true);
+        }
       } else {
         setLoading(false);
       }
@@ -523,6 +512,11 @@ export default function Home() {
     });
     return () => subscription.unsubscribe();
   }, []);
+
+  const closeWelcome = () => {
+    localStorage.setItem("hasSeenWelcome", "true");
+    setShowWelcome(false);
+  };
 
   // --- ACTIONS ---
   const saveGoal = async () => {
@@ -553,7 +547,7 @@ export default function Home() {
     else {
       alert("Password updated successfully!");
       setNewPassword("");
-      setShowPasswordSetup(false); // Close modal if open
+      setShowPasswordSetup(false);
     }
   };
 
@@ -615,7 +609,6 @@ export default function Home() {
       setQuery("");
     }
   };
-
   const loadMeal = (meal) => {
     handleLocalAdd(meal.items);
   };
@@ -650,7 +643,6 @@ export default function Home() {
     }
   };
 
-  // --- MEAL BUILDER ---
   const openMealBuilder = (mealToEdit = null) => {
     if (mealToEdit) {
       setEditingMealId(mealToEdit.id);
@@ -714,7 +706,6 @@ export default function Home() {
     await supabase.from("saved_meals").delete().eq("id", id);
   };
 
-  // --- CALCS ---
   useEffect(() => {
     const t = logs.reduce(
       (acc, item) => ({
@@ -768,8 +759,6 @@ export default function Home() {
     }
     setAuthLoading(false);
   };
-
-  // NEW: Login with Password
   const handlePasswordLogin = async (e) => {
     e.preventDefault();
     setAuthLoading(true);
@@ -780,7 +769,6 @@ export default function Home() {
     if (error) alert(error.message);
     setAuthLoading(false);
   };
-
   const handleLogout = async () => {
     await supabase.auth.signOut();
     setIsCodeSent(false);
@@ -801,6 +789,7 @@ export default function Home() {
           padding: 20,
         }}
       >
+        {/* LOGIN COMPONENT */}
         <div style={{ width: "100%", maxWidth: 350, textAlign: "center" }}>
           <h1 style={{ fontSize: "2rem", fontWeight: 800, marginBottom: 16 }}>
             NutriTrack.
@@ -813,7 +802,6 @@ export default function Home() {
               border: "1px solid var(--border)",
             }}
           >
-            {/* TOGGLE HEADER */}
             <div
               style={{
                 display: "flex",
@@ -849,9 +837,7 @@ export default function Home() {
                 Password
               </button>
             </div>
-
             {usePasswordLogin ? (
-              // PASSWORD LOGIN
               <form onSubmit={handlePasswordLogin}>
                 <input
                   type="email"
@@ -1014,7 +1000,169 @@ export default function Home() {
         boxSizing: "border-box",
       }}
     >
-      {/* PASSWORD SETUP MODAL (TRIGGERS AFTER OTP LOGIN) */}
+      {/* WELCOME MODAL */}
+      {showWelcome && (
+        <div className="modal-overlay" style={{ zIndex: 10000 }}>
+          <div
+            className="modal-content"
+            style={{
+              maxWidth: 350,
+              width: "90%",
+              textAlign: "center",
+              border: "1px solid #333",
+              background: "#18181b",
+              padding: 30,
+            }}
+          >
+            {welcomeStep === 1 && (
+              <div className="animate-fadeIn">
+                <div
+                  style={{
+                    background: "rgba(245, 158, 11, 0.1)",
+                    padding: 20,
+                    borderRadius: "50%",
+                    width: 80,
+                    height: 80,
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    margin: "0 auto 20px",
+                  }}
+                >
+                  <Battery size={40} color="#f59e0b" />
+                </div>
+                <h2 style={{ margin: "0 0 10px 0", fontSize: "1.6rem" }}>
+                  Food is Fuel ⛽️
+                </h2>
+                <p style={{ color: "#aaa", lineHeight: 1.6, marginBottom: 30 }}>
+                  Think of your body as a high-performance engine. Calories are
+                  just the energy unit to keep it running.
+                </p>
+                <button
+                  onClick={() => setWelcomeStep(2)}
+                  style={{
+                    width: "100%",
+                    padding: 14,
+                    background: "var(--brand)",
+                    border: "none",
+                    color: "#fff",
+                    borderRadius: 12,
+                    fontWeight: 700,
+                    cursor: "pointer",
+                  }}
+                >
+                  Next
+                </button>
+              </div>
+            )}
+            {welcomeStep === 2 && (
+              <div className="animate-fadeIn">
+                <div
+                  style={{
+                    background: "rgba(59, 130, 246, 0.1)",
+                    padding: 20,
+                    borderRadius: "50%",
+                    width: 80,
+                    height: 80,
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    margin: "0 auto 20px",
+                  }}
+                >
+                  <Zap size={40} color="#3b82f6" />
+                </div>
+                <h2 style={{ margin: "0 0 10px 0", fontSize: "1.6rem" }}>
+                  Your Daily Budget 💳
+                </h2>
+                <p style={{ color: "#aaa", lineHeight: 1.6, marginBottom: 30 }}>
+                  We gave you a specific <b>Calorie Target</b>. Spend it wisely
+                  on Protein, Carbs, and Fats to win the day!
+                </p>
+                <button
+                  onClick={() => setWelcomeStep(3)}
+                  style={{
+                    width: "100%",
+                    padding: 14,
+                    background: "var(--brand)",
+                    border: "none",
+                    color: "#fff",
+                    borderRadius: 12,
+                    fontWeight: 700,
+                    cursor: "pointer",
+                  }}
+                >
+                  Next
+                </button>
+              </div>
+            )}
+            {welcomeStep === 3 && (
+              <div className="animate-fadeIn">
+                <div
+                  style={{
+                    background: "rgba(34, 197, 94, 0.1)",
+                    padding: 20,
+                    borderRadius: "50%",
+                    width: 80,
+                    height: 80,
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    margin: "0 auto 20px",
+                  }}
+                >
+                  <Award size={40} color="#22c55e" />
+                </div>
+                <h2 style={{ margin: "0 0 10px 0", fontSize: "1.6rem" }}>
+                  Your Mission 🎯
+                </h2>
+                <p style={{ color: "#aaa", lineHeight: 1.6, marginBottom: 30 }}>
+                  Consistency is the only cheat code. Hit your numbers, log
+                  everyday, and watch your body change.
+                </p>
+                <button
+                  onClick={closeWelcome}
+                  style={{
+                    width: "100%",
+                    padding: 14,
+                    background: "#22c55e",
+                    border: "none",
+                    color: "#000",
+                    borderRadius: 12,
+                    fontWeight: 700,
+                    cursor: "pointer",
+                  }}
+                >
+                  Let's Go!
+                </button>
+              </div>
+            )}
+            <div
+              style={{
+                display: "flex",
+                justifyContent: "center",
+                gap: 8,
+                marginTop: 20,
+              }}
+            >
+              {[1, 2, 3].map((s) => (
+                <div
+                  key={s}
+                  style={{
+                    width: 8,
+                    height: 8,
+                    borderRadius: "50%",
+                    background: s === welcomeStep ? "#fff" : "#333",
+                    transition: "0.3s",
+                  }}
+                ></div>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* PASSWORD MODAL */}
       {showPasswordSetup && (
         <div className="modal-overlay">
           <div
@@ -1026,7 +1174,6 @@ export default function Home() {
             <p style={{ color: "#888", marginBottom: 20, fontSize: "0.9rem" }}>
               Create a password so you can login easier next time.
             </p>
-
             <input
               type="password"
               placeholder="New Password"
@@ -1078,7 +1225,7 @@ export default function Home() {
         </div>
       )}
 
-      {/* GOAL/SETTINGS MODAL */}
+      {/* SETTINGS MODAL */}
       {isSettingGoal && (
         <div className="modal-overlay">
           <div
@@ -1116,8 +1263,6 @@ export default function Home() {
                 <X size={20} />
               </button>
             </div>
-
-            {/* TAB SWITCHER */}
             <div
               style={{
                 display: "flex",
@@ -1158,7 +1303,6 @@ export default function Home() {
                 Security
               </button>
             </div>
-
             {settingsTab === "security" ? (
               <div
                 style={{ display: "flex", flexDirection: "column", gap: 20 }}
@@ -1220,7 +1364,6 @@ export default function Home() {
                 </div>
               </div>
             ) : (
-              // EXISTING PROFILE FORM
               <div
                 style={{ display: "flex", flexDirection: "column", gap: 20 }}
               >
@@ -1279,7 +1422,6 @@ export default function Home() {
                       Auto-Calculate
                     </span>
                   </div>
-                  {/* ... Existing inputs for Weight, Height, etc ... */}
                   <div
                     style={{
                       display: "grid",
@@ -1543,7 +1685,7 @@ export default function Home() {
         </div>
       )}
 
-      {/* MEAL MODAL */}
+      {/* MEAL BUILDER */}
       {isCreatingMeal && (
         <div className="modal-overlay">
           <div
@@ -1767,14 +1909,12 @@ export default function Home() {
               <Users size={20} />
             </button>
           </Link>
-
           <button className="menu-btn" onClick={handleLogout}>
             <LogOut size={20} />
           </button>
         </div>
       </header>
 
-      {/* UPDATED: Pass User Profile to StatsBoard for dynamic bars */}
       <StatsBoard
         totals={totals}
         onAddWater={() => addFood("Water")}
@@ -1841,7 +1981,6 @@ export default function Home() {
             className="food-grid"
             style={{
               display: "grid",
-              // FIX: LIST VIEW IF SEARCHING (1fr), GRID IF CATEGORY (3 cols)
               gridTemplateColumns:
                 query || activeCategory === "Meals" ? "1fr" : "repeat(3, 1fr)",
               gap: 8,
@@ -1915,7 +2054,6 @@ export default function Home() {
                   className="suggestion-chip"
                   onClick={() => addFood(item.name || item)}
                   style={{
-                    // FIX: TEXT WRAPPING AND LEFT ALIGN FOR LISTS
                     whiteSpace: "normal",
                     height: "auto",
                     minHeight: 44,
@@ -1936,9 +2074,10 @@ export default function Home() {
         </div>
       </section>
 
-      <section className="timeline">
+      {/* --- REDESIGNED TIMELINE: MACRO CARDS --- */}
+      <section className="timeline" style={{ paddingBottom: 80 }}>
         <div className="timeline-label">
-          Today&apos;s Entries{" "}
+          Today&apos;s Logs{" "}
           {hasUnsavedChanges && (
             <span
               style={{ color: "#f59e0b", fontSize: "0.8rem", marginLeft: 8 }}
@@ -1947,6 +2086,7 @@ export default function Home() {
             </span>
           )}
         </div>
+
         {loading ? (
           <div style={{ textAlign: "center", padding: 20, color: "#666" }}>
             <Loader2 className="animate-spin" />
@@ -1956,55 +2096,158 @@ export default function Home() {
             style={{
               textAlign: "center",
               color: "var(--text-tertiary)",
-              padding: 20,
+              padding: 40,
             }}
           >
-            No items today
+            <Utensils size={40} style={{ opacity: 0.2, marginBottom: 10 }} />
+            <div style={{ fontSize: "0.9rem" }}>No food logged yet.</div>
           </div>
         ) : (
           logs.map((log) => (
-            <div key={log.id} className="log-item">
-              <div className="log-details">
-                <h4>
-                  {log.qty}x{" "}
-                  <span style={{ color: "white", textTransform: "capitalize" }}>
-                    {log.name}
-                  </span>
-                  {log.name === "Water" && (
+            <div
+              key={log.id}
+              style={{
+                background:
+                  log.name === "Water" ? "rgba(59, 130, 246, 0.1)" : "#18181b",
+                border:
+                  log.name === "Water"
+                    ? "1px solid rgba(59, 130, 246, 0.3)"
+                    : "1px solid #27272a",
+                borderRadius: 16,
+                padding: 12,
+                marginBottom: 10,
+                display: "flex",
+                alignItems: "center",
+                gap: 12,
+              }}
+            >
+              {/* QTY BADGE */}
+              <div
+                style={{
+                  background: log.name === "Water" ? "#3b82f6" : "#27272a",
+                  color: log.name === "Water" ? "#fff" : "#888",
+                  borderRadius: 10,
+                  padding: "6px 10px",
+                  fontSize: "0.85rem",
+                  fontWeight: 700,
+                  minWidth: 40,
+                  textAlign: "center",
+                }}
+              >
+                {log.qty}x
+              </div>
+
+              {/* INFO */}
+              <div style={{ flex: 1 }}>
+                <div
+                  style={{
+                    fontWeight: 600,
+                    color: "#fff",
+                    textTransform: "capitalize",
+                    fontSize: "1rem",
+                  }}
+                >
+                  {log.name}
+                </div>
+
+                {/* MACRO PILLS (OR WATER VOL) */}
+                <div
+                  style={{
+                    display: "flex",
+                    gap: 6,
+                    marginTop: 6,
+                    flexWrap: "wrap",
+                  }}
+                >
+                  {log.name === "Water" ? (
                     <span
                       style={{
-                        fontSize: "0.7rem",
+                        fontSize: "0.8rem",
                         color: "#3b82f6",
-                        marginLeft: 6,
+                        fontWeight: 600,
                       }}
                     >
-                      (250ml)
+                      {log.qty * 0.25} Liters
                     </span>
-                  )}
-                </h4>
-                <div>
-                  <span>
-                    <b>{log.calories}</b> kcal
-                  </span>
-                  {log.name !== "Water" && (
-                    <span style={{ color: "var(--protein)" }}>
-                      P:{log.protein}
-                    </span>
+                  ) : (
+                    <>
+                      <div
+                        style={{
+                          fontSize: "0.7rem",
+                          background: "rgba(59, 130, 246, 0.15)",
+                          color: "#3b82f6",
+                          padding: "2px 6px",
+                          borderRadius: 4,
+                          fontWeight: 600,
+                        }}
+                      >
+                        P: {log.protein}g
+                      </div>
+                      <div
+                        style={{
+                          fontSize: "0.7rem",
+                          background: "rgba(16, 185, 129, 0.15)",
+                          color: "#10b981",
+                          padding: "2px 6px",
+                          borderRadius: 4,
+                          fontWeight: 600,
+                        }}
+                      >
+                        C: {log.carbs}g
+                      </div>
+                      <div
+                        style={{
+                          fontSize: "0.7rem",
+                          background: "rgba(245, 158, 11, 0.15)",
+                          color: "#f59e0b",
+                          padding: "2px 6px",
+                          borderRadius: 4,
+                          fontWeight: 600,
+                        }}
+                      >
+                        F: {log.fats}g
+                      </div>
+                    </>
                   )}
                 </div>
               </div>
+
+              {/* CALORIES & DELETE */}
+              <div style={{ textAlign: "right" }}>
+                <div
+                  style={{
+                    fontWeight: 700,
+                    fontSize: "1rem",
+                    color: log.name === "Water" ? "#3b82f6" : "#fff",
+                  }}
+                >
+                  {log.calories}
+                </div>
+                <div
+                  style={{ fontSize: "0.7rem", color: "#666", marginBottom: 4 }}
+                >
+                  kcal
+                </div>
+              </div>
+
               <button
-                className="delete-action"
                 onClick={() => deleteLog(log.id)}
+                style={{
+                  background: "transparent",
+                  border: "none",
+                  color: "#ef4444",
+                  opacity: 0.6,
+                  cursor: "pointer",
+                  padding: 8,
+                }}
               >
-                <X size={16} />
+                <Trash2 size={18} />
               </button>
             </div>
           ))
         )}
       </section>
 
-      {/* SAVE BUTTON */}
       {hasUnsavedChanges && (
         <div
           style={{
