@@ -416,7 +416,7 @@ export default function Home() {
       .select("name")
       .eq("user_id", session.user.id)
       .order("created_at", { ascending: false })
-      .limit(50);
+      .limit(10);
     if (history) {
       const uniqueRecents = [...new Set(history.map((h) => h.name))];
       setRecents(uniqueRecents);
