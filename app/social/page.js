@@ -14,6 +14,8 @@ import {
   Droplets,
   PieChart as PieIcon,
   Trash2,
+  Utensils, // Added for the empty state icon
+  Loader2, // Added for loading state
 } from "lucide-react";
 import { supabase } from "../supabase";
 
@@ -27,9 +29,36 @@ export default function SocialPage() {
   const [addStatus, setAddStatus] = useState("");
   const [cheered, setCheered] = useState({});
 
+  // --- NEW STATE FOR VIEWING LOGS ---
+  const [selectedFriend, setSelectedFriend] = useState(null);
+  const [friendLogs, setFriendLogs] = useState([]);
+  const [logsLoading, setLogsLoading] = useState(false);
+
   useEffect(() => {
     fetchSocialData();
   }, []);
+
+  // --- NEW: FETCH FRIEND LOGS ON CLICK ---
+  const handleViewLogs = async (friend) => {
+    setSelectedFriend(friend);
+    setLogsLoading(true);
+
+    const today = new Date().toISOString().slice(0, 10);
+    const { data } = await supabase
+      .from("food_logs")
+      .select("*")
+      .eq("user_id", friend.id)
+      .eq("date", today)
+      .order("created_at", { ascending: false });
+
+    setFriendLogs(data || []);
+    setLogsLoading(false);
+  };
+
+  const closeLogs = () => {
+    setSelectedFriend(null);
+    setFriendLogs([]);
+  };
 
   // --- 1. COMPREHENSIVE TARGET CALCULATOR ---
   const calculateTargets = (prof) => {
@@ -201,7 +230,8 @@ export default function SocialPage() {
     setLoading(false);
   };
 
-  const handleInteract = (id, type) => {
+  const handleInteract = (e, id, type) => {
+    e.stopPropagation(); // Prevent opening modal when cheering
     setCheered((prev) => ({ ...prev, [id]: type }));
     setTimeout(() => setCheered((prev) => ({ ...prev, [id]: null })), 2000);
   };
@@ -249,11 +279,13 @@ export default function SocialPage() {
     >
       {top3[1] && (
         <div
+          onClick={() => handleViewLogs(top3[1])}
           style={{
             display: "flex",
             flexDirection: "column",
             alignItems: "center",
             width: "30%",
+            cursor: "pointer", // Make podium clickable
           }}
         >
           <div
@@ -292,12 +324,14 @@ export default function SocialPage() {
       )}
       {top3[0] && (
         <div
+          onClick={() => handleViewLogs(top3[0])}
           style={{
             display: "flex",
             flexDirection: "column",
             alignItems: "center",
             width: "35%",
             zIndex: 2,
+            cursor: "pointer", // Make podium clickable
           }}
         >
           <Flame
@@ -350,11 +384,13 @@ export default function SocialPage() {
       )}
       {top3[2] && (
         <div
+          onClick={() => handleViewLogs(top3[2])}
           style={{
             display: "flex",
             flexDirection: "column",
             alignItems: "center",
             width: "30%",
+            cursor: "pointer", // Make podium clickable
           }}
         >
           <div
@@ -399,6 +435,147 @@ export default function SocialPage() {
       className="app-wrapper"
       style={{ maxWidth: 800, margin: "0 auto", padding: 20 }}
     >
+      {/* --- NEW: FRIEND LOGS MODAL --- */}
+      {selectedFriend && (
+        <div className="modal-overlay">
+          <div
+            className="modal-content"
+            style={{
+              width: "90%",
+              maxWidth: 450,
+              maxHeight: "80vh",
+              display: "flex",
+              flexDirection: "column",
+            }}
+          >
+            <div
+              style={{
+                display: "flex",
+                justifyContent: "space-between",
+                alignItems: "center",
+                marginBottom: 20,
+              }}
+            >
+              <h3 style={{ margin: 0, fontSize: "1.2rem", fontWeight: 700 }}>
+                {selectedFriend.name}'s Meals
+              </h3>
+              <button
+                onClick={closeLogs}
+                style={{
+                  background: "none",
+                  border: "none",
+                  color: "#666",
+                  cursor: "pointer",
+                }}
+              >
+                <X size={24} />
+              </button>
+            </div>
+
+            {logsLoading ? (
+              <div
+                style={{
+                  flex: 1,
+                  display: "flex",
+                  justifyContent: "center",
+                  alignItems: "center",
+                  minHeight: 150,
+                }}
+              >
+                <Loader2 className="animate-spin" color="#666" />
+              </div>
+            ) : friendLogs.length === 0 ? (
+              <div
+                style={{
+                  textAlign: "center",
+                  padding: 40,
+                  color: "#666",
+                  display: "flex",
+                  flexDirection: "column",
+                  alignItems: "center",
+                  gap: 10,
+                }}
+              >
+                <Utensils size={40} style={{ opacity: 0.3 }} />
+                <p>No food logged today.</p>
+              </div>
+            ) : (
+              <div style={{ overflowY: "auto", paddingRight: 5 }}>
+                {friendLogs.map((log) => (
+                  <div
+                    key={log.id}
+                    style={{
+                      background: "#1f1f22",
+                      padding: "12px",
+                      borderRadius: 12,
+                      marginBottom: 10,
+                      border:
+                        log.name === "Water"
+                          ? "1px solid #1e3a8a"
+                          : "1px solid #333",
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "space-between",
+                    }}
+                  >
+                    <div>
+                      <div
+                        style={{
+                          fontWeight: 600,
+                          fontSize: "0.95rem",
+                          textTransform: "capitalize",
+                          color: "#fff",
+                        }}
+                      >
+                        {log.qty}x {log.name}
+                      </div>
+                      {log.name !== "Water" && (
+                        <div
+                          style={{
+                            fontSize: "0.75rem",
+                            color: "#888",
+                            marginTop: 4,
+                            display: "flex",
+                            gap: 8,
+                          }}
+                        >
+                          <span style={{ color: "#3b82f6" }}>
+                            P: {log.protein}
+                          </span>
+                          <span style={{ color: "#10b981" }}>
+                            C: {log.carbs}
+                          </span>
+                          <span style={{ color: "#f59e0b" }}>
+                            F: {log.fats}
+                          </span>
+                        </div>
+                      )}
+                    </div>
+                    <div style={{ textAlign: "right" }}>
+                      <div
+                        style={{
+                          fontWeight: 700,
+                          color: log.name === "Water" ? "#3b82f6" : "#fff",
+                        }}
+                      >
+                        {log.name === "Water"
+                          ? `${log.qty * 0.25}L`
+                          : log.calories}
+                      </div>
+                      {log.name !== "Water" && (
+                        <div style={{ fontSize: "0.7rem", color: "#666" }}>
+                          kcal
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
       {/* HEADER */}
       <div
         style={{
@@ -711,6 +888,8 @@ export default function SocialPage() {
                 {friends.map((friend, i) => (
                   <div
                     key={friend.id}
+                    // --- CHANGED: Added Click Handler ---
+                    onClick={() => handleViewLogs(friend)}
                     style={{
                       background: "#1f1f22",
                       padding: 16,
@@ -722,6 +901,7 @@ export default function SocialPage() {
                       alignItems: "center",
                       gap: 16,
                       position: "relative",
+                      cursor: "pointer", // Added cursor pointer
                     }}
                   >
                     <div
@@ -889,8 +1069,9 @@ export default function SocialPage() {
                     </div>
 
                     <button
-                      onClick={() =>
+                      onClick={(e) =>
                         handleInteract(
+                          e,
                           friend.id,
                           friend.progress === 0 ? "nudge" : "cheer"
                         )
