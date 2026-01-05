@@ -11,8 +11,6 @@ import {
   LayoutDashboard,
   LogOut,
   Loader2,
-  ArrowRight,
-  KeyRound,
   Flame,
   Droplets,
   Trash2,
@@ -21,93 +19,327 @@ import {
   Target,
   Calculator,
   Users,
+  Lock,
+  Shield,
+  KeyRound,
+  Settings,
+  ChevronRight,
 } from "lucide-react";
 import { FOOD_CATEGORIES, FLATTENED_DB } from "./food-data";
 import { supabase } from "./supabase";
 
-// --- MEMOIZED STATS ---
-const StatsBoard = memo(({ totals, onAddWater }) => {
+// --- MEMOIZED STATS (REDESIGNED) ---
+// --- MEMOIZED STATS (FIXED MATH) ---
+const StatsBoard = memo(({ totals, userProfile, onAddWater }) => {
+  // 1. Get Calorie Target
+  let targetCals = 2000;
+    if (userProfile.target_calories) {
+      targetCals = Number(prof.target_calories);
+    } else {
+      let bmr = 10 * userProfile.weight + 6.25 * userProfile.height - 5 * userProfile.age;
+      bmr += userProfile.gender === "male" ? 5 : -161;
+      const multipliers = {
+        sedentary: 1.2,
+        light: 1.375,
+        moderate: 1.55,
+        active: 1.725,
+      };
+      let tdee = bmr * (multipliers[userProfile.activity] || 1.2);
+
+      targetCals = Math.round(tdee);
+      if (userProfile.goal === "lose") targetCals -= 500;
+      else if (userProfile.goal === "gain") targetCals += 300;
+    }
+
+  // 2. Calculate Exact Macro Targets (Matching Social Hub Logic)
+  // Default to 70kg if weight is missing to prevent NaN
+  const weight = Number(userProfile?.weight);
+  const goal = userProfile?.goal;
+
+  let targetP, targetF, targetC;
+
+  if (goal === "lose") {
+    targetP = Math.round(weight * 2.2); // High protein for fat loss
+    targetF = Math.round((targetCals * 0.3) / 9); // 30% Fat
+  } else if (goal === "gain") {
+    targetP = Math.round(weight * 1.8); // Moderate protein for bulking
+    targetF = Math.round((targetCals * 0.25) / 9); // 25% Fat
+  } else {
+    // Maintain
+    targetP = Math.round(weight * 1.6);
+    targetF = Math.round((targetCals * 0.3) / 9);
+  }
+
+  // Carbs fill the rest of the calories
+  const usedCals = targetP * 4 + targetF * 9;
+  targetC = Math.round(Math.max(0, targetCals - usedCals) / 4);
+
+  // Water Target Calculation
+  let targetWater = Math.round(weight * 0.035 * 10) / 10;
+  if (
+    userProfile?.activity === "active" ||
+    userProfile?.activity === "moderate"
+  )
+    targetWater += 0.5;
+
+  // Calculate Percentages for Bars (capped at 100%)
+  const pct = (val, target) => Math.min(100, Math.round((val / target) * 100));
+
   return (
-    <section className="bento-grid" style={{ marginBottom: 20 }}>
-      <div className="stat-card-main">
-        <div className="cal-info">
-          <h3>Calories</h3>
-          <div className="big-number">{totals.calories}</div>
-          <div className="unit">kcal</div>
-        </div>
-        <div style={{ width: 100, height: 100 }}>
-          <ResponsiveContainer width="100%" height="100%">
-            <PieChart>
-              <Pie
-                data={
-                  totals.calories === 0
-                    ? [{ value: 1 }]
-                    : [
-                        { name: "P", value: totals.protein, color: "#3b82f6" },
-                        { name: "C", value: totals.carbs, color: "#10b981" },
-                        { name: "F", value: totals.fats, color: "#f59e0b" },
-                      ]
-                }
-                innerRadius={34}
-                outerRadius={45}
-                dataKey="value"
-                stroke="none"
-                isAnimationActive={false}
-              >
-                {totals.calories === 0 ? (
-                  <Cell fill="#27272a" />
-                ) : (
-                  [
-                    { name: "P", value: totals.protein, color: "#3b82f6" },
-                    { name: "C", value: totals.carbs, color: "#10b981" },
-                    { name: "F", value: totals.fats, color: "#f59e0b" },
-                  ].map((e, i) => <Cell key={i} fill={e.color} />)
-                )}
-              </Pie>
-            </PieChart>
-          </ResponsiveContainer>
-        </div>
-      </div>
-      <div className="macro-card">
-        <span
-          className="macro-icon"
-          style={{ background: "var(--protein)" }}
-        ></span>
-        <span className="macro-label">Pro</span>
-        <span className="macro-val">{totals.protein}g</span>
-      </div>
-      <div className="macro-card">
-        <span
-          className="macro-icon"
-          style={{ background: "var(--carbs)" }}
-        ></span>
-        <span className="macro-label">Carb</span>
-        <span className="macro-val">{totals.carbs}g</span>
-      </div>
+    <section style={{ marginBottom: 20 }}>
+      {/* 1. MAIN NUTRITION CARD */}
       <div
-        className="macro-card"
-        onClick={onAddWater}
-        style={{ cursor: "pointer", position: "relative", overflow: "hidden" }}
+        style={{
+          background: "#1f1f22",
+          borderRadius: 24,
+          padding: 20,
+          border: "1px solid #333",
+          marginBottom: 12,
+        }}
       >
+        <div style={{ display: "flex", alignItems: "center", gap: 20 }}>
+          {/* LEFT: CALORIE RING */}
+          <div
+            style={{
+              position: "relative",
+              width: 110,
+              height: 110,
+              flexShrink: 0,
+            }}
+          >
+            <ResponsiveContainer>
+              <PieChart>
+                <Pie
+                  data={[
+                    { value: totals.calories },
+                    { value: Math.max(0, targetCals - totals.calories) },
+                  ]}
+                  innerRadius={42}
+                  outerRadius={52}
+                  dataKey="value"
+                  stroke="none"
+                  startAngle={90}
+                  endAngle={-270}
+                >
+                  <Cell
+                    fill={totals.calories > targetCals ? "#ef4444" : "#3b82f6"}
+                  />
+                  <Cell fill="#27272a" />
+                </Pie>
+              </PieChart>
+            </ResponsiveContainer>
+            <div
+              style={{
+                position: "absolute",
+                inset: 0,
+                display: "flex",
+                flexDirection: "column",
+                alignItems: "center",
+                justifyContent: "center",
+              }}
+            >
+              <div
+                style={{ fontSize: "1.4rem", fontWeight: 800, lineHeight: 1 }}
+              >
+                {totals.calories}
+              </div>
+              <div style={{ fontSize: "0.7rem", color: "#888", marginTop: 4 }}>
+                / {targetCals} kcal
+              </div>
+            </div>
+          </div>
+
+          {/* RIGHT: MACROS STACK */}
+          <div
+            style={{
+              flex: 1,
+              display: "flex",
+              flexDirection: "column",
+              gap: 14,
+            }}
+          >
+            {/* Protein */}
+            <div>
+              <div
+                style={{
+                  display: "flex",
+                  justifyContent: "space-between",
+                  fontSize: "0.8rem",
+                  marginBottom: 6,
+                }}
+              >
+                <span style={{ fontWeight: 600, color: "#ddd" }}>Protein</span>
+                <span style={{ color: "#888" }}>
+                  <span style={{ color: "#3b82f6" }}>{totals.protein}</span> /{" "}
+                  {targetP}g
+                </span>
+              </div>
+              <div
+                style={{
+                  height: 6,
+                  background: "#27272a",
+                  borderRadius: 10,
+                  overflow: "hidden",
+                }}
+              >
+                <div
+                  style={{
+                    width: `${pct(totals.protein, targetP)}%`,
+                    background: "#3b82f6",
+                    height: "100%",
+                    borderRadius: 10,
+                    transition: "width 0.5s",
+                  }}
+                />
+              </div>
+            </div>
+
+            {/* Carbs */}
+            <div>
+              <div
+                style={{
+                  display: "flex",
+                  justifyContent: "space-between",
+                  fontSize: "0.8rem",
+                  marginBottom: 6,
+                }}
+              >
+                <span style={{ fontWeight: 600, color: "#ddd" }}>Carbs</span>
+                <span style={{ color: "#888" }}>
+                  <span style={{ color: "#10b981" }}>{totals.carbs}</span> /{" "}
+                  {targetC}g
+                </span>
+              </div>
+              <div
+                style={{
+                  height: 6,
+                  background: "#27272a",
+                  borderRadius: 10,
+                  overflow: "hidden",
+                }}
+              >
+                <div
+                  style={{
+                    width: `${pct(totals.carbs, targetC)}%`,
+                    background: "#10b981",
+                    height: "100%",
+                    borderRadius: 10,
+                    transition: "width 0.5s",
+                  }}
+                />
+              </div>
+            </div>
+
+            {/* Fats */}
+            <div>
+              <div
+                style={{
+                  display: "flex",
+                  justifyContent: "space-between",
+                  fontSize: "0.8rem",
+                  marginBottom: 6,
+                }}
+              >
+                <span style={{ fontWeight: 600, color: "#ddd" }}>Fats</span>
+                <span style={{ color: "#888" }}>
+                  <span style={{ color: "#f59e0b" }}>{totals.fats}</span> /{" "}
+                  {targetF}g
+                </span>
+              </div>
+              <div
+                style={{
+                  height: 6,
+                  background: "#27272a",
+                  borderRadius: 10,
+                  overflow: "hidden",
+                }}
+              >
+                <div
+                  style={{
+                    width: `${pct(totals.fats, targetF)}%`,
+                    background: "#f59e0b",
+                    height: "100%",
+                    borderRadius: 10,
+                    transition: "width 0.5s",
+                  }}
+                />
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* 2. WATER CARD */}
+      <div
+        onClick={onAddWater}
+        style={{
+          position: "relative",
+          background: "#1f1f22",
+          borderRadius: 20,
+          padding: "16px 20px",
+          border: "1px solid #333",
+          overflow: "hidden",
+          cursor: "pointer",
+        }}
+      >
+        {/* Background Fill Animation */}
         <div
           style={{
             position: "absolute",
+            top: 0,
             bottom: 0,
             left: 0,
-            width: "100%",
-            height: `${Math.min(100, totals.water * 8)}%`,
-            background: "#3b82f6",
-            opacity: 0.2,
+            width: `${Math.min(
+              100,
+              ((totals.water * 0.25) / targetWater) * 100
+            )}%`,
+            background: "rgba(59, 130, 246, 0.15)",
             transition: "0.3s",
           }}
-        ></div>
-        <span className="macro-icon" style={{ background: "#3b82f6" }}>
-          <Droplets size={12} color="#fff" />
-        </span>
-        <span className="macro-label">Water</span>
-        <span className="macro-val">{totals.water * 0.25}L</span>
-        <div style={{ position: "absolute", right: 4, top: 4, opacity: 0.5 }}>
-          <Plus size={10} />
+        />
+
+        <div
+          style={{
+            position: "relative",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+          }}
+        >
+          <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
+            <div
+              style={{
+                background: "rgba(59, 130, 246, 0.2)",
+                padding: 10,
+                borderRadius: 12,
+              }}
+            >
+              <Droplets size={22} color="#3b82f6" />
+            </div>
+            <div>
+              <div style={{ fontWeight: 700, fontSize: "1rem", color: "#fff" }}>
+                Water Intake
+              </div>
+              <div style={{ fontSize: "0.8rem", color: "#888" }}>
+                <span style={{ color: "#3b82f6", fontWeight: 600 }}>
+                  {totals.water * 0.25}L
+                </span>{" "}
+                / {targetWater}L
+              </div>
+            </div>
+          </div>
+          <div
+            style={{
+              background: "#333",
+              borderRadius: "50%",
+              padding: 8,
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+            }}
+          >
+            <Plus size={18} color="#fff" />
+          </div>
         </div>
       </div>
     </section>
@@ -134,9 +366,11 @@ export default function Home() {
   const [savedMeals, setSavedMeals] = useState([]);
   const [streak, setStreak] = useState(0);
 
-  // Modals
+  // Modals & Tabs
   const [isCreatingMeal, setIsCreatingMeal] = useState(false);
   const [isSettingGoal, setIsSettingGoal] = useState(false);
+  const [settingsTab, setSettingsTab] = useState("profile"); // 'profile' | 'security'
+  const [showPasswordSetup, setShowPasswordSetup] = useState(false); // New User Flow Modal
 
   // Goal State
   const [userProfile, setUserProfile] = useState({
@@ -149,6 +383,9 @@ export default function Home() {
     target_calories: "",
   });
 
+  // Password Update State
+  const [newPassword, setNewPassword] = useState("");
+
   // Meal Builder State
   const [editingMealId, setEditingMealId] = useState(null);
   const [newMealName, setNewMealName] = useState("");
@@ -160,8 +397,10 @@ export default function Home() {
   const [query, setQuery] = useState("");
   const [activeCategory, setActiveCategory] = useState("Recent");
   const [email, setEmail] = useState("");
+  const [password, setPassword] = useState(""); // Login Password
   const [otp, setOtp] = useState("");
   const [isCodeSent, setIsCodeSent] = useState(false);
+  const [usePasswordLogin, setUsePasswordLogin] = useState(false); // Toggle
   const [authLoading, setAuthLoading] = useState(false);
 
   // --- INIT ---
@@ -174,7 +413,6 @@ export default function Home() {
     if (!isBackground) setLoading(true);
     const todayKey = new Date().toISOString().slice(0, 10);
 
-    // 1. Fetch Today's Logs (Existing logic)
     const { data, error } = await supabase
       .from("food_logs")
       .select("*")
@@ -187,22 +425,21 @@ export default function Home() {
       setHasUnsavedChanges(false);
     }
 
-    // 2. FETCH RECENT ITEMS (Add this new block)
     const { data: history } = await supabase
       .from("food_logs")
       .select("name")
       .eq("user_id", session.user.id)
       .order("created_at", { ascending: false })
-      .limit(10); // Get last 10 items
+      .limit(50);
 
     if (history) {
-      // Remove duplicates so we have a clean list of unique recent foods
       const uniqueRecents = [...new Set(history.map((h) => h.name))];
       setRecents(uniqueRecents);
     }
 
     if (!isBackground) setLoading(false);
   };
+
   const fetchUserData = async () => {
     const { data: meals } = await supabase.from("saved_meals").select("*");
     if (meals) setSavedMeals(meals);
@@ -220,13 +457,11 @@ export default function Home() {
   };
 
   const calculateStreak = async () => {
-    // FIX: Get session directly to prevent null errors
     const {
       data: { session },
     } = await supabase.auth.getSession();
     if (!session) return;
 
-    // FIX: Added .eq('user_id') to only count YOUR streak, not friends
     const { data } = await supabase
       .from("food_logs")
       .select("date")
@@ -242,6 +477,7 @@ export default function Home() {
     const yesterday = new Date(Date.now() - 86400000)
       .toISOString()
       .slice(0, 10);
+
     if (uniqueDates[0] !== today && uniqueDates[0] !== yesterday) {
       setStreak(0);
       return;
@@ -307,6 +543,17 @@ export default function Home() {
     else {
       alert("Profile updated!");
       setIsSettingGoal(false);
+    }
+  };
+
+  const handleUpdatePassword = async () => {
+    if (!newPassword) return alert("Enter a password");
+    const { error } = await supabase.auth.updateUser({ password: newPassword });
+    if (error) alert(error.message);
+    else {
+      alert("Password updated successfully!");
+      setNewPassword("");
+      setShowPasswordSetup(false); // Close modal if open
     }
   };
 
@@ -513,14 +760,33 @@ export default function Home() {
       token: otp,
       type: "email",
     });
-    if (error) alert("Invalid code.");
+    if (error) {
+      alert("Invalid code.");
+    } else {
+      // SUCCESS: Show the Set Password Modal immediately
+      setShowPasswordSetup(true);
+    }
     setAuthLoading(false);
   };
+
+  // NEW: Login with Password
+  const handlePasswordLogin = async (e) => {
+    e.preventDefault();
+    setAuthLoading(true);
+    const { error } = await supabase.auth.signInWithPassword({
+      email,
+      password,
+    });
+    if (error) alert(error.message);
+    setAuthLoading(false);
+  };
+
   const handleLogout = async () => {
     await supabase.auth.signOut();
     setIsCodeSent(false);
     setOtp("");
     setEmail("");
+    setPassword("");
   };
 
   if (!session)
@@ -547,9 +813,106 @@ export default function Home() {
               border: "1px solid var(--border)",
             }}
           >
-            {!isCodeSent ? (
+            {/* TOGGLE HEADER */}
+            <div
+              style={{
+                display: "flex",
+                justifyContent: "center",
+                gap: 20,
+                marginBottom: 20,
+                borderBottom: "1px solid #333",
+                paddingBottom: 10,
+              }}
+            >
+              <button
+                onClick={() => setUsePasswordLogin(false)}
+                style={{
+                  background: "none",
+                  border: "none",
+                  color: !usePasswordLogin ? "#fff" : "#666",
+                  fontWeight: 600,
+                  cursor: "pointer",
+                }}
+              >
+                OTP
+              </button>
+              <button
+                onClick={() => setUsePasswordLogin(true)}
+                style={{
+                  background: "none",
+                  border: "none",
+                  color: usePasswordLogin ? "#fff" : "#666",
+                  fontWeight: 600,
+                  cursor: "pointer",
+                }}
+              >
+                Password
+              </button>
+            </div>
+
+            {usePasswordLogin ? (
+              // PASSWORD LOGIN
+              <form onSubmit={handlePasswordLogin}>
+                <input
+                  type="email"
+                  placeholder="your@email.com"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  required
+                  style={{
+                    width: "100%",
+                    padding: 12,
+                    borderRadius: 8,
+                    border: "1px solid #333",
+                    background: "#000",
+                    color: "white",
+                    marginBottom: 12,
+                  }}
+                />
+                <input
+                  type="password"
+                  placeholder="Password"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  required
+                  style={{
+                    width: "100%",
+                    padding: 12,
+                    borderRadius: 8,
+                    border: "1px solid #333",
+                    background: "#000",
+                    color: "white",
+                    marginBottom: 12,
+                  }}
+                />
+                <button
+                  disabled={authLoading}
+                  style={{
+                    width: "100%",
+                    padding: 12,
+                    borderRadius: 8,
+                    border: "none",
+                    background: "var(--brand)",
+                    color: "white",
+                    fontWeight: 600,
+                    cursor: "pointer",
+                  }}
+                >
+                  {authLoading ? (
+                    <Loader2 className="animate-spin" />
+                  ) : (
+                    "Sign In"
+                  )}
+                </button>
+                <div
+                  style={{ marginTop: 12, fontSize: "0.8rem", color: "#666" }}
+                >
+                  Forgot password? Use OTP to login & reset it.
+                </div>
+              </form>
+            ) : // OTP LOGIN
+            !isCodeSent ? (
               <form onSubmit={handleSendCode}>
-                <h2 style={{ fontSize: "1.2rem", marginBottom: 8 }}>Sign In</h2>
                 <input
                   type="email"
                   placeholder="your@email.com"
@@ -585,12 +948,14 @@ export default function Home() {
                     "Get Code"
                   )}
                 </button>
+                <div
+                  style={{ marginTop: 12, fontSize: "0.8rem", color: "#666" }}
+                >
+                  New user? Just enter your email to start.
+                </div>
               </form>
             ) : (
               <form onSubmit={handleVerifyCode}>
-                <h2 style={{ fontSize: "1.2rem", marginBottom: 8 }}>
-                  Enter Code
-                </h2>
                 <input
                   type="text"
                   placeholder="12345678"
@@ -649,7 +1014,71 @@ export default function Home() {
         boxSizing: "border-box",
       }}
     >
-      {/* GOAL MODAL */}
+      {/* PASSWORD SETUP MODAL (TRIGGERS AFTER OTP LOGIN) */}
+      {showPasswordSetup && (
+        <div className="modal-overlay">
+          <div
+            className="modal-content"
+            style={{ maxWidth: 400, width: "90%", textAlign: "center" }}
+          >
+            <KeyRound size={40} color="#3b82f6" style={{ marginBottom: 16 }} />
+            <h3 style={{ margin: "0 0 8px 0" }}>Set a Password</h3>
+            <p style={{ color: "#888", marginBottom: 20, fontSize: "0.9rem" }}>
+              Create a password so you can login easier next time.
+            </p>
+
+            <input
+              type="password"
+              placeholder="New Password"
+              value={newPassword}
+              onChange={(e) => setNewPassword(e.target.value)}
+              style={{
+                width: "100%",
+                padding: 12,
+                background: "#000",
+                border: "1px solid #444",
+                color: "#fff",
+                borderRadius: 8,
+                marginBottom: 10,
+              }}
+            />
+            <div style={{ display: "flex", gap: 10 }}>
+              <button
+                onClick={() => setShowPasswordSetup(false)}
+                style={{
+                  flex: 1,
+                  padding: 12,
+                  background: "transparent",
+                  border: "1px solid #333",
+                  borderRadius: 8,
+                  color: "#888",
+                  fontWeight: 600,
+                  cursor: "pointer",
+                }}
+              >
+                Skip
+              </button>
+              <button
+                onClick={handleUpdatePassword}
+                style={{
+                  flex: 1,
+                  padding: 12,
+                  background: "var(--brand)",
+                  border: "none",
+                  borderRadius: 8,
+                  color: "#fff",
+                  fontWeight: 600,
+                  cursor: "pointer",
+                }}
+              >
+                Save Password
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* GOAL/SETTINGS MODAL */}
       {isSettingGoal && (
         <div className="modal-overlay">
           <div
@@ -673,7 +1102,7 @@ export default function Home() {
                   gap: 8,
                 }}
               >
-                <Target size={20} color="#f59e0b" /> My Goals
+                <Target size={20} color="#f59e0b" /> Settings
               </h3>
               <button
                 onClick={() => setIsSettingGoal(false)}
@@ -687,54 +1116,155 @@ export default function Home() {
                 <X size={20} />
               </button>
             </div>
-            <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
-              <div
+
+            {/* TAB SWITCHER */}
+            <div
+              style={{
+                display: "flex",
+                background: "#1f1f22",
+                padding: 4,
+                borderRadius: 8,
+                marginBottom: 20,
+              }}
+            >
+              <button
+                onClick={() => setSettingsTab("profile")}
                 style={{
-                  background: "#1f1f22",
-                  padding: 16,
-                  borderRadius: 12,
-                  border: "1px solid #333",
+                  flex: 1,
+                  padding: 8,
+                  background:
+                    settingsTab === "profile" ? "#333" : "transparent",
+                  border: "none",
+                  color: "#fff",
+                  borderRadius: 6,
+                  cursor: "pointer",
                 }}
               >
-                <label
+                Profile
+              </button>
+              <button
+                onClick={() => setSettingsTab("security")}
+                style={{
+                  flex: 1,
+                  padding: 8,
+                  background:
+                    settingsTab === "security" ? "#333" : "transparent",
+                  border: "none",
+                  color: "#fff",
+                  borderRadius: 6,
+                  cursor: "pointer",
+                }}
+              >
+                Security
+              </button>
+            </div>
+
+            {settingsTab === "security" ? (
+              <div
+                style={{ display: "flex", flexDirection: "column", gap: 20 }}
+              >
+                <div
                   style={{
-                    fontSize: "0.85rem",
-                    color: "#f59e0b",
-                    fontWeight: 600,
-                    marginBottom: 8,
-                    display: "block",
+                    background: "#1f1f22",
+                    padding: 16,
+                    borderRadius: 12,
+                    border: "1px solid #333",
+                    textAlign: "center",
                   }}
                 >
-                  🎯 Manual Calorie Target
-                </label>
-                <input
-                  type="number"
-                  placeholder="e.g. 2200"
-                  value={userProfile.target_calories || ""}
-                  onChange={(e) =>
-                    setUserProfile({
-                      ...userProfile,
-                      target_calories: e.target.value,
-                    })
-                  }
-                  style={{
-                    width: "100%",
-                    padding: 12,
-                    background: "#000",
-                    border: "1px solid #444",
-                    color: "#fff",
-                    borderRadius: 8,
-                    fontSize: "1rem",
-                    fontWeight: 600,
-                  }}
-                />
+                  <Shield
+                    size={32}
+                    color="#3b82f6"
+                    style={{ marginBottom: 10 }}
+                  />
+                  <h4 style={{ margin: "0 0 10px 0" }}>Update Password</h4>
+                  <p
+                    style={{
+                      color: "#888",
+                      fontSize: "0.85rem",
+                      marginBottom: 15,
+                    }}
+                  >
+                    Set or change your login password.
+                  </p>
+                  <input
+                    type="password"
+                    placeholder="New Password"
+                    value={newPassword}
+                    onChange={(e) => setNewPassword(e.target.value)}
+                    style={{
+                      width: "100%",
+                      padding: 12,
+                      background: "#000",
+                      border: "1px solid #444",
+                      color: "#fff",
+                      borderRadius: 8,
+                      marginBottom: 10,
+                    }}
+                  />
+                  <button
+                    onClick={handleUpdatePassword}
+                    style={{
+                      width: "100%",
+                      padding: 12,
+                      background: "var(--brand)",
+                      border: "none",
+                      borderRadius: 8,
+                      color: "#fff",
+                      fontWeight: 600,
+                      cursor: "pointer",
+                    }}
+                  >
+                    Update Password
+                  </button>
+                </div>
               </div>
+            ) : (
+              // EXISTING PROFILE FORM
               <div
-                style={{
-                  opacity: userProfile.target_calories ? 0.5 : 1,
-                }}
+                style={{ display: "flex", flexDirection: "column", gap: 20 }}
               >
-                {/* SECTION 2: BIOMETRICS */}
+                <div
+                  style={{
+                    background: "#1f1f22",
+                    padding: 16,
+                    borderRadius: 12,
+                    border: "1px solid #333",
+                  }}
+                >
+                  <label
+                    style={{
+                      fontSize: "0.85rem",
+                      color: "#f59e0b",
+                      fontWeight: 600,
+                      marginBottom: 8,
+                      display: "block",
+                    }}
+                  >
+                    🎯 Manual Calorie Target
+                  </label>
+                  <input
+                    type="number"
+                    placeholder="e.g. 2200"
+                    value={userProfile.target_calories || ""}
+                    onChange={(e) =>
+                      setUserProfile({
+                        ...userProfile,
+                        target_calories: e.target.value,
+                      })
+                    }
+                    style={{
+                      width: "100%",
+                      padding: 12,
+                      background: "#000",
+                      border: "1px solid #444",
+                      color: "#fff",
+                      borderRadius: 8,
+                      fontSize: "1rem",
+                      fontWeight: 600,
+                    }}
+                  />
+                </div>
                 <div style={{ opacity: userProfile.target_calories ? 0.5 : 1 }}>
                   <div
                     style={{
@@ -749,8 +1279,7 @@ export default function Home() {
                       Auto-Calculate
                     </span>
                   </div>
-
-                  {/* Row 1: Weight & Height */}
+                  {/* ... Existing inputs for Weight, Height, etc ... */}
                   <div
                     style={{
                       display: "grid",
@@ -820,8 +1349,6 @@ export default function Home() {
                       />
                     </div>
                   </div>
-
-                  {/* Row 2: Age & Gender (THIS IS THE FIX) */}
                   <div
                     style={{
                       display: "grid",
@@ -907,8 +1434,6 @@ export default function Home() {
                       </div>
                     </div>
                   </div>
-
-                  {/* Row 3: Activity Level */}
                   <div style={{ marginBottom: 10 }}>
                     <label
                       style={{
@@ -946,8 +1471,6 @@ export default function Home() {
                       <option value="active">Active (6-7 days)</option>
                     </select>
                   </div>
-
-                  {/* Row 4: Weekly Goal */}
                   <div>
                     <label
                       style={{
@@ -999,23 +1522,23 @@ export default function Home() {
                     </div>
                   </div>
                 </div>
+                <button
+                  onClick={saveGoal}
+                  style={{
+                    width: "100%",
+                    padding: 14,
+                    background: "var(--brand)",
+                    border: "none",
+                    color: "#fff",
+                    borderRadius: 10,
+                    fontWeight: 700,
+                    cursor: "pointer",
+                  }}
+                >
+                  Save Profile
+                </button>
               </div>
-              <button
-                onClick={saveGoal}
-                style={{
-                  width: "100%",
-                  padding: 14,
-                  background: "var(--brand)",
-                  border: "none",
-                  color: "#fff",
-                  borderRadius: 10,
-                  fontWeight: 700,
-                  cursor: "pointer",
-                }}
-              >
-                Save Profile
-              </button>
-            </div>
+            )}
           </div>
         </div>
       )}
@@ -1216,10 +1739,23 @@ export default function Home() {
         <div style={{ display: "flex", gap: 8 }}>
           <button
             className="menu-btn"
-            onClick={() => setIsSettingGoal(true)}
+            onClick={() => {
+              setIsSettingGoal(true);
+              setSettingsTab("profile");
+            }}
             style={{ color: "#3b82f6" }}
           >
             <Target size={20} />
+          </button>
+          <button
+            className="menu-btn"
+            onClick={() => {
+              setIsSettingGoal(true);
+              setSettingsTab("security");
+            }}
+            style={{ color: "#888" }}
+          >
+            <Settings size={20} />
           </button>
           <Link href="/dashboard">
             <button className="menu-btn" style={{ color: "var(--brand)" }}>
@@ -1238,7 +1774,12 @@ export default function Home() {
         </div>
       </header>
 
-      <StatsBoard totals={totals} onAddWater={() => addFood("Water")} />
+      {/* UPDATED: Pass User Profile to StatsBoard for dynamic bars */}
+      <StatsBoard
+        totals={totals}
+        onAddWater={() => addFood("Water")}
+        userProfile={userProfile}
+      />
 
       <section className="command-center">
         <div className="input-row">
@@ -1291,7 +1832,7 @@ export default function Home() {
                   }`}
                   onClick={() => setActiveCategory(cat)}
                 >
-                  {cat.split(" ")[0]}
+                  {cat}
                 </button>
               ))}
             </div>

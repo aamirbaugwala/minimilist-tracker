@@ -1,8 +1,23 @@
-import './globals.css';
+import "./globals.css";
 
 export const metadata = {
-  title: 'Minimalist Macro Tracker',
-  description: 'Track food simply.',
+  title: "NutriTrack",
+  description: "Track calories, macros, and water scientifically.",
+  manifest: "/manifest.json",
+  appleWebApp: {
+    capable: true,
+    statusBarStyle: "black-translucent",
+    title: "NutriTrack",
+  },
+};
+
+// ✅ Move themeColor and viewport settings here
+export const viewport = {
+  themeColor: "#000000",
+  width: "device-width",
+  initialScale: 1,
+  maximumScale: 1,
+  userScalable: false,
 };
 
 export default function RootLayout({ children }) {
