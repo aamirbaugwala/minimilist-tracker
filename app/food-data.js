@@ -311,7 +311,10 @@ export const FOOD_CATEGORIES = {
     "vada": { calories: 160, protein: 4, carbs: 18, fats: 10, fiber: 1.5 }, // Urad dal
     "pav bhaji": { calories: 600, protein: 15, carbs: 70, fats: 25, fiber: 7.0 },
     "vada pav": { calories: 300, protein: 7, carbs: 45, fats: 12, fiber: 2.5 },
-    "momos": { calories: 50, protein: 2, carbs: 8, fats: 1, fiber: 0.2 }, // Maida skin
+  "momos": { calories: 50, protein: 2, carbs: 8, fats: 1, fiber: 0.2 }, // Maida skin
+  "oats (plain, 40g)": { calories: 150, protein: 5, carbs: 27, fats: 3, fiber: 4 },
+  "oats with milk (40g oats + 200ml milk)": { calories: 220, protein: 9, carbs: 32, fats: 5, fiber: 4 },
+  "oats with fruits & nuts (40g oats, 200ml milk, 20g mixed fruits, 10g nuts)": { calories: 270, protein: 10, carbs: 38, fats: 8, fiber: 5.5 },
   },
 
   "Gym / High Protein": {
