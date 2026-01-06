@@ -73,6 +73,7 @@ const StatsBoard = memo(({ totals, userProfile, onAddWater }) => {
 
   const usedCals = targetP * 4 + targetF * 9;
   targetC = Math.round(Math.max(0, targetCals - usedCals) / 4);
+  const targetFib = Math.round((targetCals / 1000) * 14);
 
   let targetWater = Math.round(weight * 0.035 * 10) / 10;
   if (
@@ -199,7 +200,7 @@ const StatsBoard = memo(({ totals, userProfile, onAddWater }) => {
               >
                 <span style={{ fontWeight: 600, color: "#ddd" }}>Carbs</span>
                 <span style={{ color: "#888" }}>
-                  <span style={{ color: "#10b981" }}>{totals.carbs}</span> /{" "}
+                  <span style={{ color: "#FFC107" }}>{totals.carbs}</span> /{" "}
                   {targetC}g
                 </span>
               </div>
@@ -214,7 +215,41 @@ const StatsBoard = memo(({ totals, userProfile, onAddWater }) => {
                 <div
                   style={{
                     width: `${pct(totals.carbs, targetC)}%`,
-                    background: "#10b981",
+                    background: "#FFC107",
+                    height: "100%",
+                    borderRadius: 10,
+                    transition: "width 0.5s",
+                  }}
+                />
+              </div>
+            </div>
+            <div>
+              <div
+                style={{
+                  display: "flex",
+                  justifyContent: "space-between",
+                  fontSize: "0.8rem",
+                  marginBottom: 6,
+                }}
+              >
+                <span style={{ fontWeight: 600, color: "#ddd" }}>Fiber</span>
+                <span style={{ color: "#888" }}>
+                  <span style={{ color: "#22c55e" }}>{totals.fiber}</span> /{" "}
+                  {targetFib}g
+                </span>
+              </div>
+              <div
+                style={{
+                  height: 6,
+                  background: "#27272a",
+                  borderRadius: 10,
+                  overflow: "hidden",
+                }}
+              >
+                <div
+                  style={{
+                    width: `${pct(totals.fiber, targetFib)}%`,
+                    background: "#22c55e",
                     height: "100%",
                     borderRadius: 10,
                     transition: "width 0.5s",
@@ -233,7 +268,7 @@ const StatsBoard = memo(({ totals, userProfile, onAddWater }) => {
               >
                 <span style={{ fontWeight: 600, color: "#ddd" }}>Fats</span>
                 <span style={{ color: "#888" }}>
-                  <span style={{ color: "#f59e0b" }}>{totals.fats}</span> /{" "}
+                  <span style={{ color: "#ef4444" }}>{totals.fats}</span> /{" "}
                   {targetF}g
                 </span>
               </div>
@@ -248,7 +283,7 @@ const StatsBoard = memo(({ totals, userProfile, onAddWater }) => {
                 <div
                   style={{
                     width: `${pct(totals.fats, targetF)}%`,
-                    background: "#f59e0b",
+                    background: "#ef4444",
                     height: "100%",
                     borderRadius: 10,
                     transition: "width 0.5s",
@@ -347,6 +382,7 @@ export default function Home() {
     protein: 0,
     carbs: 0,
     fats: 0,
+    fiber: 0,
     water: 0,
   });
   const [recents, setRecents] = useState([]);
@@ -407,7 +443,32 @@ export default function Home() {
       .eq("date", todayKey)
       .order("created_at", { ascending: false });
     if (!error) {
-      setLogs(data);
+      // --- FIX: BACKFILL FIBER FOR OLD LOGS ---
+      // If a log from DB is missing fiber, look it up in the static DB
+      const enrichedLogs = data.map((log) => {
+        if (log.name === "Water") return { ...log, fiber: 0 };
+
+        // If fiber exists and is > 0, trust the DB
+        if (log.fiber && log.fiber > 0) return log;
+
+        // Otherwise, try to find it in the static DB
+        let dbItem = FLATTENED_DB[log.name.toLowerCase()];
+        if (!dbItem) {
+          // Fuzzy search fallback
+          const key = Object.keys(FLATTENED_DB).find((k) =>
+            k.includes(log.name.toLowerCase())
+          );
+          if (key) dbItem = FLATTENED_DB[key];
+        }
+
+        // Calculate missing fiber
+        if (dbItem && dbItem.fiber) {
+          return { ...log, fiber: Math.round(dbItem.fiber * log.qty) };
+        }
+
+        return { ...log, fiber: 0 }; // Default to 0 if not found
+      });
+      setLogs(enrichedLogs);
       setHasUnsavedChanges(false);
     }
 
@@ -558,7 +619,7 @@ export default function Home() {
       itemsToAdd.forEach((newItem) => {
         const foodName = newItem.name;
         const quantity = Number(newItem.qty);
-        let baseData = { calories: 0, protein: 0, carbs: 0, fats: 0 };
+        let baseData = { calories: 0, protein: 0, carbs: 0, fats: 0, fiber: 0 };
         if (foodName !== "Water") {
           let dbData = FLATTENED_DB[foodName.toLowerCase()];
           if (!dbData) {
@@ -580,6 +641,7 @@ export default function Home() {
             protein: Math.round(baseData.protein * newQty),
             carbs: Math.round(baseData.carbs * newQty),
             fats: Math.round(baseData.fats * newQty),
+            fiber: Math.round(baseData.fiber * newQty),
           };
         } else {
           updatedLogs = [
@@ -591,6 +653,7 @@ export default function Home() {
               protein: Math.round(baseData.protein * quantity),
               carbs: Math.round(baseData.carbs * quantity),
               fats: Math.round(baseData.fats * quantity),
+              fiber: Math.round(baseData.fiber * quantity),
               date: new Date().toISOString().slice(0, 10),
               user_id: session.user.id,
             },
@@ -713,9 +776,10 @@ export default function Home() {
         protein: acc.protein + (Number(item.protein) || 0),
         carbs: acc.carbs + (Number(item.carbs) || 0),
         fats: acc.fats + (Number(item.fats) || 0),
+        fiber: acc.fiber + (Number(item.fiber) || 0),
         water: item.name === "Water" ? acc.water + item.qty : acc.water,
       }),
-      { calories: 0, protein: 0, carbs: 0, fats: 0, water: 0 }
+      { calories: 0, protein: 0, carbs: 0, fats: 0, fiber: 0, water: 0 }
     );
     setTotals(t);
   }, [logs]);
@@ -2187,7 +2251,7 @@ export default function Home() {
                         style={{
                           fontSize: "0.7rem",
                           background: "rgba(16, 185, 129, 0.15)",
-                          color: "#10b981",
+                          color: "#FFC107",
                           padding: "2px 6px",
                           borderRadius: 4,
                           fontWeight: 600,
@@ -2199,13 +2263,25 @@ export default function Home() {
                         style={{
                           fontSize: "0.7rem",
                           background: "rgba(245, 158, 11, 0.15)",
-                          color: "#f59e0b",
+                          color: "#ef4444",
                           padding: "2px 6px",
                           borderRadius: 4,
                           fontWeight: 600,
                         }}
                       >
                         F: {log.fats}g
+                      </div>
+                      <div
+                        style={{
+                          fontSize: "0.7rem",
+                          background: "rgba(34, 197, 94, 0.15)",
+                          color: "#10b981",
+                          padding: "2px 6px",
+                          borderRadius: 4,
+                          fontWeight: 600,
+                        }}
+                      >
+                        Fib: {log.fiber}g
                       </div>
                     </>
                   )}

@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
+import { FLATTENED_DB } from "../food-data"; // <--- IMPORT ADDED
 import {
   ArrowLeft,
   UserPlus,
@@ -14,8 +15,9 @@ import {
   Droplets,
   PieChart as PieIcon,
   Trash2,
-  Utensils, // Added for the empty state icon
-  Loader2, // Added for loading state
+  Utensils,
+  Loader2,
+  Leaf,
 } from "lucide-react";
 import { supabase } from "../supabase";
 
@@ -29,7 +31,7 @@ export default function SocialPage() {
   const [addStatus, setAddStatus] = useState("");
   const [cheered, setCheered] = useState({});
 
-  // --- NEW STATE FOR VIEWING LOGS ---
+  // STATE FOR VIEWING LOGS
   const [selectedFriend, setSelectedFriend] = useState(null);
   const [friendLogs, setFriendLogs] = useState([]);
   const [logsLoading, setLogsLoading] = useState(false);
@@ -38,7 +40,6 @@ export default function SocialPage() {
     fetchSocialData();
   }, []);
 
-  // --- NEW: FETCH FRIEND LOGS ON CLICK ---
   const handleViewLogs = async (friend) => {
     setSelectedFriend(friend);
     setLogsLoading(true);
@@ -51,7 +52,18 @@ export default function SocialPage() {
       .eq("date", today)
       .order("created_at", { ascending: false });
 
-    setFriendLogs(data || []);
+    // ENHANCED LOGS: Calculate fiber for display in the modal if missing
+    const enhancedData = (data || []).map((log) => {
+      if (!log.fiber && log.name !== "Water") {
+        const dbItem = FLATTENED_DB[log.name.toLowerCase()];
+        if (dbItem?.fiber) {
+          return { ...log, fiber: Math.round(dbItem.fiber * log.qty) };
+        }
+      }
+      return log;
+    });
+
+    setFriendLogs(enhancedData);
     setLogsLoading(false);
   };
 
@@ -60,12 +72,10 @@ export default function SocialPage() {
     setFriendLogs([]);
   };
 
-  // --- 1. COMPREHENSIVE TARGET CALCULATOR ---
   const calculateTargets = (prof) => {
     if (!prof || !prof.weight)
-      return { cals: 2000, p: 150, c: 200, f: 65, water: 3 };
+      return { cals: 2000, p: 150, c: 200, f: 65, fib: 28, water: 3 };
 
-    // Calories
     let targetCals = 2000;
     if (prof.target_calories) {
       targetCals = Number(prof.target_calories);
@@ -84,7 +94,6 @@ export default function SocialPage() {
       else if (prof.goal === "gain") targetCals += 300;
     }
 
-    // Macros
     const weight = Number(prof.weight);
     let targetP, targetF, targetC;
 
@@ -101,8 +110,8 @@ export default function SocialPage() {
 
     const usedCals = targetP * 4 + targetF * 9;
     targetC = Math.round(Math.max(0, targetCals - usedCals) / 4);
+    const targetFib = Math.round((targetCals / 1000) * 14);
 
-    // Water
     let waterTarget = Math.round(weight * 0.035 * 10) / 10;
     if (prof.activity === "active" || prof.activity === "moderate")
       waterTarget += 0.5;
@@ -112,6 +121,7 @@ export default function SocialPage() {
       p: targetP,
       c: targetC,
       f: targetF,
+      fib: targetFib,
       water: waterTarget,
     };
   };
@@ -144,22 +154,33 @@ export default function SocialPage() {
         .eq("user_id", uid)
         .eq("date", new Date().toISOString().slice(0, 10));
 
+      // --- FIXED STATS CALCULATION (DB LOOKUP ADDED) ---
       const stats = logs?.reduce(
-        (acc, item) => ({
-          cals: acc.cals + (item.calories || 0),
-          p: acc.p + (item.protein || 0),
-          c: acc.c + (item.carbs || 0),
-          f: acc.f + (item.fats || 0),
-          water:
-            item.name === "Water" ? acc.water + item.qty * 0.25 : acc.water,
-        }),
-        { cals: 0, p: 0, c: 0, f: 0, water: 0 }
-      ) || { cals: 0, p: 0, c: 0, f: 0, water: 0 };
+        (acc, item) => {
+          // Calculate Fiber Fallback
+          let currentFib = item.fiber || 0;
+          if (!currentFib && item.name !== "Water") {
+            const dbItem = FLATTENED_DB[item.name.toLowerCase()];
+            if (dbItem?.fiber) {
+              currentFib = Math.round(dbItem.fiber * item.qty);
+            }
+          }
+
+          return {
+            cals: acc.cals + (item.calories || 0),
+            p: acc.p + (item.protein || 0),
+            c: acc.c + (item.carbs || 0),
+            f: acc.f + (item.fats || 0),
+            fib: acc.fib + currentFib, // Use calculated fiber
+            water:
+              item.name === "Water" ? acc.water + item.qty * 0.25 : acc.water,
+          };
+        },
+        { cals: 0, p: 0, c: 0, f: 0, fib: 0, water: 0 }
+      ) || { cals: 0, p: 0, c: 0, f: 0, fib: 0, water: 0 };
 
       const targets = calculateTargets(profile);
 
-      // --- NEW SCORING ALGORITHM ---
-      // Calculate % for each metric, capped at 100% so over-consuming one doesn't hide under-consuming another.
       const getScore = (val, target) =>
         Math.min(100, (val / target) * 100) || 0;
 
@@ -167,10 +188,12 @@ export default function SocialPage() {
       const sPro = getScore(stats.p, targets.p);
       const sCarb = getScore(stats.c, targets.c);
       const sFat = getScore(stats.f, targets.f);
+      const sFib = getScore(stats.fib, targets.fib);
       const sWater = getScore(stats.water, targets.water);
 
-      // Average Score across 5 categories
-      const progress = Math.round((sCal + sPro + sCarb + sFat + sWater) / 5);
+      const progress = Math.round(
+        (sCal + sPro + sCarb + sFat + sFib + sWater) / 6
+      );
 
       let statusLabel = "Sleeping 😴";
       let barColor = "#3b82f6";
@@ -231,7 +254,7 @@ export default function SocialPage() {
   };
 
   const handleInteract = (e, id, type) => {
-    e.stopPropagation(); // Prevent opening modal when cheering
+    e.stopPropagation();
     setCheered((prev) => ({ ...prev, [id]: type }));
     setTimeout(() => setCheered((prev) => ({ ...prev, [id]: null })), 2000);
   };
@@ -285,7 +308,7 @@ export default function SocialPage() {
             flexDirection: "column",
             alignItems: "center",
             width: "30%",
-            cursor: "pointer", // Make podium clickable
+            cursor: "pointer",
           }}
         >
           <div
@@ -331,7 +354,7 @@ export default function SocialPage() {
             alignItems: "center",
             width: "35%",
             zIndex: 2,
-            cursor: "pointer", // Make podium clickable
+            cursor: "pointer",
           }}
         >
           <Flame
@@ -390,7 +413,7 @@ export default function SocialPage() {
             flexDirection: "column",
             alignItems: "center",
             width: "30%",
-            cursor: "pointer", // Make podium clickable
+            cursor: "pointer",
           }}
         >
           <div
@@ -435,7 +458,6 @@ export default function SocialPage() {
       className="app-wrapper"
       style={{ maxWidth: 800, margin: "0 auto", padding: 20 }}
     >
-      {/* --- NEW: FRIEND LOGS MODAL --- */}
       {selectedFriend && (
         <div className="modal-overlay">
           <div
@@ -548,6 +570,9 @@ export default function SocialPage() {
                           <span style={{ color: "#f59e0b" }}>
                             F: {log.fats}
                           </span>
+                          <span style={{ color: "#a855f7" }}>
+                            Fib: {log.fiber || 0}
+                          </span>
                         </div>
                       )}
                     </div>
@@ -607,7 +632,6 @@ export default function SocialPage() {
         </div>
       </div>
 
-      {/* TABS */}
       <div
         style={{
           display: "flex",
@@ -888,7 +912,6 @@ export default function SocialPage() {
                 {friends.map((friend, i) => (
                   <div
                     key={friend.id}
-                    // --- CHANGED: Added Click Handler ---
                     onClick={() => handleViewLogs(friend)}
                     style={{
                       background: "#1f1f22",
@@ -901,7 +924,7 @@ export default function SocialPage() {
                       alignItems: "center",
                       gap: 16,
                       position: "relative",
-                      cursor: "pointer", // Added cursor pointer
+                      cursor: "pointer",
                     }}
                   >
                     <div
@@ -1051,6 +1074,19 @@ export default function SocialPage() {
                             {friend.stats.c}
                           </span>
                           /{friend.targets.c}g
+                        </span>
+                        <span
+                          style={{
+                            display: "flex",
+                            alignItems: "center",
+                            gap: 4,
+                          }}
+                        >
+                          <Leaf size={12} color="#a855f7" />
+                          <span style={{ color: "#fff" }}>
+                            {friend.stats.fib}
+                          </span>
+                          /{friend.targets.fib}g
                         </span>
                         <span
                           style={{
