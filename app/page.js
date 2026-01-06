@@ -410,6 +410,7 @@ export default function Home() {
     target_calories: "",
   });
   const [newPassword, setNewPassword] = useState("");
+  const [username, setUsername] = useState("");
   const [mealBuilderItems, setMealBuilderItems] = useState([]);
   const [mealBuilderQuery, setMealBuilderQuery] = useState("");
   const [editingMealId, setEditingMealId] = useState(null);
@@ -499,6 +500,7 @@ export default function Home() {
         .eq("user_id", session.user.id)
         .single();
       if (profile) setUserProfile(profile);
+      if (profile.username) setUsername(profile.username);
     }
   };
 
@@ -602,14 +604,46 @@ export default function Home() {
   };
 
   const handleUpdatePassword = async () => {
-    if (!newPassword) return alert("Enter a password");
-    const { error } = await supabase.auth.updateUser({ password: newPassword });
-    if (error) alert(error.message);
-    else {
-      alert("Password updated successfully!");
-      setNewPassword("");
-      setShowPasswordSetup(false);
+    let msg = "";
+
+    // 1. Update Password (if provided)
+    if (newPassword) {
+      const { error } = await supabase.auth.updateUser({
+        password: newPassword,
+      });
+      if (error) return alert(error.message);
+      msg += "Password updated. ";
     }
+
+    // 2. Update Username (if provided)
+    if (username) {
+      const { error: profileError } = await supabase
+        .from("user_profiles")
+        .upsert(
+          {
+            user_id: session.user.id,
+            username: username,
+            updated_at: new Date(),
+          },
+          { onConflict: "user_id" }
+        ); // Ensure we don't create dupes
+
+      if (profileError) {
+        console.error(profileError);
+        return alert("Error saving username.");
+      }
+
+      // Update local state immediately so UI reflects it
+      setUserProfile((prev) => ({ ...prev, username }));
+      msg += "Username saved.";
+    }
+
+    if (!newPassword && !username)
+      return alert("Please enter a username or password.");
+
+    alert(msg);
+    setNewPassword("");
+    setShowPasswordSetup(false);
   };
 
   const handleLocalAdd = (itemsToAdd) => {
@@ -1226,7 +1260,7 @@ export default function Home() {
         </div>
       )}
 
-      {/* PASSWORD MODAL */}
+      {/* PASSWORD & USERNAME MODAL */}
       {showPasswordSetup && (
         <div className="modal-overlay">
           <div
@@ -1234,10 +1268,29 @@ export default function Home() {
             style={{ maxWidth: 400, width: "90%", textAlign: "center" }}
           >
             <KeyRound size={40} color="#3b82f6" style={{ marginBottom: 16 }} />
-            <h3 style={{ margin: "0 0 8px 0" }}>Set a Password</h3>
+            <h3 style={{ margin: "0 0 8px 0" }}>Account Setup</h3>
             <p style={{ color: "#888", marginBottom: 20, fontSize: "0.9rem" }}>
-              Create a password so you can login easier next time.
+              Set a username and password to secure your account.
             </p>
+
+            {/* USERNAME INPUT */}
+            <input
+              type="text"
+              placeholder="Username (e.g. GymRat99)"
+              value={username}
+              onChange={(e) => setUsername(e.target.value)}
+              style={{
+                width: "100%",
+                padding: 12,
+                background: "#000",
+                border: "1px solid #444",
+                color: "#fff",
+                borderRadius: 8,
+                marginBottom: 10,
+              }}
+            />
+
+            {/* PASSWORD INPUT */}
             <input
               type="password"
               placeholder="New Password"
@@ -1253,6 +1306,7 @@ export default function Home() {
                 marginBottom: 10,
               }}
             />
+
             <div style={{ display: "flex", gap: 10 }}>
               <button
                 onClick={() => setShowPasswordSetup(false)}
@@ -1267,7 +1321,7 @@ export default function Home() {
                   cursor: "pointer",
                 }}
               >
-                Skip
+                Cancel
               </button>
               <button
                 onClick={handleUpdatePassword}
@@ -1282,7 +1336,7 @@ export default function Home() {
                   cursor: "pointer",
                 }}
               >
-                Save Password
+                Save Changes
               </button>
             </div>
           </div>
@@ -1385,7 +1439,7 @@ export default function Home() {
                     color="#3b82f6"
                     style={{ marginBottom: 10 }}
                   />
-                  <h4 style={{ margin: "0 0 10px 0" }}>Update Password</h4>
+                  <h4 style={{ margin: "0 0 10px 0" }}>Account Details</h4>
                   <p
                     style={{
                       color: "#888",
@@ -1393,11 +1447,28 @@ export default function Home() {
                       marginBottom: 15,
                     }}
                   >
-                    Set or change your login password.
+                    Update your public username or login password.
                   </p>
+
+                  <input
+                    type="text"
+                    placeholder="Username"
+                    value={username}
+                    onChange={(e) => setUsername(e.target.value)}
+                    style={{
+                      width: "100%",
+                      padding: 12,
+                      background: "#000",
+                      border: "1px solid #444",
+                      color: "#fff",
+                      borderRadius: 8,
+                      marginBottom: 10,
+                    }}
+                  />
+
                   <input
                     type="password"
-                    placeholder="New Password"
+                    placeholder="New Password (optional)"
                     value={newPassword}
                     onChange={(e) => setNewPassword(e.target.value)}
                     style={{
@@ -1423,7 +1494,7 @@ export default function Home() {
                       cursor: "pointer",
                     }}
                   >
-                    Update Password
+                    Update Account
                   </button>
                 </div>
               </div>
@@ -1924,7 +1995,22 @@ export default function Home() {
         }}
       >
         <div>
+          {/* NEW: Welcome Message */}
+          {username && (
+            <div
+              style={{
+                fontSize: "0.85rem",
+                color: "#a1a1aa",
+                marginBottom: -4,
+                fontWeight: 500,
+              }}
+            >
+              Welcome back, <span style={{ color: "#fff" }}>{username}</span>
+            </div>
+          )}
+
           <h1 className="brand-title">NutriTrack.</h1>
+
           <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
             <div className="date-badge">Today</div>
             <div
