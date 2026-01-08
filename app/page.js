@@ -818,14 +818,39 @@ export default function Home() {
     setTotals(t);
   }, [logs]);
 
-  const getDisplayItems = () =>
-    query
-      ? Object.keys(FLATTENED_DB).filter((k) => k.includes(query.toLowerCase()))
-      : activeCategory === "Recent"
-      ? recents
-      : activeCategory === "Meals"
-      ? savedMeals
-      : Object.keys(FOOD_CATEGORIES[activeCategory] || {});
+  const getDisplayItems = () => {
+    // Helper to hydrate strings to objects from DB
+    const hydrate = (keys) =>
+      keys.map((key) => {
+        // Try exact match first, then partial
+        const item =
+          FLATTENED_DB[key.toLowerCase()] ||
+          FLATTENED_DB[
+            Object.keys(FLATTENED_DB).find((k) => k.includes(key.toLowerCase()))
+          ];
+        return item ? { name: key, ...item } : { name: key };
+      });
+
+    if (query) {
+      const keys = Object.keys(FLATTENED_DB).filter((k) =>
+        k.includes(query.toLowerCase())
+      );
+      return hydrate(keys);
+    }
+
+    if (activeCategory === "Recent") {
+      return hydrate(recents);
+    }
+
+    if (activeCategory === "Meals") {
+      return savedMeals; // Already objects
+    }
+
+    // Standard Categories
+    const catKeys = Object.keys(FOOD_CATEGORIES[activeCategory] || {});
+    return hydrate(catKeys);
+  };
+
   const getBuilderSuggestions = () =>
     mealBuilderQuery
       ? Object.keys(FLATTENED_DB).filter((k) =>
@@ -852,7 +877,6 @@ export default function Home() {
     if (error) {
       alert("Invalid code.");
     } else {
-      // SUCCESS: Show the Set Password Modal immediately
       setShowPasswordSetup(true);
     }
     setAuthLoading(false);
@@ -2198,27 +2222,75 @@ export default function Home() {
                 ))}
               </>
             ) : (
-              getDisplayItems().map((item) => (
-                <button
-                  key={item.id || item}
-                  className="suggestion-chip"
-                  onClick={() => addFood(item.name || item)}
-                  style={{
-                    whiteSpace: "normal",
-                    height: "auto",
-                    minHeight: 44,
-                    wordBreak: "break-word",
-                    textAlign: query ? "left" : "center",
-                    padding: query ? "12px 16px" : "8px",
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: query ? "flex-start" : "center",
-                  }}
-                >
-                  {(item.name || item).charAt(0).toUpperCase() +
-                    (item.name || item).slice(1)}
-                </button>
-              ))
+              getDisplayItems().map((item) => {
+                // Normalize item: if string (legacy), make object. If object (smart search), keep.
+                const foodName = typeof item === "string" ? item : item.name;
+                const p =
+                  typeof item === "object" && item.protein !== undefined
+                    ? item.protein
+                    : null;
+                const c =
+                  typeof item === "object" && item.carbs !== undefined
+                    ? item.carbs
+                    : null;
+                const f =
+                  typeof item === "object" && item.fats !== undefined
+                    ? item.fats
+                    : null;
+                const fib =
+                  typeof item === "object" && item.fats !== undefined
+                    ? item.fiber
+                    : null;
+
+                // Handle Saved Meals (objects with 'items' array) vs Food Items
+                const isMeal = activeCategory === "Meals" && !query;
+                const displayLabel = isMeal ? item.name : foodName;
+
+                return (
+                  <button
+                    key={item.id || displayLabel}
+                    className="suggestion-chip"
+                    onClick={() =>
+                      isMeal ? loadMeal(item) : addFood(displayLabel)
+                    }
+                    style={{
+                      whiteSpace: "normal",
+                      height: "auto",
+                      minHeight: 44,
+                      wordBreak: "break-word",
+                      textAlign: "center",
+                      padding: "8px",
+                      display: "flex",
+                      flexDirection: "column",
+                      alignItems: "center",
+                      justifyContent: "center",
+                    }}
+                  >
+                    <span style={{ fontWeight: 600 }}>
+                      {displayLabel.charAt(0).toUpperCase() +
+                        displayLabel.slice(1)}
+                    </span>
+
+                    {/* SHOW MACROS IF AVAILABLE */}
+                    {p !== null && !isMeal && (
+                      <div
+                        style={{
+                          fontSize: "0.65rem",
+                          marginTop: 4,
+                          display: "flex",
+                          gap: 6,
+                          opacity: 0.9,
+                        }}
+                      >
+                        <span style={{ color: "#3b82f6" }}>P:{p}</span>
+                        <span style={{ color: "#f59e0b" }}>C:{c}</span>
+                        <span style={{ color: "#ef4444" }}>F:{f}</span>
+                        <span style={{ color: "#10b981" }}>Fib:{fib}</span>
+                      </div>
+                    )}
+                  </button>
+                );
+              })
             )}
           </div>
         </div>
