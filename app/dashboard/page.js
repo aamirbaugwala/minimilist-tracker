@@ -15,8 +15,24 @@ import {
   TrendingUp,
   AlertTriangle,
   Lightbulb,
+  Sparkles,
+  Bot,
+  Loader2,
+  BarChart2,
 } from "lucide-react";
-import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip } from "recharts";
+import {
+  PieChart,
+  Pie,
+  Cell,
+  ResponsiveContainer,
+  Tooltip,
+  LineChart,
+  Line,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  ReferenceLine, // <--- 1. Imported ReferenceLine
+} from "recharts";
 import { supabase } from "../supabase";
 
 const COLORS = {
@@ -24,53 +40,33 @@ const COLORS = {
   carb: "#FFC107",
   fat: "#ef4444",
   fib: "#10b981",
+  cals: "#a855f7",
 };
 
-// --- NEW: PERSONALIZATION ENGINE ---
 const getSmartRemedy = (nutrient, historyLogs) => {
-  // 1. Define what counts as a "Good Source" of the nutrient
-  const thresholds = {
-    p: 15, // Item must have >15g protein
-    fib: 5, // Item must have >5g fiber
-  };
-
+  const thresholds = { p: 15, fib: 5 };
   const minVal = thresholds[nutrient] || 0;
-
-  // 2. Scan history to find items meeting this criteria
   const frequencyMap = {};
-
   historyLogs.forEach((log) => {
-    // Skip water or empty logs
     if (log.name === "Water") return;
-
-    // Resolve macro value (handle cases where it might be missing in log but in DB)
     let val = log[nutrient === "p" ? "protein" : "fiber"] || 0;
     if (!val && FLATTENED_DB[log.name.toLowerCase()]) {
-      // Fallback to DB lookup if log doesn't have the number saved
       const dbItem = FLATTENED_DB[log.name.toLowerCase()];
       val = nutrient === "p" ? dbItem.protein : dbItem.fiber;
       val = val * log.qty;
     }
-
     if (val >= minVal) {
-      if (!frequencyMap[log.name]) {
-        frequencyMap[log.name] = 0;
-      }
+      if (!frequencyMap[log.name]) frequencyMap[log.name] = 0;
       frequencyMap[log.name] += 1;
     }
   });
-
-  // 3. Sort by "Most Frequently Eaten"
   const topFoods = Object.entries(frequencyMap)
-    .sort((a, b) => b[1] - a[1]) // Sort desc by count
-    .slice(0, 3) // Take top 3
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 3)
     .map(([name]) => name);
-
-  // 4. Return personalized string or null (if they never ate good sources)
-  if (topFoods.length > 0) {
+  if (topFoods.length > 0)
     return `Based on your history, try: ${topFoods.join(", ")}.`;
-  }
-  return null; // Fallback to generic if no history found
+  return null;
 };
 
 export default function UserDashboard() {
@@ -93,6 +89,11 @@ export default function UserDashboard() {
   const [macroData, setMacroData] = useState([]);
   const [calendarData, setCalendarData] = useState([]);
 
+  // TREND CHART STATE
+  const [trendData, setTrendData] = useState([]);
+  const [trendMetric, setTrendMetric] = useState("calories");
+  const [trendRange, setTrendRange] = useState(7);
+
   // ANALYSIS DATA
   const [insights, setInsights] = useState([]);
   const [culpritIds, setCulpritIds] = useState(new Set());
@@ -101,7 +102,12 @@ export default function UserDashboard() {
   const [allLogs, setAllLogs] = useState([]);
   const [selectedDate, setSelectedDate] = useState(null);
   const [selectedLogs, setSelectedLogs] = useState([]);
+
+  // MODALS
   const [showResearch, setShowResearch] = useState(false);
+  const [showAI, setShowAI] = useState(false);
+  const [aiLoading, setAiLoading] = useState(false);
+  const [aiResponse, setAiResponse] = useState("");
 
   useEffect(() => {
     const init = async () => {
@@ -135,15 +141,37 @@ export default function UserDashboard() {
       setAllLogs(logData || []);
 
       const calculatedTargets = processCalendarData(profileData, logData || []);
-
-      // Pass the logData here to ensure it's available immediately
       handleDateSelect(today, logData || [], calculatedTargets);
       setLoading(false);
     };
     init();
   }, []);
 
-  // --- 1. SCIENTIFIC TARGET CALCULATOR ---
+  const handleAskAI = async () => {
+    setShowAI(true);
+    if (aiResponse) return;
+    setAiLoading(true);
+    const sevenDaysAgo = new Date();
+    sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
+    const recentLogs = allLogs.filter((l) => new Date(l.date) >= sevenDaysAgo);
+
+    try {
+      const res = await fetch("/api/ai-coach", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ profile: profile, logs: recentLogs }),
+      });
+      const data = await res.json();
+      setAiResponse(data.message);
+    } catch (e) {
+      setAiResponse(
+        "I'm having trouble connecting to the nutrition database right now."
+      );
+    } finally {
+      setAiLoading(false);
+    }
+  };
+
   const calculateTargets = (prof) => {
     if (!prof || !prof.weight)
       return {
@@ -151,7 +179,6 @@ export default function UserDashboard() {
         targetMacros: { p: 150, c: 200, f: 60 },
         waterTarget: 3,
       };
-
     let targetCals = 2000;
     if (prof.target_calories) {
       targetCals = Number(prof.target_calories);
@@ -169,10 +196,8 @@ export default function UserDashboard() {
       if (prof.goal === "lose") targetCals -= 500;
       else if (prof.goal === "gain") targetCals += 300;
     }
-
     const weight = Number(prof.weight);
     let targetP, targetF, targetC;
-
     if (prof.goal === "lose") {
       targetP = Math.round(weight * 2.2);
       targetF = Math.round((targetCals * 0.3) / 9);
@@ -183,15 +208,12 @@ export default function UserDashboard() {
       targetP = Math.round(weight * 1.6);
       targetF = Math.round((targetCals * 0.3) / 9);
     }
-
     const usedCals = targetP * 4 + targetF * 9;
     targetC = Math.round(Math.max(0, targetCals - usedCals) / 4);
     const targetFib = Math.round((targetCals / 1000) * 14);
-
     let waterTarget = Math.round(weight * 0.035 * 10) / 10;
     if (prof.activity === "active" || prof.activity === "moderate")
       waterTarget += 0.5;
-
     return {
       targetCals,
       targetMacros: { p: targetP, c: targetC, f: targetF, fib: targetFib },
@@ -199,18 +221,14 @@ export default function UserDashboard() {
     };
   };
 
-  // --- 2. UPDATED: ANALYTICS WITH PERSONALIZATION ---
   const generateInsights = (eaten, targets, macros, dailyLogs, historyLogs) => {
     const suggestions = [];
     const newCulprits = new Set();
-
     const calDiff = eaten - targets.targetCals;
     const proteinMissed = targets.targetMacros.p - macros.p;
     const fiberMissed = targets.targetMacros.fib - macros.fib;
     const fatDiff = macros.f - targets.targetMacros.f;
     const carbDiff = macros.c - targets.targetMacros.c;
-
-    // --- A. OVERFLOW DETECTORS ---
 
     if (fatDiff > 5) {
       const culprit = dailyLogs.reduce(
@@ -222,13 +240,10 @@ export default function UserDashboard() {
       suggestions.push({
         type: "danger",
         title: "High Fat Alert",
-        msg: `You exceeded fats by ${Math.round(fatDiff)}g. Main cause: ${
-          culprit.name
-        } (${culprit.fats}g).`,
-        fix: "Reduce oils/dressings for the rest of the day.",
+        msg: `+${Math.round(fatDiff)}g over. Culprit: ${culprit.name}.`,
+        fix: "Cut oils/dressings.",
       });
     }
-
     if (carbDiff > 20) {
       const culprit = dailyLogs.reduce(
         (prev, current) =>
@@ -239,75 +254,47 @@ export default function UserDashboard() {
       suggestions.push({
         type: "warn",
         title: "Carb Limit Exceeded",
-        msg: `Carbs are high (+${Math.round(carbDiff)}g). The ${
-          culprit.name
-        } contributed ${culprit.carbs}g.`,
+        msg: `+${Math.round(carbDiff)}g over. Culprit: ${culprit.name}.`,
       });
     }
-
-    // --- B. GENERIC & PERSONALIZED INSIGHTS ---
-
-    // 1. Protein Check
     if (proteinMissed > 15) {
-      // ** PERSONALIZATION CALL **
       const smartFix = getSmartRemedy("p", historyLogs);
-
       suggestions.push({
         type: "tip",
-        title: "Protein Fix Needed",
-        msg: `You need ${Math.round(proteinMissed)}g more Protein.`,
-        // Use smart fix if available, else fallback to generic
-        fix:
-          smartFix ||
-          "Try: 1 Scoop Whey (25g), 150g Chicken (30g), or Greek Yogurt.",
+        title: "Low Protein",
+        msg: `Need ${Math.round(proteinMissed)}g more.`,
+        fix: smartFix || "Try Whey or Chicken.",
       });
     }
-
-    // 2. Fiber Check
     if (fiberMissed > 10) {
-      // ** PERSONALIZATION CALL **
       const smartFix = getSmartRemedy("fib", historyLogs);
-
       suggestions.push({
         type: "tip",
         title: "Low Fiber",
         msg: "Digestion needs support.",
-        fix: smartFix || "Add an apple (4g) or lentils (15g).",
+        fix: smartFix || "Add apple or beans.",
       });
     }
-
-    // 3. Calorie Balance
     if (calDiff > 500 && suggestions.length === 0) {
-      const culprit = dailyLogs.reduce(
-        (prev, current) =>
-          (prev.calories || 0) > (current.calories || 0) ? prev : current,
-        { calories: 0, name: "Unknown" }
-      );
-      if (culprit.id) newCulprits.add(culprit.id);
-
       suggestions.push({
         type: "danger",
-        title: "Significant Overeating",
-        msg: `+${Math.round(calDiff)} kcal over limit. Heaviest item: ${
-          culprit.name
-        } (${culprit.calories} kcal).`,
+        title: "Overeating",
+        msg: `+${Math.round(calDiff)} kcal over limit.`,
       });
     } else if (calDiff < -500) {
       suggestions.push({
         type: "warn",
         title: "Undereating",
-        msg: "Calorie intake is too low. This can slow metabolism.",
+        msg: "Calorie intake is too low.",
       });
     }
-
     if (suggestions.length === 0) {
       suggestions.push({
         type: "success",
         title: "Perfect Execution",
-        msg: "Your macros and calories are perfectly balanced. Great job!",
+        msg: "Macros balanced!",
       });
     }
-
     return { suggestions, newCulprits };
   };
 
@@ -316,8 +303,6 @@ export default function UserDashboard() {
     const dailyLogs = logsToFilter.filter((l) => l.date === dateStr);
     setSelectedDate(dateStr);
     setSelectedLogs(dailyLogs);
-
-    // Sums
     const eatenCals = dailyLogs.reduce(
       (sum, item) => sum + (item.calories || 0),
       0
@@ -341,14 +326,10 @@ export default function UserDashboard() {
     const waterConsumed = dailyLogs
       .filter((i) => i.name === "Water")
       .reduce((acc, item) => acc + item.qty * 0.25, 0);
-
     const targets = preCalcTargets || calculateTargets(profile);
-
-    // Status Logic
     let status = "On Track";
     let statusColor = "#3b82f6";
     const diff = eatenCals - targets.targetCals;
-
     if (Math.abs(diff) < 200) {
       if (macrosEaten.p >= targets.targetMacros.p * 0.9) {
         status = "Perfect Zone";
@@ -367,7 +348,6 @@ export default function UserDashboard() {
       status = diff > 0 ? "Slight Surplus" : "Slight Deficit";
       statusColor = "#3b82f6";
     }
-
     setMetrics({
       eaten: eatenCals,
       target: targets.targetCals,
@@ -377,17 +357,12 @@ export default function UserDashboard() {
       targets: targets.targetMacros,
       water: { current: waterConsumed, target: targets.waterTarget },
     });
-
     setMacroData([
       { name: "Protein", value: macrosEaten.p, color: COLORS.pro },
       { name: "Carbs", value: macrosEaten.c, color: COLORS.carb },
       { name: "Fats", value: macrosEaten.f, color: COLORS.fat },
       { name: "Fiber", value: macrosEaten.fib, color: COLORS.fib },
     ]);
-
-    // --- Generate Insights (Pass full history now) ---
-    // Note: We use logsToFilter (which is the full history passed in) instead of just allLogs state
-    // because state might not be updated yet on initial load
     const analysis = generateInsights(
       eatenCals,
       targets,
@@ -408,13 +383,43 @@ export default function UserDashboard() {
       const d = new Date();
       d.setDate(d.getDate() - i);
       const dateStr = d.toISOString().slice(0, 10);
-      calendarMap[dateStr] = { cals: 0, protein: 0 };
+      calendarMap[dateStr] = {
+        cals: 0,
+        protein: 0,
+        carbs: 0,
+        fats: 0,
+        fiber: 0,
+        dateFormatted: d.toLocaleDateString("en-US", {
+          month: "short",
+          day: "numeric",
+        }),
+      };
     }
 
     logs.forEach((l) => {
       if (calendarMap[l.date]) {
-        calendarMap[l.date].cals += l.calories || 0;
-        calendarMap[l.date].protein += l.protein || 0;
+        let p = l.protein || 0;
+        let c = l.carbs || 0;
+        let f = l.fats || 0;
+        let fib = l.fiber || 0;
+        let cals = l.calories || 0;
+
+        if (l.name !== "Water" && (!p || !c || !f)) {
+          const dbItem = FLATTENED_DB[l.name.toLowerCase()];
+          if (dbItem) {
+            if (!p) p = Math.round(dbItem.protein * l.qty);
+            if (!c) c = Math.round(dbItem.carbs * l.qty);
+            if (!f) f = Math.round(dbItem.fats * l.qty);
+            if (!fib && dbItem.fiber) fib = Math.round(dbItem.fiber * l.qty);
+            if (!cals) cals = Math.round(dbItem.calories * l.qty);
+          }
+        }
+
+        calendarMap[l.date].cals += cals;
+        calendarMap[l.date].protein += p;
+        calendarMap[l.date].carbs += c;
+        calendarMap[l.date].fats += f;
+        calendarMap[l.date].fiber += fib;
       }
     });
 
@@ -433,7 +438,39 @@ export default function UserDashboard() {
         return { date, color, cals: day.cals };
       });
     setCalendarData(calData);
+
+    const tData = Object.keys(calendarMap)
+      .sort()
+      .map((date) => ({
+        date: calendarMap[date].dateFormatted,
+        rawDate: date,
+        calories: calendarMap[date].cals,
+        protein: calendarMap[date].protein,
+        carbs: calendarMap[date].carbs,
+        fats: calendarMap[date].fats,
+        fiber: calendarMap[date].fiber,
+      }));
+    setTrendData(tData);
+
     return targets;
+  };
+
+  // --- 2. Helper to get the correct goal target dynamically ---
+  const getCurrentTarget = () => {
+    if (!metrics || !metrics.targets) return 0;
+    switch (trendMetric) {
+      case "protein":
+        return metrics.targets.p;
+      case "carbs":
+        return metrics.targets.c;
+      case "fats":
+        return metrics.targets.f;
+      case "fiber":
+        return metrics.targets.fib;
+      case "calories":
+      default:
+        return metrics.target;
+    }
   };
 
   if (loading)
@@ -443,13 +480,29 @@ export default function UserDashboard() {
       </div>
     );
 
+  const getTrendColor = () => {
+    switch (trendMetric) {
+      case "protein":
+        return COLORS.pro;
+      case "carbs":
+        return COLORS.carb;
+      case "fats":
+        return COLORS.fat;
+      case "fiber":
+        return COLORS.fib;
+      default:
+        return COLORS.cals;
+    }
+  };
+
+  const visibleTrendData = trendRange === 7 ? trendData.slice(-7) : trendData;
+
   return (
     <div
       className="app-wrapper"
       style={{ maxWidth: 1000, margin: "0 auto", padding: 20 }}
     >
       <style jsx>{`
-        /* Custom Scrollbar Logic */
         .custom-scrollbar::-webkit-scrollbar {
           width: 6px;
         }
@@ -463,7 +516,103 @@ export default function UserDashboard() {
         .custom-scrollbar::-webkit-scrollbar-thumb:hover {
           background: #666;
         }
+        /* --- 3. FIX: Responsive Grid Logic --- */
+        .chart-grid-container {
+          display: grid;
+          grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+          gap: 20px;
+          margin-bottom: 20px;
+        }
+        .trend-card-span {
+          grid-column: span 2;
+        }
+        /* Mobile Breakpoint */
+        @media (max-width: 768px) {
+          .chart-grid-container {
+            grid-template-columns: 1fr; /* Stack everything */
+          }
+          .trend-card-span {
+            grid-column: span 1; /* Reset the 2-column span */
+          }
+        }
       `}</style>
+
+      {/* AI COACH MODAL */}
+      {showAI && (
+        <div className="modal-overlay">
+          <div className="modal-content">
+            {/* 1. Header (Always Visible) */}
+            <div className="modal-header">
+              <h3
+                style={{
+                  margin: 0,
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 10,
+                  fontSize: "1.2rem",
+                  background: "linear-gradient(to right, #3b82f6, #8b5cf6)",
+                  WebkitBackgroundClip: "text",
+                  WebkitTextFillColor: "transparent",
+                }}
+              >
+                <Sparkles size={22} color="#8b5cf6" /> AI Coach
+              </h3>
+              <button
+                onClick={() => setShowAI(false)}
+                style={{
+                  background: "rgba(255,255,255,0.05)",
+                  border: "none",
+                  color: "#888",
+                  cursor: "pointer",
+                  padding: 8,
+                  borderRadius: "50%",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                }}
+              >
+                <X size={20} />
+              </button>
+            </div>
+
+            {/* 2. Scrollable Body */}
+            <div className="modal-body custom-scrollbar">
+              {aiLoading ? (
+                <div
+                  style={{
+                    padding: "40px 0",
+                    textAlign: "center",
+                    color: "#888",
+                  }}
+                >
+                  <Loader2
+                    className="animate-spin"
+                    style={{ margin: "0 auto 15px", display: "block" }}
+                    size={32}
+                  />
+                  <p>Analyzing your food history...</p>
+                </div>
+              ) : (
+                <div style={{ whiteSpace: "pre-wrap" }}>{aiResponse}</div>
+              )}
+            </div>
+
+            {/* 3. Footer (Always Visible) */}
+            <div className="modal-footer">
+              <div
+                style={{
+                  fontSize: "0.75rem",
+                  color: "#666",
+                  fontStyle: "italic",
+                  textAlign: "center",
+                }}
+              >
+                * AI advice is based on logs. Consult a doctor.
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* RESEARCH MODAL */}
       {showResearch && (
@@ -617,7 +766,6 @@ export default function UserDashboard() {
           </div>
         </div>
       )}
-
       {/* HEADER */}
       <div
         style={{
@@ -647,24 +795,47 @@ export default function UserDashboard() {
             Performance
           </h1>
         </div>
-        <button
-          onClick={() => setShowResearch(true)}
-          style={{
-            background: "#1f1f22",
-            border: "1px solid #333",
-            color: "#3b82f6",
-            cursor: "pointer",
-            padding: "8px 16px",
-            borderRadius: 20,
-            display: "flex",
-            alignItems: "center",
-            gap: 8,
-            fontSize: "0.9rem",
-            fontWeight: 600,
-          }}
-        >
-          <Info size={18} /> Logic
-        </button>
+
+        <div style={{ display: "flex", gap: 10 }}>
+          <button
+            onClick={handleAskAI}
+            style={{
+              background: "linear-gradient(135deg, #3b82f6, #8b5cf6)",
+              border: "none",
+              color: "#fff",
+              cursor: "pointer",
+              padding: "8px 16px",
+              borderRadius: 20,
+              display: "flex",
+              alignItems: "center",
+              gap: 8,
+              fontSize: "0.9rem",
+              fontWeight: 700,
+              boxShadow: "0 4px 15px rgba(59, 130, 246, 0.3)",
+            }}
+          >
+            <Bot size={18} /> Ask AI
+          </button>
+
+          <button
+            onClick={() => setShowResearch(true)}
+            style={{
+              background: "#1f1f22",
+              border: "1px solid #333",
+              color: "#3b82f6",
+              cursor: "pointer",
+              padding: "8px 16px",
+              borderRadius: 20,
+              display: "flex",
+              alignItems: "center",
+              gap: 8,
+              fontSize: "0.9rem",
+              fontWeight: 600,
+            }}
+          >
+            <Info size={18} /> Logic
+          </button>
+        </div>
       </div>
 
       {!profile ? (
@@ -737,21 +908,297 @@ export default function UserDashboard() {
             </div>
           </div>
 
-          {/* ROW 2: SMART ANALYSIS GRID */}
-          <div
-            style={{
-              display: "grid",
-              gridTemplateColumns: "repeat(auto-fit, minmax(300px, 1fr))",
-              gap: 20,
-              marginBottom: 20,
-            }}
-          >
+          {/* ROW 2: ANALYSIS & TRENDS (Updated Container) */}
+          <div className="chart-grid-container">
+            {/* 1. SMART INSIGHTS CARD */}
+            <div
+              className="chart-card"
+              style={{
+                padding: 24,
+                display: "flex",
+                flexDirection: "column",
+                border: "1px solid #333",
+                borderRadius: 16,
+                background: "#1f1f22",
+              }}
+            >
+              <h3
+                style={{
+                  fontSize: "1.1rem",
+                  fontWeight: 700,
+                  marginBottom: 15,
+                  display: "flex",
+                  gap: 8,
+                }}
+              >
+                <Lightbulb size={18} color="#FFC107" /> Smart Analysis
+              </h3>
+              <div
+                style={{
+                  display: "grid",
+                  gap: 12,
+                  maxHeight: 300,
+                  overflowY: "auto",
+                }}
+              >
+                {insights.map((insight, i) => (
+                  <div
+                    key={i}
+                    style={{
+                      background:
+                        insight.type === "success"
+                          ? "rgba(34, 197, 94, 0.1)"
+                          : insight.type === "danger"
+                          ? "rgba(239, 68, 68, 0.1)"
+                          : "rgba(245, 158, 11, 0.1)",
+                      border: `1px solid ${
+                        insight.type === "success"
+                          ? "#22c55e"
+                          : insight.type === "danger"
+                          ? "#ef4444"
+                          : "#f59e0b"
+                      }`,
+                      padding: 12,
+                      borderRadius: 12,
+                    }}
+                  >
+                    <div
+                      style={{
+                        display: "flex",
+                        alignItems: "center",
+                        gap: 8,
+                        marginBottom: 6,
+                      }}
+                    >
+                      {insight.type === "success" && (
+                        <CheckCircle size={16} color="#22c55e" />
+                      )}
+                      {insight.type === "warn" && (
+                        <AlertTriangle size={16} color="#f59e0b" />
+                      )}
+                      {insight.type === "danger" && (
+                        <AlertCircle size={16} color="#ef4444" />
+                      )}
+                      {insight.type === "tip" && (
+                        <TrendingUp size={16} color="#3b82f6" />
+                      )}
+                      <span
+                        style={{
+                          fontWeight: 700,
+                          color: "#fff",
+                          fontSize: "0.9rem",
+                        }}
+                      >
+                        {insight.title}
+                      </span>
+                    </div>
+                    <p
+                      style={{
+                        fontSize: "0.85rem",
+                        color: "#ccc",
+                        margin: 0,
+                        lineHeight: 1.3,
+                      }}
+                    >
+                      {insight.msg}
+                    </p>
+                    {insight.fix && (
+                      <div
+                        style={{
+                          marginTop: 6,
+                          fontSize: "0.8rem",
+                          color: "#fff",
+                          background: "rgba(255,255,255,0.05)",
+                          padding: "4px 8px",
+                          borderRadius: 6,
+                          display: "inline-block",
+                        }}
+                      >
+                        💡 {insight.fix}
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* 2. TREND CHART (Updated Class for responsiveness) */}
+            <div
+              className="chart-card trend-card-span"
+              style={{
+                padding: 24,
+                display: "flex",
+                flexDirection: "column",
+                border: "1px solid #333",
+                borderRadius: 16,
+                background: "#1f1f22",
+                minHeight: 350,
+              }}
+            >
+              <div
+                style={{
+                  display: "flex",
+                  justifyContent: "space-between",
+                  alignItems: "center",
+                  marginBottom: 20,
+                  flexWrap: "wrap",
+                  gap: 10,
+                }}
+              >
+                <h3
+                  style={{
+                    fontSize: "1.1rem",
+                    fontWeight: 700,
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 8,
+                  }}
+                >
+                  <BarChart2 size={18} color={getTrendColor()} /> History Trends
+                </h3>
+                <div style={{ display: "flex", gap: 10 }}>
+                  <select
+                    value={trendMetric}
+                    onChange={(e) => setTrendMetric(e.target.value)}
+                    style={{
+                      background: "#000",
+                      color: "#fff",
+                      border: "1px solid #333",
+                      padding: "6px 12px",
+                      borderRadius: 8,
+                      fontSize: "0.85rem",
+                      cursor: "pointer",
+                      textTransform: "capitalize",
+                    }}
+                  >
+                    <option value="calories">Calories</option>
+                    <option value="protein">Protein</option>
+                    <option value="carbs">Carbs</option>
+                    <option value="fats">Fats</option>
+                    <option value="fiber">Fiber</option>
+                  </select>
+
+                  <div
+                    style={{
+                      display: "flex",
+                      background: "#000",
+                      borderRadius: 8,
+                      border: "1px solid #333",
+                      padding: 2,
+                    }}
+                  >
+                    <button
+                      onClick={() => setTrendRange(7)}
+                      style={{
+                        padding: "4px 12px",
+                        fontSize: "0.8rem",
+                        background: trendRange === 7 ? "#333" : "transparent",
+                        color: trendRange === 7 ? "#fff" : "#666",
+                        border: "none",
+                        borderRadius: 6,
+                        cursor: "pointer",
+                        fontWeight: trendRange === 7 ? 600 : 400,
+                      }}
+                    >
+                      7D
+                    </button>
+                    <button
+                      onClick={() => setTrendRange(30)}
+                      style={{
+                        padding: "4px 12px",
+                        fontSize: "0.8rem",
+                        background: trendRange === 30 ? "#333" : "transparent",
+                        color: trendRange === 30 ? "#fff" : "#666",
+                        border: "none",
+                        borderRadius: 6,
+                        cursor: "pointer",
+                        fontWeight: trendRange === 30 ? 600 : 400,
+                      }}
+                    >
+                      30D
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              <div style={{ flex: 1, width: "100%", minHeight: 250 }}>
+                <ResponsiveContainer>
+                  <LineChart data={visibleTrendData}>
+                    <CartesianGrid
+                      strokeDasharray="3 3"
+                      stroke="#333"
+                      vertical={false}
+                    />
+                    <XAxis
+                      dataKey="date"
+                      stroke="#666"
+                      tick={{ fill: "#666", fontSize: 12 }}
+                      axisLine={false}
+                      tickLine={false}
+                    />
+                    <YAxis
+                      stroke="#666"
+                      tick={{ fill: "#666", fontSize: 12 }}
+                      axisLine={false}
+                      tickLine={false}
+                    />
+                    <Tooltip
+                      contentStyle={{
+                        background: "#000",
+                        border: "1px solid #333",
+                        borderRadius: 8,
+                        color: "#fff",
+                      }}
+                      itemStyle={{ color: getTrendColor() }}
+                      formatter={(value) => [
+                        `${value}${trendMetric === "calories" ? " kcal" : "g"}`,
+                        trendMetric.charAt(0).toUpperCase() +
+                          trendMetric.slice(1),
+                      ]}
+                      labelStyle={{ color: "#888" }}
+                    />
+                    {/* --- 4. FIX: Added ReferenceLine for Goal --- */}
+                    <ReferenceLine
+                      y={getCurrentTarget()}
+                      stroke="#ef4444"
+                      strokeDasharray="3 3"
+                      label={{
+                        position: "top",
+                        value: "Goal",
+                        fill: "#ef4444",
+                        fontSize: 12,
+                      }}
+                    />
+                    <Line
+                      type="monotone"
+                      dataKey={trendMetric}
+                      stroke={getTrendColor()}
+                      strokeWidth={3}
+                      dot={{
+                        r: 4,
+                        fill: "#1f1f22",
+                        stroke: getTrendColor(),
+                        strokeWidth: 2,
+                      }}
+                      activeDot={{ r: 6, fill: getTrendColor() }}
+                    />
+                  </LineChart>
+                </ResponsiveContainer>
+              </div>
+            </div>
+
             {/* 3. CONSISTENCY */}
             <div
               className="chart-card"
-              style={{ padding: 24, display: "flex", flexDirection: "column" }}
+              style={{
+                padding: 24,
+                display: "flex",
+                flexDirection: "column",
+                border: "1px solid #333",
+                borderRadius: 16,
+                background: "#1f1f22",
+              }}
             >
-              {/* ... (Existing Consistency Code) ... */}
               <h3
                 style={{
                   fontSize: "1.1rem",
@@ -793,110 +1240,7 @@ export default function UserDashboard() {
               </div>
             </div>
 
-            {/* 1. SMART INSIGHTS CARD */}
-            <div
-              className="chart-card"
-              style={{
-                padding: 24,
-                display: "flex",
-                flexDirection: "column",
-                gridColumn: "span 2",
-              }}
-            >
-              <h3
-                style={{
-                  fontSize: "1.1rem",
-                  fontWeight: 700,
-                  marginBottom: 15,
-                  display: "flex",
-                  gap: 8,
-                }}
-              >
-                <Lightbulb size={18} color="#FFC107" /> Smart Analysis &
-                Remedies
-              </h3>
-              <div
-                style={{
-                  display: "grid",
-                  gridTemplateColumns: "repeat(auto-fit, minmax(250px, 1fr))",
-                  gap: 15,
-                }}
-              >
-                {insights.map((insight, i) => (
-                  <div
-                    key={i}
-                    style={{
-                      background:
-                        insight.type === "success"
-                          ? "rgba(34, 197, 94, 0.1)"
-                          : insight.type === "danger"
-                          ? "rgba(239, 68, 68, 0.1)"
-                          : "rgba(245, 158, 11, 0.1)",
-                      border: `1px solid ${
-                        insight.type === "success"
-                          ? "#22c55e"
-                          : insight.type === "danger"
-                          ? "#ef4444"
-                          : "#f59e0b"
-                      }`,
-                      padding: 15,
-                      borderRadius: 12,
-                    }}
-                  >
-                    <div
-                      style={{
-                        display: "flex",
-                        alignItems: "center",
-                        gap: 10,
-                        marginBottom: 8,
-                      }}
-                    >
-                      {insight.type === "success" && (
-                        <CheckCircle size={20} color="#22c55e" />
-                      )}
-                      {insight.type === "warn" && (
-                        <AlertTriangle size={20} color="#f59e0b" />
-                      )}
-                      {insight.type === "danger" && (
-                        <AlertCircle size={20} color="#ef4444" />
-                      )}
-                      {insight.type === "tip" && (
-                        <TrendingUp size={20} color="#3b82f6" />
-                      )}
-                      <span style={{ fontWeight: 700, color: "#fff" }}>
-                        {insight.title}
-                      </span>
-                    </div>
-                    <p
-                      style={{
-                        fontSize: "0.9rem",
-                        color: "#ccc",
-                        margin: "0 0 8px 0",
-                        lineHeight: 1.4,
-                      }}
-                    >
-                      {insight.msg}
-                    </p>
-                    {insight.fix && (
-                      <div
-                        style={{
-                          fontSize: "0.85rem",
-                          color: "#fff",
-                          background: "rgba(255,255,255,0.05)",
-                          padding: "6px 10px",
-                          borderRadius: 6,
-                          display: "inline-block",
-                        }}
-                      >
-                        💡 <strong>Remedy:</strong> {insight.fix}
-                      </div>
-                    )}
-                  </div>
-                ))}
-              </div>
-            </div>
-
-            {/* 2. HYDRATION */}
+            {/* 4. HYDRATION */}
             <div
               className="chart-card"
               style={{
@@ -904,9 +1248,11 @@ export default function UserDashboard() {
                 display: "flex",
                 flexDirection: "column",
                 justifyContent: "center",
+                border: "1px solid #333",
+                borderRadius: 16,
+                background: "#1f1f22",
               }}
             >
-              {/* ... (Existing Hydration Code) ... */}
               <div
                 style={{
                   display: "flex",
@@ -1001,9 +1347,11 @@ export default function UserDashboard() {
                 height: 500,
                 display: "flex",
                 flexDirection: "column",
+                border: "1px solid #333",
+                borderRadius: 16,
+                background: "#1f1f22",
               }}
             >
-              {/* ... (Existing Macro Chart Code) ... */}
               <div
                 style={{
                   display: "flex",
@@ -1045,9 +1393,7 @@ export default function UserDashboard() {
                   </PieChart>
                 </ResponsiveContainer>
               </div>
-              {/* Macro stats list */}
               <div style={{ display: "grid", gap: 12, marginTop: 20 }}>
-                {/* ... (Existing Macro List Rows) ... */}
                 <div
                   style={{
                     display: "flex",
@@ -1198,7 +1544,7 @@ export default function UserDashboard() {
               </div>
             </div>
 
-            {/* INTAKE LIST (WITH CULPRIT FINDER & SCROLLBAR) */}
+            {/* INTAKE LIST */}
             <div
               className="chart-card"
               style={{
@@ -1207,6 +1553,9 @@ export default function UserDashboard() {
                 height: 500,
                 display: "flex",
                 flexDirection: "column",
+                border: "1px solid #333",
+                borderRadius: 16,
+                background: "#1f1f22",
               }}
             >
               <div
@@ -1229,7 +1578,6 @@ export default function UserDashboard() {
                   <Calendar size={18} color="#888" /> Intake for {selectedDate}
                 </h3>
               </div>
-
               {!selectedDate || selectedLogs.length === 0 ? (
                 <div
                   style={{
@@ -1245,7 +1593,6 @@ export default function UserDashboard() {
                 </div>
               ) : (
                 <>
-                  {/* SCROLLABLE CONTAINER */}
                   <div
                     className="custom-scrollbar"
                     style={{ flex: 1, overflowY: "auto", paddingRight: 6 }}
@@ -1259,9 +1606,8 @@ export default function UserDashboard() {
                             display: "flex",
                             justifyContent: "space-between",
                             alignItems: "center",
-                            padding: "14px 10px", // Added horizontal padding for highlight
+                            padding: "14px 10px",
                             borderBottom: "1px solid #222",
-                            // --- CULPRIT HIGHLIGHTING ---
                             background: isCulprit
                               ? "rgba(239, 68, 68, 0.1)"
                               : "transparent",
@@ -1348,8 +1694,6 @@ export default function UserDashboard() {
                       );
                     })}
                   </div>
-
-                  {/* FIXED FOOTER */}
                   <div
                     style={{
                       marginTop: 15,

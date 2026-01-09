@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect, memo } from "react";
+import React, { useState, useEffect, memo, useMemo } from "react";
 import Link from "next/link";
 import { PieChart, Pie, Cell, ResponsiveContainer } from "recharts";
 import {
@@ -25,7 +25,9 @@ import {
   Zap,
   Award,
   Battery,
-  Utensils, // Added icon
+  Utensils,
+  Sparkles,
+  Globe,
 } from "lucide-react";
 import { FOOD_CATEGORIES, FLATTENED_DB } from "./food-data";
 import { supabase } from "./supabase";
@@ -35,10 +37,14 @@ const StatsBoard = memo(({ totals, userProfile, onAddWater }) => {
   // 1. Get Calorie Target
   let targetCals = 2000;
   if (userProfile.target_calories) {
-    targetCals = Number(prof.target_calories);
+    targetCals = Number(userProfile.target_calories);
   } else {
-    let bmr =
-      10 * userProfile.weight + 6.25 * userProfile.height - 5 * userProfile.age;
+    // Default fallback
+    const weight = Number(userProfile.weight) || 70;
+    const height = Number(userProfile.height) || 170;
+    const age = Number(userProfile.age) || 30;
+
+    let bmr = 10 * weight + 6.25 * height - 5 * age;
     bmr += userProfile.gender === "male" ? 5 : -161;
     const multipliers = {
       sedentary: 1.2,
@@ -53,19 +59,18 @@ const StatsBoard = memo(({ totals, userProfile, onAddWater }) => {
     else if (userProfile.goal === "gain") targetCals += 300;
   }
 
-  // 2. Calculate Exact Macro Targets (Matching Social Hub Logic)
-  // Default to 70kg if weight is missing to prevent NaN
-  const weight = Number(userProfile?.weight);
-  const goal = userProfile?.goal;
+  // 2. Calculate Exact Macro Targets
+  const weight = Number(userProfile?.weight) || 70;
+  const goal = userProfile?.goal || "maintain";
 
   let targetP, targetF, targetC;
 
   if (goal === "lose") {
-    targetP = Math.round(weight * 2.2); // High protein for fat loss
-    targetF = Math.round((targetCals * 0.3) / 9); // 30% Fat
+    targetP = Math.round(weight * 2.2);
+    targetF = Math.round((targetCals * 0.3) / 9);
   } else if (goal === "gain") {
-    targetP = Math.round(weight * 1.8); // Moderate protein for bulking
-    targetF = Math.round((targetCals * 0.25) / 9); // 25% Fat
+    targetP = Math.round(weight * 1.8);
+    targetF = Math.round((targetCals * 0.25) / 9);
   } else {
     targetP = Math.round(weight * 1.6);
     targetF = Math.round((targetCals * 0.3) / 9);
@@ -86,7 +91,7 @@ const StatsBoard = memo(({ totals, userProfile, onAddWater }) => {
 
   return (
     <section style={{ marginBottom: 20 }}>
-      {/* 1. MAIN NUTRITION CARD */}
+      {/* MAIN NUTRITION CARD */}
       <div
         style={{
           background: "#1f1f22",
@@ -295,7 +300,7 @@ const StatsBoard = memo(({ totals, userProfile, onAddWater }) => {
         </div>
       </div>
 
-      {/* 2. WATER CARD */}
+      {/* WATER CARD */}
       <div
         onClick={onAddWater}
         style={{
@@ -396,8 +401,8 @@ export default function Home() {
   const [isSettingGoal, setIsSettingGoal] = useState(false);
   const [settingsTab, setSettingsTab] = useState("profile");
   const [showPasswordSetup, setShowPasswordSetup] = useState(false);
-  const [showWelcome, setShowWelcome] = useState(false); // NEW: Welcome Modal State
-  const [welcomeStep, setWelcomeStep] = useState(1); // NEW: Welcome Step
+  const [showWelcome, setShowWelcome] = useState(false);
+  const [welcomeStep, setWelcomeStep] = useState(1);
 
   // Data
   const [userProfile, setUserProfile] = useState({
@@ -427,6 +432,225 @@ export default function Home() {
   const [usePasswordLogin, setUsePasswordLogin] = useState(false);
   const [authLoading, setAuthLoading] = useState(false);
 
+  // --- NEW: WEB SEARCH STATE ---
+  const [webResults, setWebResults] = useState([]);
+  const [isWebSearching, setIsWebSearching] = useState(false);
+
+  // --- FEATURE 1: SMART RECOMMENDATIONS LOGIC (REWRITTEN) ---
+  const generateSmartMeals = () => {
+    // 1. Calculate Targets & Remaining
+    let targetCals = 2000;
+    let targetP, targetF, targetC;
+
+    if (userProfile.target_calories) {
+      targetCals = Number(userProfile.target_calories);
+    } else {
+      const w = Number(userProfile.weight) || 70;
+      const h = Number(userProfile.height) || 170;
+      const a = Number(userProfile.age) || 30;
+      let bmr = 10 * w + 6.25 * h - 5 * a;
+      bmr += userProfile.gender === "male" ? 5 : -161;
+      let tdee = bmr * 1.2;
+      targetCals = Math.round(tdee);
+      if (userProfile.goal === "lose") targetCals -= 500;
+      else if (userProfile.goal === "gain") targetCals += 300;
+    }
+
+    const w = Number(userProfile.weight) || 70;
+    const goal = userProfile.goal || "maintain";
+    if (goal === "lose") {
+      targetP = Math.round(w * 2.2);
+      targetF = Math.round((targetCals * 0.3) / 9);
+    } else if (goal === "gain") {
+      targetP = Math.round(w * 1.8);
+      targetF = Math.round((targetCals * 0.25) / 9);
+    } else {
+      targetP = Math.round(w * 1.6);
+      targetF = Math.round((targetCals * 0.3) / 9);
+    }
+    const usedCals = targetP * 4 + targetF * 9;
+    targetC = Math.round(Math.max(0, targetCals - usedCals) / 4);
+
+    // REAL Remaining values
+    const remainingCals = targetCals - totals.calories;
+    const remainingPro = Math.max(0, targetP - totals.protein);
+    const remainingFat = Math.max(0, targetF - totals.fats);
+    const remainingCarb = Math.max(0, targetC - totals.carbs);
+
+    // Hard Stop if basically full
+    if (remainingCals < 50) return [];
+
+    const candidates = [];
+    if (FLATTENED_DB) {
+      Object.entries(FLATTENED_DB).forEach(([key, item]) => {
+        // Must fit in remaining calories (with slight buffer)
+        if (item.calories <= remainingCals * 1.1) {
+          let score = 0;
+
+          // SCORING ALGORITHM:
+          // 1. Boost if it provides protein we need
+          if (remainingPro > 5) {
+            if (item.protein > 15) score += 20; // High protein
+            else if (item.protein > 5) score += 5;
+          }
+
+          // 2. Penalize fat if we are out of budget
+          if (remainingFat < 5) {
+            if (item.fats > 10) score -= 100; // Kill high fat items
+            else if (item.fats > 5) score -= 50;
+          }
+
+          // 3. Boost carbs if we have plenty of room
+          if (remainingCarb > 20 && item.carbs > 15) score += 5;
+
+          // 4. Boost volume/fiber
+          if (item.fiber > 3) score += 5;
+
+          // 5. Penalize pure junk (Low Macro Density)
+          if (item.calories > 200 && item.protein < 5 && item.fiber < 2)
+            score -= 10;
+
+          // Only keep good candidates
+          if (score > -20) {
+            candidates.push({ name: key, ...item, score });
+          }
+        }
+      });
+    }
+
+    // Sort by Best Fit
+    candidates.sort((a, b) => b.score - a.score);
+
+    const recommendations = [];
+
+    // STRATEGY A: Top 6 Single Items (Best for small gaps)
+    candidates.slice(0, 6).forEach((item) => {
+      recommendations.push({
+        id: `smart-single-${item.name}-${Math.random()}`,
+        name: item.name,
+        type: "meal",
+        items: [{ name: item.name, qty: 1 }],
+        calories: item.calories,
+        protein: item.protein,
+        carbs: item.carbs,
+        fats: item.fats,
+        isSmart: true,
+      });
+    });
+
+    // STRATEGY B: Combos (Only if enough calorie budget > 350)
+    if (remainingCals > 350) {
+      const proteins = candidates.filter((c) => c.protein > 10);
+      const carbs = candidates.filter((c) => c.carbs > 15);
+
+      for (let i = 0; i < 5; i++) {
+        const p = proteins[Math.floor(Math.random() * proteins.length)];
+        const c = carbs[Math.floor(Math.random() * carbs.length)];
+
+        if (p && c && p.name !== c.name) {
+          const combinedCals = p.calories + c.calories;
+          const combinedFat = p.fats + c.fats;
+
+          // Strict check for combos
+          if (
+            combinedCals <= remainingCals * 1.1 &&
+            (remainingFat > 5 || combinedFat < 10)
+          ) {
+            recommendations.push({
+              id: `smart-combo-${i}-${Math.random()}`,
+              name: `${p.name} & ${c.name}`,
+              type: "meal",
+              items: [
+                { name: p.name, qty: 1 },
+                { name: c.name, qty: 1 },
+              ],
+              calories: combinedCals,
+              protein: p.protein + c.protein,
+              carbs: p.carbs + c.carbs,
+              fats: combinedFat,
+              isSmart: true,
+            });
+          }
+        }
+      }
+    }
+
+    // Fallback if empty (e.g. only 60 cals left) -> Find smallest items
+    if (recommendations.length === 0) {
+      const smallSnacks = Object.entries(FLATTENED_DB)
+        .filter(([_, val]) => val.calories <= remainingCals)
+        .sort((a, b) => b[1].calories - a[1].calories) // Biggest possible filler
+        .slice(0, 3);
+
+      smallSnacks.forEach(([key, val]) => {
+        recommendations.push({
+          id: `smart-fallback-${key}`,
+          name: key,
+          type: "meal",
+          items: [{ name: key, qty: 1 }],
+          ...val,
+          isSmart: true,
+        });
+      });
+    }
+
+    return recommendations;
+  };
+
+  const smartRecommendations = useMemo(
+    () => generateSmartMeals(),
+    [totals, userProfile]
+  );
+
+  // --- FEATURE 2: ACTUAL WEB SEARCH (OpenFoodFacts) ---
+  useEffect(() => {
+    const delayDebounceFn = setTimeout(async () => {
+      if (!query || query.length < 3) {
+        setWebResults([]);
+        return;
+      }
+
+      const localKeys = Object.keys(FLATTENED_DB).filter((k) =>
+        k.includes(query.toLowerCase())
+      );
+
+      if (localKeys.length === 0) {
+        setIsWebSearching(true);
+        try {
+          const response = await fetch(
+            `https://world.openfoodfacts.org/cgi/search.pl?search_terms=${query}&search_simple=1&action=process&json=1&page_size=5`
+          );
+          const data = await response.json();
+
+          if (data.products && data.products.length > 0) {
+            const mappedResults = data.products.map((p) => ({
+              id: `web-${p._id}`,
+              name: p.product_name || query,
+              isWeb: true,
+              calories: Math.round(p.nutriments?.["energy-kcal_100g"] || 0),
+              protein: Math.round(p.nutriments?.proteins_100g || 0),
+              carbs: Math.round(p.nutriments?.carbohydrates_100g || 0),
+              fats: Math.round(p.nutriments?.fat_100g || 0),
+              fiber: Math.round(p.nutriments?.fiber_100g || 0),
+            }));
+            setWebResults(mappedResults);
+          } else {
+            setWebResults([]);
+          }
+        } catch (error) {
+          console.error("Web search failed", error);
+          setWebResults([]);
+        } finally {
+          setIsWebSearching(false);
+        }
+      } else {
+        setWebResults([]);
+      }
+    }, 600);
+
+    return () => clearTimeout(delayDebounceFn);
+  }, [query]);
+
   // --- INIT ---
   const fetchData = async (isBackground = false) => {
     const {
@@ -444,30 +668,20 @@ export default function Home() {
       .eq("date", todayKey)
       .order("created_at", { ascending: false });
     if (!error) {
-      // --- FIX: BACKFILL FIBER FOR OLD LOGS ---
-      // If a log from DB is missing fiber, look it up in the static DB
       const enrichedLogs = data.map((log) => {
         if (log.name === "Water") return { ...log, fiber: 0 };
-
-        // If fiber exists and is > 0, trust the DB
         if (log.fiber && log.fiber > 0) return log;
-
-        // Otherwise, try to find it in the static DB
         let dbItem = FLATTENED_DB[log.name.toLowerCase()];
         if (!dbItem) {
-          // Fuzzy search fallback
           const key = Object.keys(FLATTENED_DB).find((k) =>
             k.includes(log.name.toLowerCase())
           );
           if (key) dbItem = FLATTENED_DB[key];
         }
-
-        // Calculate missing fiber
         if (dbItem && dbItem.fiber) {
           return { ...log, fiber: Math.round(dbItem.fiber * log.qty) };
         }
-
-        return { ...log, fiber: 0 }; // Default to 0 if not found
+        return { ...log, fiber: 0 };
       });
       setLogs(enrichedLogs);
       setHasUnsavedChanges(false);
@@ -544,7 +758,6 @@ export default function Home() {
     setStreak(count);
   };
 
-  // --- WELCOME LOGIC ---
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => {
       setSession(session);
@@ -581,7 +794,6 @@ export default function Home() {
     setShowWelcome(false);
   };
 
-  // --- ACTIONS ---
   const saveGoal = async () => {
     if (
       !userProfile.target_calories &&
@@ -605,8 +817,6 @@ export default function Home() {
 
   const handleUpdatePassword = async () => {
     let msg = "";
-
-    // 1. Update Password (if provided)
     if (newPassword) {
       const { error } = await supabase.auth.updateUser({
         password: newPassword,
@@ -614,8 +824,6 @@ export default function Home() {
       if (error) return alert(error.message);
       msg += "Password updated. ";
     }
-
-    // 2. Update Username (if provided)
     if (username) {
       const { error: profileError } = await supabase
         .from("user_profiles")
@@ -626,21 +834,16 @@ export default function Home() {
             updated_at: new Date(),
           },
           { onConflict: "user_id" }
-        ); // Ensure we don't create dupes
-
+        );
       if (profileError) {
         console.error(profileError);
         return alert("Error saving username.");
       }
-
-      // Update local state immediately so UI reflects it
       setUserProfile((prev) => ({ ...prev, username }));
       msg += "Username saved.";
     }
-
     if (!newPassword && !username)
       return alert("Please enter a username or password.");
-
     alert(msg);
     setNewPassword("");
     setShowPasswordSetup(false);
@@ -653,8 +856,21 @@ export default function Home() {
       itemsToAdd.forEach((newItem) => {
         const foodName = newItem.name;
         const quantity = Number(newItem.qty);
-        let baseData = { calories: 0, protein: 0, carbs: 0, fats: 0, fiber: 0 };
-        if (foodName !== "Water") {
+        // Default to provided macros (for web results)
+        let baseData = {
+          calories: newItem.calories || 0,
+          protein: newItem.protein || 0,
+          carbs: newItem.carbs || 0,
+          fats: newItem.fats || 0,
+          fiber: newItem.fiber || 0,
+        };
+
+        // If local DB lookup needed
+        if (
+          foodName !== "Water" &&
+          baseData.calories === 0 &&
+          !newItem.isWeb
+        ) {
           let dbData = FLATTENED_DB[foodName.toLowerCase()];
           if (!dbData) {
             const key = Object.keys(FLATTENED_DB).find((k) =>
@@ -664,6 +880,7 @@ export default function Home() {
           }
           if (dbData) baseData = dbData;
         }
+
         const existingIndex = updatedLogs.findIndex((l) => l.name === foodName);
         if (existingIndex !== -1) {
           const existingLog = updatedLogs[existingIndex];
@@ -699,8 +916,13 @@ export default function Home() {
     });
   };
 
-  const addFood = (foodName, overrideQty = null) => {
-    handleLocalAdd([{ name: foodName, qty: overrideQty || qty }]);
+  const addFood = (foodName, overrideQty = null, explicitMacros = null) => {
+    const item = {
+      name: foodName,
+      qty: overrideQty || qty,
+      ...explicitMacros,
+    };
+    handleLocalAdd([item]);
     if (!overrideQty && foodName !== "Water") {
       setQty(1);
       setQuery("");
@@ -819,10 +1041,8 @@ export default function Home() {
   }, [logs]);
 
   const getDisplayItems = () => {
-    // Helper to hydrate strings to objects from DB
     const hydrate = (keys) =>
       keys.map((key) => {
-        // Try exact match first, then partial
         const item =
           FLATTENED_DB[key.toLowerCase()] ||
           FLATTENED_DB[
@@ -831,11 +1051,45 @@ export default function Home() {
         return item ? { name: key, ...item } : { name: key };
       });
 
+    // 1. SEARCH LOGIC (LOCAL + WEB)
     if (query) {
       const keys = Object.keys(FLATTENED_DB).filter((k) =>
         k.includes(query.toLowerCase())
       );
-      return hydrate(keys);
+      const results = hydrate(keys);
+
+      // If local is empty, try showing web results
+      if (results.length === 0) {
+        if (isWebSearching) {
+          return [{ id: "loading", name: "Searching Web...", isWeb: true }];
+        }
+        if (webResults.length > 0) {
+          return webResults;
+        }
+        return [
+          {
+            id: "no-res",
+            name: "No results. Try standardizing name.",
+            isWeb: true,
+          },
+        ];
+      }
+      return results;
+    }
+
+    // 2. SMART RECOMMENDATIONS
+    if (activeCategory === "Smart") {
+      return smartRecommendations.length > 0
+        ? smartRecommendations
+        : [
+            {
+              id: "smart-empty",
+              name: "Goal Met! Have some water.",
+              type: "meal",
+              items: [],
+              isSmart: true,
+            },
+          ];
     }
 
     if (activeCategory === "Recent") {
@@ -843,10 +1097,9 @@ export default function Home() {
     }
 
     if (activeCategory === "Meals") {
-      return savedMeals; // Already objects
+      return savedMeals;
     }
 
-    // Standard Categories
     const catKeys = Object.keys(FOOD_CATEGORIES[activeCategory] || {});
     return hydrate(catKeys);
   };
@@ -911,7 +1164,6 @@ export default function Home() {
           padding: 20,
         }}
       >
-        {/* LOGIN COMPONENT */}
         <div style={{ width: "100%", maxWidth: 350, textAlign: "center" }}>
           <h1 style={{ fontSize: "2rem", fontWeight: 800, marginBottom: 16 }}>
             NutriTrack.
@@ -1012,14 +1264,8 @@ export default function Home() {
                     "Sign In"
                   )}
                 </button>
-                <div
-                  style={{ marginTop: 12, fontSize: "0.8rem", color: "#666" }}
-                >
-                  Forgot password? Use OTP to login & reset it.
-                </div>
               </form>
-            ) : // OTP LOGIN
-            !isCodeSent ? (
+            ) : !isCodeSent ? (
               <form onSubmit={handleSendCode}>
                 <input
                   type="email"
@@ -1056,11 +1302,6 @@ export default function Home() {
                     "Get Code"
                   )}
                 </button>
-                <div
-                  style={{ marginTop: 12, fontSize: "0.8rem", color: "#666" }}
-                >
-                  New user? Just enter your email to start.
-                </div>
               </form>
             ) : (
               <form onSubmit={handleVerifyCode}>
@@ -1156,7 +1397,9 @@ export default function Home() {
                 <h2 style={{ margin: "0 0 10px 0", fontSize: "1.6rem" }}>
                   Food is Fuel ⛽️
                 </h2>
-                <p style={{ color: "#aaa", lineHeight: 1.6, marginBottom: 30 }}>
+                <p
+                  style={{ color: "#aaa", lineHeight: 1.6, marginBottom: 30 }}
+                >
                   Think of your body as a high-performance engine. Calories are
                   just the energy unit to keep it running.
                 </p>
@@ -1197,7 +1440,9 @@ export default function Home() {
                 <h2 style={{ margin: "0 0 10px 0", fontSize: "1.6rem" }}>
                   Your Daily Budget 💳
                 </h2>
-                <p style={{ color: "#aaa", lineHeight: 1.6, marginBottom: 30 }}>
+                <p
+                  style={{ color: "#aaa", lineHeight: 1.6, marginBottom: 30 }}
+                >
                   We gave you a specific <b>Calorie Target</b>. Spend it wisely
                   on Protein, Carbs, and Fats to win the day!
                 </p>
@@ -1238,7 +1483,9 @@ export default function Home() {
                 <h2 style={{ margin: "0 0 10px 0", fontSize: "1.6rem" }}>
                   Your Mission 🎯
                 </h2>
-                <p style={{ color: "#aaa", lineHeight: 1.6, marginBottom: 30 }}>
+                <p
+                  style={{ color: "#aaa", lineHeight: 1.6, marginBottom: 30 }}
+                >
                   Consistency is the only cheat code. Hit your numbers, log
                   everyday, and watch your body change.
                 </p>
@@ -1255,7 +1502,7 @@ export default function Home() {
                     cursor: "pointer",
                   }}
                 >
-                  Let's Go!
+                  Let&apos;s Go!
                 </button>
               </div>
             )}
@@ -1284,731 +1531,6 @@ export default function Home() {
         </div>
       )}
 
-      {/* PASSWORD & USERNAME MODAL */}
-      {showPasswordSetup && (
-        <div className="modal-overlay">
-          <div
-            className="modal-content"
-            style={{ maxWidth: 400, width: "90%", textAlign: "center" }}
-          >
-            <KeyRound size={40} color="#3b82f6" style={{ marginBottom: 16 }} />
-            <h3 style={{ margin: "0 0 8px 0" }}>Account Setup</h3>
-            <p style={{ color: "#888", marginBottom: 20, fontSize: "0.9rem" }}>
-              Set a username and password to secure your account.
-            </p>
-
-            {/* USERNAME INPUT */}
-            <input
-              type="text"
-              placeholder="Username (e.g. GymRat99)"
-              value={username}
-              onChange={(e) => setUsername(e.target.value)}
-              style={{
-                width: "100%",
-                padding: 12,
-                background: "#000",
-                border: "1px solid #444",
-                color: "#fff",
-                borderRadius: 8,
-                marginBottom: 10,
-              }}
-            />
-
-            {/* PASSWORD INPUT */}
-            <input
-              type="password"
-              placeholder="New Password"
-              value={newPassword}
-              onChange={(e) => setNewPassword(e.target.value)}
-              style={{
-                width: "100%",
-                padding: 12,
-                background: "#000",
-                border: "1px solid #444",
-                color: "#fff",
-                borderRadius: 8,
-                marginBottom: 10,
-              }}
-            />
-
-            <div style={{ display: "flex", gap: 10 }}>
-              <button
-                onClick={() => setShowPasswordSetup(false)}
-                style={{
-                  flex: 1,
-                  padding: 12,
-                  background: "transparent",
-                  border: "1px solid #333",
-                  borderRadius: 8,
-                  color: "#888",
-                  fontWeight: 600,
-                  cursor: "pointer",
-                }}
-              >
-                Cancel
-              </button>
-              <button
-                onClick={handleUpdatePassword}
-                style={{
-                  flex: 1,
-                  padding: 12,
-                  background: "var(--brand)",
-                  border: "none",
-                  borderRadius: 8,
-                  color: "#fff",
-                  fontWeight: 600,
-                  cursor: "pointer",
-                }}
-              >
-                Save Changes
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* SETTINGS MODAL */}
-      {isSettingGoal && (
-        <div className="modal-overlay">
-          <div
-            className="modal-content"
-            style={{ maxWidth: 400, width: "90%" }}
-          >
-            <div
-              style={{
-                display: "flex",
-                justifyContent: "space-between",
-                alignItems: "center",
-                marginBottom: 20,
-              }}
-            >
-              <h3
-                style={{
-                  margin: 0,
-                  fontSize: "1.2rem",
-                  display: "flex",
-                  alignItems: "center",
-                  gap: 8,
-                }}
-              >
-                <Target size={20} color="#f59e0b" /> Settings
-              </h3>
-              <button
-                onClick={() => setIsSettingGoal(false)}
-                style={{
-                  background: "none",
-                  border: "none",
-                  color: "#666",
-                  cursor: "pointer",
-                }}
-              >
-                <X size={20} />
-              </button>
-            </div>
-            <div
-              style={{
-                display: "flex",
-                background: "#1f1f22",
-                padding: 4,
-                borderRadius: 8,
-                marginBottom: 20,
-              }}
-            >
-              <button
-                onClick={() => setSettingsTab("profile")}
-                style={{
-                  flex: 1,
-                  padding: 8,
-                  background:
-                    settingsTab === "profile" ? "#333" : "transparent",
-                  border: "none",
-                  color: "#fff",
-                  borderRadius: 6,
-                  cursor: "pointer",
-                }}
-              >
-                Profile
-              </button>
-              <button
-                onClick={() => setSettingsTab("security")}
-                style={{
-                  flex: 1,
-                  padding: 8,
-                  background:
-                    settingsTab === "security" ? "#333" : "transparent",
-                  border: "none",
-                  color: "#fff",
-                  borderRadius: 6,
-                  cursor: "pointer",
-                }}
-              >
-                Security
-              </button>
-            </div>
-            {settingsTab === "security" ? (
-              <div
-                style={{ display: "flex", flexDirection: "column", gap: 20 }}
-              >
-                <div
-                  style={{
-                    background: "#1f1f22",
-                    padding: 16,
-                    borderRadius: 12,
-                    border: "1px solid #333",
-                    textAlign: "center",
-                  }}
-                >
-                  <Shield
-                    size={32}
-                    color="#3b82f6"
-                    style={{ marginBottom: 10 }}
-                  />
-                  <h4 style={{ margin: "0 0 10px 0" }}>Account Details</h4>
-                  <p
-                    style={{
-                      color: "#888",
-                      fontSize: "0.85rem",
-                      marginBottom: 15,
-                    }}
-                  >
-                    Update your public username or login password.
-                  </p>
-
-                  <input
-                    type="text"
-                    placeholder="Username"
-                    value={username}
-                    onChange={(e) => setUsername(e.target.value)}
-                    style={{
-                      width: "100%",
-                      padding: 12,
-                      background: "#000",
-                      border: "1px solid #444",
-                      color: "#fff",
-                      borderRadius: 8,
-                      marginBottom: 10,
-                    }}
-                  />
-
-                  <input
-                    type="password"
-                    placeholder="New Password (optional)"
-                    value={newPassword}
-                    onChange={(e) => setNewPassword(e.target.value)}
-                    style={{
-                      width: "100%",
-                      padding: 12,
-                      background: "#000",
-                      border: "1px solid #444",
-                      color: "#fff",
-                      borderRadius: 8,
-                      marginBottom: 10,
-                    }}
-                  />
-                  <button
-                    onClick={handleUpdatePassword}
-                    style={{
-                      width: "100%",
-                      padding: 12,
-                      background: "var(--brand)",
-                      border: "none",
-                      borderRadius: 8,
-                      color: "#fff",
-                      fontWeight: 600,
-                      cursor: "pointer",
-                    }}
-                  >
-                    Update Account
-                  </button>
-                </div>
-              </div>
-            ) : (
-              <div
-                style={{ display: "flex", flexDirection: "column", gap: 20 }}
-              >
-                <div
-                  style={{
-                    background: "#1f1f22",
-                    padding: 16,
-                    borderRadius: 12,
-                    border: "1px solid #333",
-                  }}
-                >
-                  <label
-                    style={{
-                      fontSize: "0.85rem",
-                      color: "#f59e0b",
-                      fontWeight: 600,
-                      marginBottom: 8,
-                      display: "block",
-                    }}
-                  >
-                    🎯 Manual Calorie Target
-                  </label>
-                  <input
-                    type="number"
-                    placeholder="e.g. 2200"
-                    value={userProfile.target_calories || ""}
-                    onChange={(e) =>
-                      setUserProfile({
-                        ...userProfile,
-                        target_calories: e.target.value,
-                      })
-                    }
-                    style={{
-                      width: "100%",
-                      padding: 12,
-                      background: "#000",
-                      border: "1px solid #444",
-                      color: "#fff",
-                      borderRadius: 8,
-                      fontSize: "1rem",
-                      fontWeight: 600,
-                    }}
-                  />
-                </div>
-                <div style={{ opacity: userProfile.target_calories ? 0.5 : 1 }}>
-                  <div
-                    style={{
-                      display: "flex",
-                      alignItems: "center",
-                      gap: 6,
-                      marginBottom: 10,
-                    }}
-                  >
-                    <Calculator size={16} color="#3b82f6" />
-                    <span style={{ fontSize: "0.9rem", fontWeight: 600 }}>
-                      Auto-Calculate
-                    </span>
-                  </div>
-                  <div
-                    style={{
-                      display: "grid",
-                      gridTemplateColumns: "1fr 1fr",
-                      gap: 10,
-                      marginBottom: 10,
-                    }}
-                  >
-                    <div>
-                      <label
-                        style={{
-                          fontSize: "0.75rem",
-                          color: "#888",
-                          marginBottom: 4,
-                          display: "block",
-                        }}
-                      >
-                        Weight (kg)
-                      </label>
-                      <input
-                        type="number"
-                        value={userProfile.weight}
-                        onChange={(e) =>
-                          setUserProfile({
-                            ...userProfile,
-                            weight: e.target.value,
-                          })
-                        }
-                        style={{
-                          width: "100%",
-                          padding: 12,
-                          background: "#000",
-                          border: "1px solid #333",
-                          color: "#fff",
-                          borderRadius: 8,
-                        }}
-                      />
-                    </div>
-                    <div>
-                      <label
-                        style={{
-                          fontSize: "0.75rem",
-                          color: "#888",
-                          marginBottom: 4,
-                          display: "block",
-                        }}
-                      >
-                        Height (cm)
-                      </label>
-                      <input
-                        type="number"
-                        value={userProfile.height}
-                        onChange={(e) =>
-                          setUserProfile({
-                            ...userProfile,
-                            height: e.target.value,
-                          })
-                        }
-                        style={{
-                          width: "100%",
-                          padding: 12,
-                          background: "#000",
-                          border: "1px solid #333",
-                          color: "#fff",
-                          borderRadius: 8,
-                        }}
-                      />
-                    </div>
-                  </div>
-                  <div
-                    style={{
-                      display: "grid",
-                      gridTemplateColumns: "1fr 1.5fr",
-                      gap: 10,
-                      marginBottom: 10,
-                    }}
-                  >
-                    <div>
-                      <label
-                        style={{
-                          fontSize: "0.75rem",
-                          color: "#888",
-                          marginBottom: 4,
-                          display: "block",
-                        }}
-                      >
-                        Age
-                      </label>
-                      <input
-                        type="number"
-                        value={userProfile.age}
-                        onChange={(e) =>
-                          setUserProfile({
-                            ...userProfile,
-                            age: e.target.value,
-                          })
-                        }
-                        style={{
-                          width: "100%",
-                          padding: 12,
-                          background: "#000",
-                          border: "1px solid #333",
-                          color: "#fff",
-                          borderRadius: 8,
-                        }}
-                      />
-                    </div>
-                    <div>
-                      <label
-                        style={{
-                          fontSize: "0.75rem",
-                          color: "#888",
-                          marginBottom: 4,
-                          display: "block",
-                        }}
-                      >
-                        Gender
-                      </label>
-                      <div
-                        style={{
-                          display: "flex",
-                          height: 42,
-                          background: "#000",
-                          borderRadius: 8,
-                          border: "1px solid #333",
-                          overflow: "hidden",
-                        }}
-                      >
-                        {["male", "female"].map((g) => (
-                          <button
-                            key={g}
-                            onClick={() =>
-                              setUserProfile({ ...userProfile, gender: g })
-                            }
-                            style={{
-                              flex: 1,
-                              background:
-                                userProfile.gender === g
-                                  ? "#333"
-                                  : "transparent",
-                              border: "none",
-                              color: userProfile.gender === g ? "#fff" : "#666",
-                              textTransform: "capitalize",
-                              fontSize: "0.85rem",
-                              cursor: "pointer",
-                              fontWeight: userProfile.gender === g ? 600 : 400,
-                            }}
-                          >
-                            {g}
-                          </button>
-                        ))}
-                      </div>
-                    </div>
-                  </div>
-                  <div style={{ marginBottom: 10 }}>
-                    <label
-                      style={{
-                        fontSize: "0.75rem",
-                        color: "#888",
-                        marginBottom: 4,
-                        display: "block",
-                      }}
-                    >
-                      Activity Level
-                    </label>
-                    <select
-                      value={userProfile.activity}
-                      onChange={(e) =>
-                        setUserProfile({
-                          ...userProfile,
-                          activity: e.target.value,
-                        })
-                      }
-                      style={{
-                        width: "100%",
-                        padding: 12,
-                        background: "#000",
-                        border: "1px solid #333",
-                        color: "#fff",
-                        borderRadius: 8,
-                        cursor: "pointer",
-                      }}
-                    >
-                      <option value="sedentary">Sedentary (Office Job)</option>
-                      <option value="light">Light Exercise (1-3 days)</option>
-                      <option value="moderate">
-                        Moderate Exercise (3-5 days)
-                      </option>
-                      <option value="active">Active (6-7 days)</option>
-                    </select>
-                  </div>
-                  <div>
-                    <label
-                      style={{
-                        fontSize: "0.75rem",
-                        color: "#888",
-                        marginBottom: 4,
-                        display: "block",
-                      }}
-                    >
-                      Weekly Goal
-                    </label>
-                    <div
-                      style={{
-                        display: "grid",
-                        gridTemplateColumns: "1fr 1fr 1fr",
-                        gap: 8,
-                      }}
-                    >
-                      {["lose", "maintain", "gain"].map((g) => (
-                        <button
-                          key={g}
-                          onClick={() =>
-                            setUserProfile({ ...userProfile, goal: g })
-                          }
-                          style={{
-                            padding: 12,
-                            background:
-                              userProfile.goal === g
-                                ? g === "lose"
-                                  ? "#ef4444"
-                                  : g === "gain"
-                                  ? "#3b82f6"
-                                  : "#22c55e"
-                                : "#000",
-                            border:
-                              userProfile.goal === g
-                                ? "none"
-                                : "1px solid #333",
-                            borderRadius: 8,
-                            color: "#fff",
-                            textTransform: "capitalize",
-                            fontSize: "0.85rem",
-                            cursor: "pointer",
-                          }}
-                        >
-                          {g}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                </div>
-                <button
-                  onClick={saveGoal}
-                  style={{
-                    width: "100%",
-                    padding: 14,
-                    background: "var(--brand)",
-                    border: "none",
-                    color: "#fff",
-                    borderRadius: 10,
-                    fontWeight: 700,
-                    cursor: "pointer",
-                  }}
-                >
-                  Save Profile
-                </button>
-              </div>
-            )}
-          </div>
-        </div>
-      )}
-
-      {/* MEAL BUILDER */}
-      {isCreatingMeal && (
-        <div className="modal-overlay">
-          <div
-            className="modal-content"
-            style={{ maxWidth: 400, width: "90%" }}
-          >
-            <div
-              style={{
-                display: "flex",
-                justifyContent: "space-between",
-                alignItems: "center",
-                marginBottom: 16,
-              }}
-            >
-              <h3 style={{ margin: 0 }}>
-                {editingMealId ? "Edit Meal" : "Build a Meal"}
-              </h3>
-              <button
-                onClick={() => setIsCreatingMeal(false)}
-                style={{ background: "none", border: "none", color: "#666" }}
-              >
-                <X size={20} />
-              </button>
-            </div>
-            <input
-              autoFocus
-              placeholder="Meal Name"
-              value={newMealName}
-              onChange={(e) => setNewMealName(e.target.value)}
-              style={{
-                width: "100%",
-                padding: 12,
-                marginBottom: 16,
-                background: "#000",
-                border: "1px solid #333",
-                color: "#fff",
-                borderRadius: 8,
-              }}
-            />
-            <div
-              style={{
-                background: "#000",
-                borderRadius: 8,
-                border: "1px solid #333",
-                padding: 10,
-                marginBottom: 16,
-                minHeight: 100,
-                maxHeight: 150,
-                overflowY: "auto",
-              }}
-            >
-              {mealBuilderItems.length === 0 ? (
-                <div
-                  style={{ color: "#666", textAlign: "center", marginTop: 30 }}
-                >
-                  Add items below
-                </div>
-              ) : (
-                mealBuilderItems.map((item, idx) => (
-                  <div
-                    key={idx}
-                    style={{
-                      display: "flex",
-                      justifyContent: "space-between",
-                      padding: "6px 0",
-                      borderBottom: "1px solid #222",
-                    }}
-                  >
-                    <span>
-                      {item.qty}x {item.name}
-                    </span>
-                    <button
-                      onClick={() => removeItemFromBuilder(idx)}
-                      style={{
-                        background: "none",
-                        border: "none",
-                        color: "#ef4444",
-                        cursor: "pointer",
-                      }}
-                    >
-                      <Trash2 size={14} />
-                    </button>
-                  </div>
-                ))
-              )}
-            </div>
-            <div style={{ marginBottom: 16 }}>
-              <div
-                style={{
-                  display: "flex",
-                  alignItems: "center",
-                  background: "#000",
-                  border: "1px solid #333",
-                  borderRadius: 8,
-                  padding: "0 10px",
-                }}
-              >
-                <Search size={14} color="#666" />
-                <input
-                  placeholder="Search food..."
-                  value={mealBuilderQuery}
-                  onChange={(e) => setMealBuilderQuery(e.target.value)}
-                  style={{
-                    flex: 1,
-                    background: "none",
-                    border: "none",
-                    color: "#fff",
-                    padding: 10,
-                    outline: "none",
-                  }}
-                />
-              </div>
-              {mealBuilderQuery && (
-                <div
-                  style={{
-                    marginTop: 8,
-                    display: "flex",
-                    flexWrap: "wrap",
-                    gap: 6,
-                    maxHeight: 100,
-                    overflowY: "auto",
-                  }}
-                >
-                  {getBuilderSuggestions().map((item) => (
-                    <button
-                      key={item}
-                      onClick={() => addItemToBuilder(item)}
-                      style={{
-                        background: "#27272a",
-                        border: "1px solid #333",
-                        color: "#ddd",
-                        padding: "4px 10px",
-                        borderRadius: 20,
-                        fontSize: "0.8rem",
-                        cursor: "pointer",
-                        textTransform: "capitalize",
-                      }}
-                    >
-                      + {item}
-                    </button>
-                  ))}
-                </div>
-              )}
-            </div>
-            <button
-              onClick={saveBuiltMeal}
-              style={{
-                width: "100%",
-                padding: 12,
-                background: "var(--brand)",
-                border: "none",
-                color: "#fff",
-                borderRadius: 8,
-                fontWeight: 600,
-                cursor: "pointer",
-              }}
-            >
-              <Save size={16} style={{ display: "inline", marginRight: 6 }} />{" "}
-              Save Meal
-            </button>
-          </div>
-        </div>
-      )}
-
       {/* HEADER */}
       <header
         className="header-row"
@@ -2019,7 +1541,6 @@ export default function Home() {
         }}
       >
         <div>
-          {/* NEW: Welcome Message */}
           {username && (
             <div
               style={{
@@ -2122,6 +1643,27 @@ export default function Home() {
         <div className="suggestions-box">
           {!query && (
             <div className="category-scroll-row">
+              {/* --- NEW SMART RECS CATEGORY --- */}
+              <button
+                className={`suggestion-chip ${
+                  activeCategory === "Smart" ? "active" : ""
+                }`}
+                onClick={() => setActiveCategory("Smart")}
+                style={{
+                  border:
+                    activeCategory === "Smart"
+                      ? "1px solid #8b5cf6"
+                      : "1px solid #333",
+                  color: activeCategory === "Smart" ? "#fff" : "#8b5cf6",
+                  background:
+                    activeCategory === "Smart"
+                      ? "rgba(139, 92, 246, 0.2)"
+                      : "transparent",
+                }}
+              >
+                <Sparkles size={12} style={{ marginRight: 6 }} /> Smart Recs
+              </button>
+
               <button
                 className={`suggestion-chip ${
                   activeCategory === "Recent" ? "active" : ""
@@ -2156,7 +1698,9 @@ export default function Home() {
             style={{
               display: "grid",
               gridTemplateColumns:
-                query || activeCategory === "Meals" ? "1fr" : "repeat(3, 1fr)",
+                query || activeCategory === "Meals" || activeCategory === "Smart"
+                  ? "1fr"
+                  : "repeat(3, 1fr)",
               gap: 8,
             }}
           >
@@ -2223,7 +1767,6 @@ export default function Home() {
               </>
             ) : (
               getDisplayItems().map((item) => {
-                // Normalize item: if string (legacy), make object. If object (smart search), keep.
                 const foodName = typeof item === "string" ? item : item.name;
                 const p =
                   typeof item === "object" && item.protein !== undefined
@@ -2242,17 +1785,29 @@ export default function Home() {
                     ? item.fiber
                     : null;
 
-                // Handle Saved Meals (objects with 'items' array) vs Food Items
                 const isMeal = activeCategory === "Meals" && !query;
-                const displayLabel = isMeal ? item.name : foodName;
+                const isSmart = item.isSmart === true;
+                const isWeb = item.isWeb === true;
+                const displayLabel = isMeal || isSmart ? item.name : foodName;
 
                 return (
                   <button
                     key={item.id || displayLabel}
                     className="suggestion-chip"
-                    onClick={() =>
-                      isMeal ? loadMeal(item) : addFood(displayLabel)
-                    }
+                    onClick={() => {
+                      if (isMeal) loadMeal(item);
+                      else if (isSmart) loadMeal(item);
+                      else if (isWeb)
+                        addFood(displayLabel, null, {
+                          // Pass explicit macros for web results
+                          calories: item.calories,
+                          protein: item.protein,
+                          carbs: item.carbs,
+                          fats: item.fats,
+                          fiber: item.fiber,
+                        });
+                      else addFood(displayLabel);
+                    }}
                     style={{
                       whiteSpace: "normal",
                       height: "auto",
@@ -2264,9 +1819,27 @@ export default function Home() {
                       flexDirection: "column",
                       alignItems: "center",
                       justifyContent: "center",
+                      // Highlight Smart/Web items
+                      border: isSmart
+                        ? "1px solid #8b5cf6"
+                        : isWeb
+                        ? "1px dashed #3b82f6"
+                        : "none",
+                      background: isSmart
+                        ? "rgba(139, 92, 246, 0.1)"
+                        : "var(--surface)",
                     }}
                   >
-                    <span style={{ fontWeight: 600 }}>
+                    <span
+                      style={{
+                        fontWeight: 600,
+                        display: "flex",
+                        alignItems: "center",
+                        gap: 6,
+                      }}
+                    >
+                      {isSmart && <Sparkles size={12} color="#8b5cf6" />}
+                      {isWeb && <Globe size={12} color="#3b82f6" />}
                       {displayLabel.charAt(0).toUpperCase() +
                         displayLabel.slice(1)}
                     </span>
@@ -2285,8 +1858,22 @@ export default function Home() {
                         <span style={{ color: "#3b82f6" }}>P:{p}</span>
                         <span style={{ color: "#f59e0b" }}>C:{c}</span>
                         <span style={{ color: "#ef4444" }}>F:{f}</span>
-                        <span style={{ color: "#10b981" }}>Fib:{fib}</span>
+                        {/* Only show fiber if space permits or relevant */}
+                        
+                          <span style={{ color: "#10b981" }}>Fib:{fib}</span>
+                        
                       </div>
+                    )}
+                    {isWeb && (
+                      <span
+                        style={{
+                          fontSize: "0.6rem",
+                          color: "#666",
+                          marginTop: 2,
+                        }}
+                      >
+                        Web Search Estimate
+                      </span>
                     )}
                   </button>
                 );
@@ -2296,7 +1883,7 @@ export default function Home() {
         </div>
       </section>
 
-      {/* --- REDESIGNED TIMELINE: MACRO CARDS --- */}
+      {/* TIMELINE */}
       <section className="timeline" style={{ paddingBottom: 80 }}>
         <div className="timeline-label">
           Today&apos;s Logs{" "}
@@ -2343,7 +1930,6 @@ export default function Home() {
                 gap: 12,
               }}
             >
-              {/* QTY BADGE */}
               <div
                 style={{
                   background: log.name === "Water" ? "#3b82f6" : "#27272a",
@@ -2359,7 +1945,6 @@ export default function Home() {
                 {log.qty}x
               </div>
 
-              {/* INFO */}
               <div style={{ flex: 1 }}>
                 <div
                   style={{
@@ -2372,7 +1957,6 @@ export default function Home() {
                   {log.name}
                 </div>
 
-                {/* MACRO PILLS (OR WATER VOL) */}
                 <div
                   style={{
                     display: "flex",
@@ -2446,7 +2030,6 @@ export default function Home() {
                 </div>
               </div>
 
-              {/* CALORIES & DELETE */}
               <div style={{ textAlign: "right" }}>
                 <div
                   style={{
@@ -2458,7 +2041,11 @@ export default function Home() {
                   {log.calories}
                 </div>
                 <div
-                  style={{ fontSize: "0.7rem", color: "#666", marginBottom: 4 }}
+                  style={{
+                    fontSize: "0.7rem",
+                    color: "#666",
+                    marginBottom: 4,
+                  }}
                 >
                   kcal
                 </div>
