@@ -866,11 +866,7 @@ export default function Home() {
         };
 
         // If local DB lookup needed
-        if (
-          foodName !== "Water" &&
-          baseData.calories === 0 &&
-          !newItem.isWeb
-        ) {
+        if (foodName !== "Water" && baseData.calories === 0 && !newItem.isWeb) {
           let dbData = FLATTENED_DB[foodName.toLowerCase()];
           if (!dbData) {
             const key = Object.keys(FLATTENED_DB).find((k) =>
@@ -1397,9 +1393,7 @@ export default function Home() {
                 <h2 style={{ margin: "0 0 10px 0", fontSize: "1.6rem" }}>
                   Food is Fuel ⛽️
                 </h2>
-                <p
-                  style={{ color: "#aaa", lineHeight: 1.6, marginBottom: 30 }}
-                >
+                <p style={{ color: "#aaa", lineHeight: 1.6, marginBottom: 30 }}>
                   Think of your body as a high-performance engine. Calories are
                   just the energy unit to keep it running.
                 </p>
@@ -1440,9 +1434,7 @@ export default function Home() {
                 <h2 style={{ margin: "0 0 10px 0", fontSize: "1.6rem" }}>
                   Your Daily Budget 💳
                 </h2>
-                <p
-                  style={{ color: "#aaa", lineHeight: 1.6, marginBottom: 30 }}
-                >
+                <p style={{ color: "#aaa", lineHeight: 1.6, marginBottom: 30 }}>
                   We gave you a specific <b>Calorie Target</b>. Spend it wisely
                   on Protein, Carbs, and Fats to win the day!
                 </p>
@@ -1483,9 +1475,7 @@ export default function Home() {
                 <h2 style={{ margin: "0 0 10px 0", fontSize: "1.6rem" }}>
                   Your Mission 🎯
                 </h2>
-                <p
-                  style={{ color: "#aaa", lineHeight: 1.6, marginBottom: 30 }}
-                >
+                <p style={{ color: "#aaa", lineHeight: 1.6, marginBottom: 30 }}>
                   Consistency is the only cheat code. Hit your numbers, log
                   everyday, and watch your body change.
                 </p>
@@ -1531,6 +1521,731 @@ export default function Home() {
         </div>
       )}
 
+      {/* PASSWORD & USERNAME MODAL */}
+      {showPasswordSetup && (
+        <div className="modal-overlay">
+          <div
+            className="modal-content"
+            style={{ maxWidth: 400, width: "90%", textAlign: "center" }}
+          >
+            <KeyRound size={40} color="#3b82f6" style={{ marginBottom: 16 }} />
+            <h3 style={{ margin: "0 0 8px 0" }}>Account Setup</h3>
+            <p style={{ color: "#888", marginBottom: 20, fontSize: "0.9rem" }}>
+              Set a username and password to secure your account.
+            </p>
+
+            <input
+              type="text"
+              placeholder="Username (e.g. GymRat99)"
+              value={username}
+              onChange={(e) => setUsername(e.target.value)}
+              style={{
+                width: "100%",
+                padding: 12,
+                background: "#000",
+                border: "1px solid #444",
+                color: "#fff",
+                borderRadius: 8,
+                marginBottom: 10,
+              }}
+            />
+            <input
+              type="password"
+              placeholder="New Password"
+              value={newPassword}
+              onChange={(e) => setNewPassword(e.target.value)}
+              style={{
+                width: "100%",
+                padding: 12,
+                background: "#000",
+                border: "1px solid #444",
+                color: "#fff",
+                borderRadius: 8,
+                marginBottom: 10,
+              }}
+            />
+            <div style={{ display: "flex", gap: 10 }}>
+              <button
+                onClick={() => setShowPasswordSetup(false)}
+                style={{
+                  flex: 1,
+                  padding: 12,
+                  background: "transparent",
+                  border: "1px solid #333",
+                  borderRadius: 8,
+                  color: "#888",
+                  fontWeight: 600,
+                  cursor: "pointer",
+                }}
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleUpdatePassword}
+                style={{
+                  flex: 1,
+                  padding: 12,
+                  background: "var(--brand)",
+                  border: "none",
+                  borderRadius: 8,
+                  color: "#fff",
+                  fontWeight: 600,
+                  cursor: "pointer",
+                }}
+              >
+                Save Changes
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* SETTINGS MODAL */}
+      {isSettingGoal && (
+        <div className="modal-overlay">
+          <div
+            className="modal-content"
+            style={{ maxWidth: 400, width: "90%" }}
+          >
+            <div
+              style={{
+                display: "flex",
+                justifyContent: "space-between",
+                alignItems: "center",
+                marginBottom: 20,
+              }}
+            >
+              <h3
+                style={{
+                  margin: 0,
+                  fontSize: "1.2rem",
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 8,
+                }}
+              >
+                <Target size={20} color="#f59e0b" /> Settings
+              </h3>
+              <button
+                onClick={() => setIsSettingGoal(false)}
+                style={{
+                  background: "none",
+                  border: "none",
+                  color: "#666",
+                  cursor: "pointer",
+                }}
+              >
+                <X size={20} />
+              </button>
+            </div>
+            <div
+              style={{
+                display: "flex",
+                background: "#1f1f22",
+                padding: 4,
+                borderRadius: 8,
+                marginBottom: 20,
+              }}
+            >
+              <button
+                onClick={() => setSettingsTab("profile")}
+                style={{
+                  flex: 1,
+                  padding: 8,
+                  background:
+                    settingsTab === "profile" ? "#333" : "transparent",
+                  border: "none",
+                  color: "#fff",
+                  borderRadius: 6,
+                  cursor: "pointer",
+                }}
+              >
+                Profile
+              </button>
+              <button
+                onClick={() => setSettingsTab("security")}
+                style={{
+                  flex: 1,
+                  padding: 8,
+                  background:
+                    settingsTab === "security" ? "#333" : "transparent",
+                  border: "none",
+                  color: "#fff",
+                  borderRadius: 6,
+                  cursor: "pointer",
+                }}
+              >
+                Security
+              </button>
+            </div>
+            {settingsTab === "security" ? (
+              <div
+                style={{ display: "flex", flexDirection: "column", gap: 20 }}
+              >
+                <div
+                  style={{
+                    background: "#1f1f22",
+                    padding: 16,
+                    borderRadius: 12,
+                    border: "1px solid #333",
+                    textAlign: "center",
+                  }}
+                >
+                  <Shield
+                    size={32}
+                    color="#3b82f6"
+                    style={{ marginBottom: 10 }}
+                  />
+                  <h4 style={{ margin: "0 0 10px 0" }}>Account Details</h4>
+                  <p
+                    style={{
+                      color: "#888",
+                      fontSize: "0.85rem",
+                      marginBottom: 15,
+                    }}
+                  >
+                    Update your public username or login password.
+                  </p>
+
+                  <input
+                    type="text"
+                    placeholder="Username"
+                    value={username}
+                    onChange={(e) => setUsername(e.target.value)}
+                    style={{
+                      width: "100%",
+                      padding: 12,
+                      background: "#000",
+                      border: "1px solid #444",
+                      color: "#fff",
+                      borderRadius: 8,
+                      marginBottom: 10,
+                    }}
+                  />
+
+                  <input
+                    type="password"
+                    placeholder="New Password (optional)"
+                    value={newPassword}
+                    onChange={(e) => setNewPassword(e.target.value)}
+                    style={{
+                      width: "100%",
+                      padding: 12,
+                      background: "#000",
+                      border: "1px solid #444",
+                      color: "#fff",
+                      borderRadius: 8,
+                      marginBottom: 10,
+                    }}
+                  />
+                  <button
+                    onClick={handleUpdatePassword}
+                    style={{
+                      width: "100%",
+                      padding: 12,
+                      background: "var(--brand)",
+                      border: "none",
+                      borderRadius: 8,
+                      color: "#fff",
+                      fontWeight: 600,
+                      cursor: "pointer",
+                    }}
+                  >
+                    Update Account
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <div
+                style={{ display: "flex", flexDirection: "column", gap: 20 }}
+              >
+                <div
+                  style={{
+                    background: "#1f1f22",
+                    padding: 16,
+                    borderRadius: 12,
+                    border: "1px solid #333",
+                  }}
+                >
+                  <label
+                    style={{
+                      fontSize: "0.85rem",
+                      color: "#f59e0b",
+                      fontWeight: 600,
+                      marginBottom: 8,
+                      display: "block",
+                    }}
+                  >
+                    🎯 Manual Calorie Target
+                  </label>
+                  <input
+                    type="number"
+                    placeholder="e.g. 2200"
+                    value={userProfile.target_calories || ""}
+                    onChange={(e) =>
+                      setUserProfile({
+                        ...userProfile,
+                        target_calories: e.target.value,
+                      })
+                    }
+                    style={{
+                      width: "100%",
+                      padding: 12,
+                      background: "#000",
+                      border: "1px solid #444",
+                      color: "#fff",
+                      borderRadius: 8,
+                      fontSize: "1rem",
+                      fontWeight: 600,
+                    }}
+                  />
+                </div>
+                <div style={{ opacity: userProfile.target_calories ? 0.5 : 1 }}>
+                  <div
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      gap: 6,
+                      marginBottom: 10,
+                    }}
+                  >
+                    <Calculator size={16} color="#3b82f6" />
+                    <span style={{ fontSize: "0.9rem", fontWeight: 600 }}>
+                      Auto-Calculate
+                    </span>
+                  </div>
+                  <div
+                    style={{
+                      display: "grid",
+                      gridTemplateColumns: "1fr 1fr",
+                      gap: 10,
+                      marginBottom: 10,
+                    }}
+                  >
+                    <div>
+                      <label
+                        style={{
+                          fontSize: "0.75rem",
+                          color: "#888",
+                          marginBottom: 4,
+                          display: "block",
+                        }}
+                      >
+                        Weight (kg)
+                      </label>
+                      <input
+                        type="number"
+                        value={userProfile.weight}
+                        onChange={(e) =>
+                          setUserProfile({
+                            ...userProfile,
+                            weight: e.target.value,
+                          })
+                        }
+                        style={{
+                          width: "100%",
+                          padding: 12,
+                          background: "#000",
+                          border: "1px solid #333",
+                          color: "#fff",
+                          borderRadius: 8,
+                        }}
+                      />
+                    </div>
+                    <div>
+                      <label
+                        style={{
+                          fontSize: "0.75rem",
+                          color: "#888",
+                          marginBottom: 4,
+                          display: "block",
+                        }}
+                      >
+                        Height (cm)
+                      </label>
+                      <input
+                        type="number"
+                        value={userProfile.height}
+                        onChange={(e) =>
+                          setUserProfile({
+                            ...userProfile,
+                            height: e.target.value,
+                          })
+                        }
+                        style={{
+                          width: "100%",
+                          padding: 12,
+                          background: "#000",
+                          border: "1px solid #333",
+                          color: "#fff",
+                          borderRadius: 8,
+                        }}
+                      />
+                    </div>
+                  </div>
+                  <div
+                    style={{
+                      display: "grid",
+                      gridTemplateColumns: "1fr 1.5fr",
+                      gap: 10,
+                      marginBottom: 10,
+                    }}
+                  >
+                    <div>
+                      <label
+                        style={{
+                          fontSize: "0.75rem",
+                          color: "#888",
+                          marginBottom: 4,
+                          display: "block",
+                        }}
+                      >
+                        Age
+                      </label>
+                      <input
+                        type="number"
+                        value={userProfile.age}
+                        onChange={(e) =>
+                          setUserProfile({
+                            ...userProfile,
+                            age: e.target.value,
+                          })
+                        }
+                        style={{
+                          width: "100%",
+                          padding: 12,
+                          background: "#000",
+                          border: "1px solid #333",
+                          color: "#fff",
+                          borderRadius: 8,
+                        }}
+                      />
+                    </div>
+                    <div>
+                      <label
+                        style={{
+                          fontSize: "0.75rem",
+                          color: "#888",
+                          marginBottom: 4,
+                          display: "block",
+                        }}
+                      >
+                        Gender
+                      </label>
+                      <div
+                        style={{
+                          display: "flex",
+                          height: 42,
+                          background: "#000",
+                          borderRadius: 8,
+                          border: "1px solid #333",
+                          overflow: "hidden",
+                        }}
+                      >
+                        {["male", "female"].map((g) => (
+                          <button
+                            key={g}
+                            onClick={() =>
+                              setUserProfile({ ...userProfile, gender: g })
+                            }
+                            style={{
+                              flex: 1,
+                              background:
+                                userProfile.gender === g
+                                  ? "#333"
+                                  : "transparent",
+                              border: "none",
+                              color: userProfile.gender === g ? "#fff" : "#666",
+                              textTransform: "capitalize",
+                              fontSize: "0.85rem",
+                              cursor: "pointer",
+                              fontWeight: userProfile.gender === g ? 600 : 400,
+                            }}
+                          >
+                            {g}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+                  <div style={{ marginBottom: 10 }}>
+                    <label
+                      style={{
+                        fontSize: "0.75rem",
+                        color: "#888",
+                        marginBottom: 4,
+                        display: "block",
+                      }}
+                    >
+                      Activity Level
+                    </label>
+                    <select
+                      value={userProfile.activity}
+                      onChange={(e) =>
+                        setUserProfile({
+                          ...userProfile,
+                          activity: e.target.value,
+                        })
+                      }
+                      style={{
+                        width: "100%",
+                        padding: 12,
+                        background: "#000",
+                        border: "1px solid #333",
+                        color: "#fff",
+                        borderRadius: 8,
+                        cursor: "pointer",
+                      }}
+                    >
+                      <option value="sedentary">Sedentary (Office Job)</option>
+                      <option value="light">Light Exercise (1-3 days)</option>
+                      <option value="moderate">
+                        Moderate Exercise (3-5 days)
+                      </option>
+                      <option value="active">Active (6-7 days)</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label
+                      style={{
+                        fontSize: "0.75rem",
+                        color: "#888",
+                        marginBottom: 4,
+                        display: "block",
+                      }}
+                    >
+                      Weekly Goal
+                    </label>
+                    <div
+                      style={{
+                        display: "grid",
+                        gridTemplateColumns: "1fr 1fr 1fr",
+                        gap: 8,
+                      }}
+                    >
+                      {["lose", "maintain", "gain"].map((g) => (
+                        <button
+                          key={g}
+                          onClick={() =>
+                            setUserProfile({ ...userProfile, goal: g })
+                          }
+                          style={{
+                            padding: 12,
+                            background:
+                              userProfile.goal === g
+                                ? g === "lose"
+                                  ? "#ef4444"
+                                  : g === "gain"
+                                  ? "#3b82f6"
+                                  : "#22c55e"
+                                : "#000",
+                            border:
+                              userProfile.goal === g
+                                ? "none"
+                                : "1px solid #333",
+                            borderRadius: 8,
+                            color: "#fff",
+                            textTransform: "capitalize",
+                            fontSize: "0.85rem",
+                            cursor: "pointer",
+                          }}
+                        >
+                          {g}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+                <button
+                  onClick={saveGoal}
+                  style={{
+                    width: "100%",
+                    padding: 14,
+                    background: "var(--brand)",
+                    border: "none",
+                    color: "#fff",
+                    borderRadius: 10,
+                    fontWeight: 700,
+                    cursor: "pointer",
+                  }}
+                >
+                  Save Profile
+                </button>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* MEAL BUILDER */}
+      {isCreatingMeal && (
+        <div className="modal-overlay">
+          <div
+            className="modal-content"
+            style={{ maxWidth: 400, width: "90%" }}
+          >
+            <div
+              style={{
+                display: "flex",
+                justifyContent: "space-between",
+                alignItems: "center",
+                marginBottom: 16,
+              }}
+            >
+              <h3 style={{ margin: 0 }}>
+                {editingMealId ? "Edit Meal" : "Build a Meal"}
+              </h3>
+              <button
+                onClick={() => setIsCreatingMeal(false)}
+                style={{ background: "none", border: "none", color: "#666" }}
+              >
+                <X size={20} />
+              </button>
+            </div>
+            <input
+              autoFocus
+              placeholder="Meal Name"
+              value={newMealName}
+              onChange={(e) => setNewMealName(e.target.value)}
+              style={{
+                width: "100%",
+                padding: 12,
+                marginBottom: 16,
+                background: "#000",
+                border: "1px solid #333",
+                color: "#fff",
+                borderRadius: 8,
+              }}
+            />
+            <div
+              style={{
+                background: "#000",
+                borderRadius: 8,
+                border: "1px solid #333",
+                padding: 10,
+                marginBottom: 16,
+                minHeight: 100,
+                maxHeight: 150,
+                overflowY: "auto",
+              }}
+            >
+              {mealBuilderItems.length === 0 ? (
+                <div
+                  style={{
+                    color: "#666",
+                    textAlign: "center",
+                    marginTop: 30,
+                  }}
+                >
+                  Add items below
+                </div>
+              ) : (
+                mealBuilderItems.map((item, idx) => (
+                  <div
+                    key={idx}
+                    style={{
+                      display: "flex",
+                      justifyContent: "space-between",
+                      padding: "6px 0",
+                      borderBottom: "1px solid #222",
+                    }}
+                  >
+                    <span>
+                      {item.qty}x {item.name}
+                    </span>
+                    <button
+                      onClick={() => removeItemFromBuilder(idx)}
+                      style={{
+                        background: "none",
+                        border: "none",
+                        color: "#ef4444",
+                        cursor: "pointer",
+                      }}
+                    >
+                      <Trash2 size={14} />
+                    </button>
+                  </div>
+                ))
+              )}
+            </div>
+            <div style={{ marginBottom: 16 }}>
+              <div
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  background: "#000",
+                  border: "1px solid #333",
+                  borderRadius: 8,
+                  padding: "0 10px",
+                }}
+              >
+                <Search size={14} color="#666" />
+                <input
+                  placeholder="Search food..."
+                  value={mealBuilderQuery}
+                  onChange={(e) => setMealBuilderQuery(e.target.value)}
+                  style={{
+                    flex: 1,
+                    background: "none",
+                    border: "none",
+                    color: "#fff",
+                    padding: 10,
+                    outline: "none",
+                  }}
+                />
+              </div>
+              {mealBuilderQuery && (
+                <div
+                  style={{
+                    marginTop: 8,
+                    display: "flex",
+                    flexWrap: "wrap",
+                    gap: 6,
+                    maxHeight: 100,
+                    overflowY: "auto",
+                  }}
+                >
+                  {getBuilderSuggestions().map((item) => (
+                    <button
+                      key={item}
+                      onClick={() => addItemToBuilder(item)}
+                      style={{
+                        background: "#27272a",
+                        border: "1px solid #333",
+                        color: "#ddd",
+                        padding: "4px 10px",
+                        borderRadius: 20,
+                        fontSize: "0.8rem",
+                        cursor: "pointer",
+                        textTransform: "capitalize",
+                      }}
+                    >
+                      + {item}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+            <button
+              onClick={saveBuiltMeal}
+              style={{
+                width: "100%",
+                padding: 12,
+                background: "var(--brand)",
+                border: "none",
+                color: "#fff",
+                borderRadius: 8,
+                fontWeight: 600,
+                cursor: "pointer",
+              }}
+            >
+              <Save size={16} style={{ display: "inline", marginRight: 6 }} />{" "}
+              Save Meal
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* HEADER */}
       <header
         className="header-row"
@@ -1538,6 +2253,13 @@ export default function Home() {
           padding: "16px 20px",
           borderBottom: "1px solid #222",
           width: "100%",
+          // --- FIX 1: Explicit Flex Layout ---
+          display: "flex",
+          justifyContent: "space-between",
+          alignItems: "center",
+          // --- FIX 2: Raise Stacking Context ---
+          position: "relative",
+          zIndex: 50,
         }}
       >
         <div>
@@ -1580,7 +2302,13 @@ export default function Home() {
               setIsSettingGoal(true);
               setSettingsTab("profile");
             }}
-            style={{ color: "#3b82f6" }}
+            style={{
+              color: "#3b82f6",
+              background: "transparent",
+              border: "none",
+              cursor: "pointer",
+              position: "relative", // Ensure button itself is positioned
+            }}
           >
             <Target size={20} />
           </button>
@@ -1590,21 +2318,51 @@ export default function Home() {
               setIsSettingGoal(true);
               setSettingsTab("security");
             }}
-            style={{ color: "#888" }}
+            style={{
+              color: "#888",
+              background: "transparent",
+              border: "none",
+              cursor: "pointer",
+              position: "relative",
+            }}
           >
             <Settings size={20} />
           </button>
           <Link href="/dashboard">
-            <button className="menu-btn" style={{ color: "var(--brand)" }}>
+            <button
+              className="menu-btn"
+              style={{
+                color: "var(--brand)",
+                background: "transparent",
+                border: "none",
+                cursor: "pointer",
+              }}
+            >
               <LayoutDashboard size={20} />
             </button>
           </Link>
           <Link href="/social">
-            <button className="menu-btn" style={{ color: "#8b5cf6" }}>
+            <button
+              className="menu-btn"
+              style={{
+                color: "#8b5cf6",
+                background: "transparent",
+                border: "none",
+                cursor: "pointer",
+              }}
+            >
               <Users size={20} />
             </button>
           </Link>
-          <button className="menu-btn" onClick={handleLogout}>
+          <button
+            className="menu-btn"
+            onClick={handleLogout}
+            style={{
+              background: "transparent",
+              border: "none",
+              cursor: "pointer",
+            }}
+          >
             <LogOut size={20} />
           </button>
         </div>
@@ -1698,7 +2456,9 @@ export default function Home() {
             style={{
               display: "grid",
               gridTemplateColumns:
-                query || activeCategory === "Meals" || activeCategory === "Smart"
+                query ||
+                activeCategory === "Meals" ||
+                activeCategory === "Smart"
                   ? "1fr"
                   : "repeat(3, 1fr)",
               gap: 8,
@@ -1859,9 +2619,8 @@ export default function Home() {
                         <span style={{ color: "#f59e0b" }}>C:{c}</span>
                         <span style={{ color: "#ef4444" }}>F:{f}</span>
                         {/* Only show fiber if space permits or relevant */}
-                        
-                          <span style={{ color: "#10b981" }}>Fib:{fib}</span>
-                        
+
+                        <span style={{ color: "#10b981" }}>Fib:{fib}</span>
                       </div>
                     )}
                     {isWeb && (

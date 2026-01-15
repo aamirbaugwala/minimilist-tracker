@@ -1082,6 +1082,19 @@ export default function SocialPage() {
                             gap: 4,
                           }}
                         >
+                          <PieIcon size={12} color="#ef4444" />
+                          <span style={{ color: "#fff" }}>
+                            {friend.stats.f}
+                          </span>
+                          /{friend.targets.f}g
+                        </span>
+                        <span
+                          style={{
+                            display: "flex",
+                            alignItems: "center",
+                            gap: 4,
+                          }}
+                        >
                           <Leaf size={12} color="#a855f7" />
                           <span style={{ color: "#fff" }}>
                             {friend.stats.fib}
