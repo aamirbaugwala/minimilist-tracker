@@ -19,7 +19,7 @@ import {
   Loader2,
   Leaf,
   Info,
-  HelpCircle, // Added for the new button
+  HelpCircle,
 } from "lucide-react";
 import { supabase } from "../supabase";
 
@@ -37,7 +37,7 @@ export default function SocialPage() {
   const [selectedFriend, setSelectedFriend] = useState(null);
   const [friendLogs, setFriendLogs] = useState([]);
   const [logsLoading, setLogsLoading] = useState(false);
-  const [showGlobalRules, setShowGlobalRules] = useState(false); // NEW: Global Rules State
+  const [showGlobalRules, setShowGlobalRules] = useState(false);
 
   useEffect(() => {
     fetchSocialData();
@@ -175,7 +175,7 @@ export default function SocialPage() {
               item.name === "Water" ? acc.water + item.qty * 0.25 : acc.water,
           };
         },
-        { cals: 0, p: 0, c: 0, f: 0, fib: 0, water: 0 }
+        { cals: 0, p: 0, c: 0, f: 0, fib: 0, water: 0 },
       ) || { cals: 0, p: 0, c: 0, f: 0, fib: 0, water: 0 };
 
       const targets = calculateTargets(profile);
@@ -191,14 +191,24 @@ export default function SocialPage() {
           getCapPct(stats.f, targets.f) +
           getCapPct(stats.fib, targets.fib) +
           getCapPct(stats.water, targets.water)) /
-          6
+          6,
       );
 
       let penaltyPoints = 0;
+
+      // 1. Calorie Penalty: -5 pts for every 10% exceeded
+      if (stats.cals > targets.cals) {
+        const excessCalPct = (stats.cals - targets.cals) / targets.cals;
+        penaltyPoints += Math.floor(excessCalPct * 10) * 5;
+      }
+
+      // 2. Fat Penalty: -5 pts for every 10% exceeded
       if (stats.f > targets.f) {
         const excessFatPct = (stats.f - targets.f) / targets.f;
         penaltyPoints += Math.floor(excessFatPct * 10) * 5;
       }
+
+      // 3. Carb Penalty: -3 pts for every 10% exceeded
       if (stats.c > targets.c) {
         const excessCarbPct = (stats.c - targets.c) / targets.c;
         penaltyPoints += Math.floor(excessCarbPct * 10) * 3;
@@ -211,7 +221,7 @@ export default function SocialPage() {
 
       const finalScore = Math.max(
         0,
-        Math.round(baseScore + bonusPoints - penaltyPoints)
+        Math.round(baseScore + bonusPoints - penaltyPoints),
       );
 
       let statusLabel = "Sleeping 😴";
@@ -587,6 +597,9 @@ export default function SocialPage() {
                   }}
                 >
                   <li>
+                    <strong>-5 pts:</strong> Per 10% over Calorie limit
+                  </li>
+                  <li>
                     <strong>-5 pts:</strong> Per 10% over Fat limit
                   </li>
                   <li>
@@ -846,6 +859,24 @@ export default function SocialPage() {
                 </span>
               </div>
               {/* Detailed Penalties */}
+              {selectedFriend.stats.cals > selectedFriend.targets.cals && (
+                <div
+                  style={{
+                    fontSize: "0.75rem",
+                    color: "#ef4444",
+                    paddingLeft: 10,
+                    marginBottom: 2,
+                  }}
+                >
+                  • Calorie Overkill (-
+                  {Math.floor(
+                    ((selectedFriend.stats.cals - selectedFriend.targets.cals) /
+                      selectedFriend.targets.cals) *
+                      10,
+                  ) * 5}
+                  )
+                </div>
+              )}
               {selectedFriend.stats.f > selectedFriend.targets.f && (
                 <div
                   style={{
@@ -859,7 +890,7 @@ export default function SocialPage() {
                   {Math.floor(
                     ((selectedFriend.stats.f - selectedFriend.targets.f) /
                       selectedFriend.targets.f) *
-                      10
+                      10,
                   ) * 5}
                   )
                 </div>
@@ -876,7 +907,7 @@ export default function SocialPage() {
                   {Math.floor(
                     ((selectedFriend.stats.c - selectedFriend.targets.c) /
                       selectedFriend.targets.c) *
-                      10
+                      10,
                   ) * 3}
                   )
                 </div>
@@ -1447,10 +1478,7 @@ export default function SocialPage() {
                       >
                         <div
                           style={{
-                            width: `${Math.min(
-                              100,
-                              (friend.score / 135) * 100
-                            )}%`, // Corrected Scale
+                            width: `${Math.min(100, (friend.score / 135) * 100)}%`, // Corrected Scale
                             height: "100%",
                             background: friend.barColor,
                             borderRadius: 3,
@@ -1568,7 +1596,7 @@ export default function SocialPage() {
                         handleInteract(
                           e,
                           friend.id,
-                          friend.score === 0 ? "nudge" : "cheer"
+                          friend.score === 0 ? "nudge" : "cheer",
                         )
                       }
                       style={{
