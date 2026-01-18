@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { FLATTENED_DB } from "../food-data"; // <--- IMPORT ADDED
+import { FLATTENED_DB } from "../food-data";
 import {
   ArrowLeft,
   UserPlus,
@@ -18,6 +18,8 @@ import {
   Utensils,
   Loader2,
   Leaf,
+  Info,
+  HelpCircle, // Added for the new button
 } from "lucide-react";
 import { supabase } from "../supabase";
 
@@ -31,10 +33,11 @@ export default function SocialPage() {
   const [addStatus, setAddStatus] = useState("");
   const [cheered, setCheered] = useState({});
 
-  // STATE FOR VIEWING LOGS
+  // STATE FOR VIEWING LOGS & RULES
   const [selectedFriend, setSelectedFriend] = useState(null);
   const [friendLogs, setFriendLogs] = useState([]);
   const [logsLoading, setLogsLoading] = useState(false);
+  const [showGlobalRules, setShowGlobalRules] = useState(false); // NEW: Global Rules State
 
   useEffect(() => {
     fetchSocialData();
@@ -52,7 +55,6 @@ export default function SocialPage() {
       .eq("date", today)
       .order("created_at", { ascending: false });
 
-    // ENHANCED LOGS: Calculate fiber for display in the modal if missing
     const enhancedData = (data || []).map((log) => {
       if (!log.fiber && log.name !== "Water") {
         const dbItem = FLATTENED_DB[log.name.toLowerCase()];
@@ -154,10 +156,8 @@ export default function SocialPage() {
         .eq("user_id", uid)
         .eq("date", new Date().toISOString().slice(0, 10));
 
-      // --- FIXED STATS CALCULATION (DB LOOKUP ADDED) ---
       const stats = logs?.reduce(
         (acc, item) => {
-          // Calculate Fiber Fallback
           let currentFib = item.fiber || 0;
           if (!currentFib && item.name !== "Water") {
             const dbItem = FLATTENED_DB[item.name.toLowerCase()];
@@ -165,13 +165,12 @@ export default function SocialPage() {
               currentFib = Math.round(dbItem.fiber * item.qty);
             }
           }
-
           return {
             cals: acc.cals + (item.calories || 0),
             p: acc.p + (item.protein || 0),
             c: acc.c + (item.carbs || 0),
             f: acc.f + (item.fats || 0),
-            fib: acc.fib + currentFib, // Use calculated fiber
+            fib: acc.fib + currentFib,
             water:
               item.name === "Water" ? acc.water + item.qty * 0.25 : acc.water,
           };
@@ -181,31 +180,51 @@ export default function SocialPage() {
 
       const targets = calculateTargets(profile);
 
-      const getScore = (val, target) =>
+      // --- SCORING LOGIC ---
+      const getCapPct = (val, target) =>
         Math.min(100, (val / target) * 100) || 0;
 
-      const sCal = getScore(stats.cals, targets.cals);
-      const sPro = getScore(stats.p, targets.p);
-      const sCarb = getScore(stats.c, targets.c);
-      const sFat = getScore(stats.f, targets.f);
-      const sFib = getScore(stats.fib, targets.fib);
-      const sWater = getScore(stats.water, targets.water);
+      const baseScore = Math.round(
+        (getCapPct(stats.cals, targets.cals) +
+          getCapPct(stats.p, targets.p) +
+          getCapPct(stats.c, targets.c) +
+          getCapPct(stats.f, targets.f) +
+          getCapPct(stats.fib, targets.fib) +
+          getCapPct(stats.water, targets.water)) /
+          6
+      );
 
-      const progress = Math.round(
-        (sCal + sPro + sCarb + sFat + sFib + sWater) / 6
+      let penaltyPoints = 0;
+      if (stats.f > targets.f) {
+        const excessFatPct = (stats.f - targets.f) / targets.f;
+        penaltyPoints += Math.floor(excessFatPct * 10) * 5;
+      }
+      if (stats.c > targets.c) {
+        const excessCarbPct = (stats.c - targets.c) / targets.c;
+        penaltyPoints += Math.floor(excessCarbPct * 10) * 3;
+      }
+
+      let bonusPoints = 0;
+      if (stats.p >= targets.p * 0.9) bonusPoints += 15;
+      if (stats.fib >= targets.fib * 0.9) bonusPoints += 10;
+      if (stats.water >= targets.water * 0.9) bonusPoints += 10;
+
+      const finalScore = Math.max(
+        0,
+        Math.round(baseScore + bonusPoints - penaltyPoints)
       );
 
       let statusLabel = "Sleeping 😴";
       let barColor = "#3b82f6";
 
-      if (progress > 0) statusLabel = "Started 🏁";
-      if (progress > 40) statusLabel = "On Track 🏃";
-      if (progress > 75) {
+      if (finalScore > 20) statusLabel = "Started 🏁";
+      if (finalScore > 60) statusLabel = "Grinding 🏃";
+      if (finalScore > 90) {
         statusLabel = "Crushing It 🔥";
         barColor = "#22c55e";
       }
-      if (progress >= 95) {
-        statusLabel = "Perfect Day 🏆";
+      if (finalScore >= 120) {
+        statusLabel = "God Mode 🏆";
         barColor = "#f59e0b";
       }
 
@@ -214,7 +233,12 @@ export default function SocialPage() {
         name: profile?.username || profile?.email?.split("@")[0] || "User",
         stats,
         targets,
-        progress,
+        score: finalScore,
+        breakdown: {
+          base: baseScore,
+          bonus: bonusPoints,
+          penalty: penaltyPoints,
+        },
         statusLabel,
         barColor,
         isMe: uid === myId,
@@ -248,7 +272,7 @@ export default function SocialPage() {
     myData.name += " (You)";
     friendList.push(myData);
 
-    setFriends(friendList.sort((a, b) => b.progress - a.progress));
+    setFriends(friendList.sort((a, b) => b.score - a.score));
     setRequests(requestList);
     setLoading(false);
   };
@@ -340,8 +364,15 @@ export default function SocialPage() {
               2
             </span>
           </div>
-          <div style={{ marginTop: 8, fontSize: "0.8rem", color: "#94a3b8" }}>
-            {top3[1].progress}%
+          <div
+            style={{
+              marginTop: 8,
+              fontSize: "0.9rem",
+              fontWeight: "700",
+              color: "#94a3b8",
+            }}
+          >
+            {top3[1].score} pts
           </div>
         </div>
       )}
@@ -396,12 +427,12 @@ export default function SocialPage() {
           <div
             style={{
               marginTop: 8,
-              fontSize: "0.9rem",
-              fontWeight: 700,
+              fontSize: "1.1rem",
+              fontWeight: 800,
               color: "#f59e0b",
             }}
           >
-            {top3[0].progress}%
+            {top3[0].score} pts
           </div>
         </div>
       )}
@@ -445,8 +476,15 @@ export default function SocialPage() {
               3
             </span>
           </div>
-          <div style={{ marginTop: 8, fontSize: "0.8rem", color: "#a855f7" }}>
-            {top3[2].progress}%
+          <div
+            style={{
+              marginTop: 8,
+              fontSize: "0.9rem",
+              fontWeight: "700",
+              color: "#a855f7",
+            }}
+          >
+            {top3[2].score} pts
           </div>
         </div>
       )}
@@ -458,6 +496,109 @@ export default function SocialPage() {
       className="app-wrapper"
       style={{ maxWidth: 800, margin: "0 auto", padding: 20 }}
     >
+      {/* GLOBAL RULES MODAL */}
+      {showGlobalRules && (
+        <div className="modal-overlay" style={{ zIndex: 9999 }}>
+          <div className="modal-content" style={{ maxWidth: 400 }}>
+            <div
+              style={{
+                display: "flex",
+                justifyContent: "space-between",
+                alignItems: "center",
+                marginBottom: 20,
+              }}
+            >
+              <h3
+                style={{
+                  margin: 0,
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 10,
+                }}
+              >
+                <Trophy size={20} color="#f59e0b" /> Scoring System
+              </h3>
+              <button
+                onClick={() => setShowGlobalRules(false)}
+                style={{
+                  background: "none",
+                  border: "none",
+                  color: "#666",
+                  cursor: "pointer",
+                }}
+              >
+                <X size={24} />
+              </button>
+            </div>
+            <div style={{ lineHeight: 1.6, color: "#ccc", fontSize: "0.9rem" }}>
+              <div
+                style={{
+                  marginBottom: 12,
+                  paddingBottom: 12,
+                  borderBottom: "1px solid #333",
+                }}
+              >
+                <strong style={{ color: "#fff", fontSize: "1rem" }}>
+                  Max Possible Score: 135
+                </strong>
+              </div>
+
+              <div style={{ marginBottom: 12 }}>
+                <strong style={{ color: "#fff" }}>
+                  1. Base Score (Max 100)
+                </strong>
+                <div style={{ fontSize: "0.8rem", color: "#888" }}>
+                  Average % of all your daily goals (capped at 100%).
+                </div>
+              </div>
+
+              <div style={{ marginBottom: 12 }}>
+                <strong style={{ color: "#22c55e" }}>
+                  2. Bonuses (Max 35)
+                </strong>
+                <ul
+                  style={{
+                    margin: "4px 0",
+                    paddingLeft: 20,
+                    fontSize: "0.8rem",
+                  }}
+                >
+                  <li>
+                    <strong>+15 pts:</strong> Hit 90% of Protein goal
+                  </li>
+                  <li>
+                    <strong>+10 pts:</strong> Hit 90% of Fiber goal
+                  </li>
+                  <li>
+                    <strong>+10 pts:</strong> Hit 90% of Water goal
+                  </li>
+                </ul>
+              </div>
+
+              <div>
+                <strong style={{ color: "#ef4444" }}>
+                  3. Penalties (Unlimited)
+                </strong>
+                <ul
+                  style={{
+                    margin: "4px 0",
+                    paddingLeft: 20,
+                    fontSize: "0.8rem",
+                  }}
+                >
+                  <li>
+                    <strong>-5 pts:</strong> Per 10% over Fat limit
+                  </li>
+                  <li>
+                    <strong>-3 pts:</strong> Per 10% over Carb limit
+                  </li>
+                </ul>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       {selectedFriend && (
         <div className="modal-overlay">
           <div
@@ -492,6 +633,254 @@ export default function SocialPage() {
               >
                 <X size={24} />
               </button>
+            </div>
+
+            {/* --- 1. TOTAL SCORE DISPLAY --- */}
+            <div style={{ textAlign: "center", marginBottom: 20 }}>
+              <div
+                style={{
+                  fontSize: "0.8rem",
+                  color: "#888",
+                  textTransform: "uppercase",
+                  letterSpacing: 1,
+                }}
+              >
+                Total Score
+              </div>
+              <div
+                style={{
+                  fontSize: "2.5rem",
+                  fontWeight: 800,
+                  color: selectedFriend.barColor,
+                }}
+              >
+                {selectedFriend.score}{" "}
+                <span style={{ fontSize: "1rem", color: "#666" }}>/ 135</span>
+              </div>
+            </div>
+
+            {/* --- 2. INTAKE vs GOAL GRID --- */}
+            <div
+              style={{
+                display: "grid",
+                gridTemplateColumns: "repeat(3, 1fr)",
+                gap: 8,
+                marginBottom: 20,
+              }}
+            >
+              <div
+                style={{
+                  background: "rgba(59, 130, 246, 0.1)",
+                  padding: "10px 4px",
+                  borderRadius: 8,
+                  textAlign: "center",
+                  border: "1px solid rgba(59, 130, 246, 0.2)",
+                }}
+              >
+                <div
+                  style={{ fontSize: "0.7rem", color: "#888", marginBottom: 4 }}
+                >
+                  Protein
+                </div>
+                <div
+                  style={{
+                    fontSize: "0.85rem",
+                    fontWeight: 700,
+                    color: "#fff",
+                  }}
+                >
+                  <span style={{ color: "#3b82f6" }}>
+                    {selectedFriend.stats.p}
+                  </span>
+                  /{selectedFriend.targets.p}g
+                </div>
+              </div>
+              <div
+                style={{
+                  background: "rgba(168, 85, 247, 0.1)",
+                  padding: "10px 4px",
+                  borderRadius: 8,
+                  textAlign: "center",
+                  border: "1px solid rgba(168, 85, 247, 0.2)",
+                }}
+              >
+                <div
+                  style={{ fontSize: "0.7rem", color: "#888", marginBottom: 4 }}
+                >
+                  Fiber
+                </div>
+                <div
+                  style={{
+                    fontSize: "0.85rem",
+                    fontWeight: 700,
+                    color: "#fff",
+                  }}
+                >
+                  <span style={{ color: "#a855f7" }}>
+                    {selectedFriend.stats.fib}
+                  </span>
+                  /{selectedFriend.targets.fib}g
+                </div>
+              </div>
+              <div
+                style={{
+                  background: "rgba(59, 130, 246, 0.1)",
+                  padding: "10px 4px",
+                  borderRadius: 8,
+                  textAlign: "center",
+                  border: "1px solid rgba(59, 130, 246, 0.2)",
+                }}
+              >
+                <div
+                  style={{ fontSize: "0.7rem", color: "#888", marginBottom: 4 }}
+                >
+                  Water
+                </div>
+                <div
+                  style={{
+                    fontSize: "0.85rem",
+                    fontWeight: 700,
+                    color: "#fff",
+                  }}
+                >
+                  <span style={{ color: "#3b82f6" }}>
+                    {selectedFriend.stats.water}
+                  </span>
+                  /{selectedFriend.targets.water}L
+                </div>
+              </div>
+            </div>
+
+            {/* --- 3. DETAILED BREAKDOWN --- */}
+            <div
+              style={{
+                background: "#18181b",
+                padding: 16,
+                borderRadius: 12,
+                marginBottom: 20,
+                border: "1px solid #333",
+              }}
+            >
+              <div
+                style={{
+                  display: "flex",
+                  justifyContent: "space-between",
+                  marginBottom: 6,
+                }}
+              >
+                <span style={{ color: "#888", fontSize: "0.9rem" }}>
+                  Base Consistency
+                </span>
+                <span style={{ color: "#fff", fontWeight: 700 }}>
+                  {selectedFriend.breakdown.base}
+                </span>
+              </div>
+
+              <div
+                style={{
+                  display: "flex",
+                  justifyContent: "space-between",
+                  marginBottom: 6,
+                }}
+              >
+                <span style={{ color: "#888", fontSize: "0.9rem" }}>
+                  Bonuses
+                </span>
+                <span style={{ color: "#22c55e", fontWeight: 700 }}>
+                  +{selectedFriend.breakdown.bonus}
+                </span>
+              </div>
+              {/* Detailed Bonuses */}
+              {selectedFriend.stats.p >= selectedFriend.targets.p * 0.9 && (
+                <div
+                  style={{
+                    fontSize: "0.75rem",
+                    color: "#22c55e",
+                    paddingLeft: 10,
+                    marginBottom: 2,
+                  }}
+                >
+                  • Protein Hit (+15)
+                </div>
+              )}
+              {selectedFriend.stats.fib >= selectedFriend.targets.fib * 0.9 && (
+                <div
+                  style={{
+                    fontSize: "0.75rem",
+                    color: "#22c55e",
+                    paddingLeft: 10,
+                    marginBottom: 2,
+                  }}
+                >
+                  • Fiber Hit (+10)
+                </div>
+              )}
+              {selectedFriend.stats.water >=
+                selectedFriend.targets.water * 0.9 && (
+                <div
+                  style={{
+                    fontSize: "0.75rem",
+                    color: "#22c55e",
+                    paddingLeft: 10,
+                    marginBottom: 6,
+                  }}
+                >
+                  • Water Hit (+10)
+                </div>
+              )}
+
+              <div
+                style={{
+                  display: "flex",
+                  justifyContent: "space-between",
+                  borderTop: "1px solid #333",
+                  paddingTop: 6,
+                  marginTop: 4,
+                }}
+              >
+                <span style={{ color: "#888", fontSize: "0.9rem" }}>
+                  Penalties
+                </span>
+                <span style={{ color: "#ef4444", fontWeight: 700 }}>
+                  -{selectedFriend.breakdown.penalty}
+                </span>
+              </div>
+              {/* Detailed Penalties */}
+              {selectedFriend.stats.f > selectedFriend.targets.f && (
+                <div
+                  style={{
+                    fontSize: "0.75rem",
+                    color: "#ef4444",
+                    paddingLeft: 10,
+                    marginBottom: 2,
+                  }}
+                >
+                  • Fat Overkill (-
+                  {Math.floor(
+                    ((selectedFriend.stats.f - selectedFriend.targets.f) /
+                      selectedFriend.targets.f) *
+                      10
+                  ) * 5}
+                  )
+                </div>
+              )}
+              {selectedFriend.stats.c > selectedFriend.targets.c && (
+                <div
+                  style={{
+                    fontSize: "0.75rem",
+                    color: "#ef4444",
+                    paddingLeft: 10,
+                  }}
+                >
+                  • Carb Overkill (-
+                  {Math.floor(
+                    ((selectedFriend.stats.c - selectedFriend.targets.c) /
+                      selectedFriend.targets.c) *
+                      10
+                  ) * 3}
+                  )
+                </div>
+              )}
             </div>
 
             {logsLoading ? (
@@ -630,6 +1019,28 @@ export default function SocialPage() {
             Social Hub
           </h1>
         </div>
+
+        {/* --- NEW POINTS SYSTEM BUTTON --- */}
+        <button
+          onClick={() => setShowGlobalRules(true)}
+          style={{
+            background: "linear-gradient(135deg, #3b82f6, #8b5cf6)",
+            border: "none",
+            color: "#fff",
+            cursor: "pointer",
+            padding: "8px 16px",
+            borderRadius: 20,
+            display: "flex",
+            alignItems: "center",
+            gap: 8,
+            fontSize: "0.85rem",
+            fontWeight: 700,
+            boxShadow: "0 4px 15px rgba(59, 130, 246, 0.3)",
+            whiteSpace: "nowrap",
+          }}
+        >
+          <HelpCircle size={16} /> Points System
+        </button>
       </div>
 
       <div
@@ -996,13 +1407,32 @@ export default function SocialPage() {
                         </div>
                         <div
                           style={{
-                            fontSize: "0.75rem",
-                            fontWeight: 600,
+                            fontSize: "0.9rem",
+                            fontWeight: 700,
                             color: friend.barColor,
                           }}
                         >
-                          {friend.statusLabel}
+                          {friend.score} pts
                         </div>
+                      </div>
+
+                      {/* SCORE BREAKDOWN MINI */}
+                      <div
+                        style={{
+                          fontSize: "0.7rem",
+                          color: "#888",
+                          display: "flex",
+                          gap: 6,
+                          marginBottom: 8,
+                        }}
+                      >
+                        <span>Base: {friend.breakdown.base}</span>
+                        <span style={{ color: "#22c55e" }}>
+                          +{friend.breakdown.bonus}
+                        </span>
+                        <span style={{ color: "#ef4444" }}>
+                          -{friend.breakdown.penalty}
+                        </span>
                       </div>
 
                       <div
@@ -1017,7 +1447,10 @@ export default function SocialPage() {
                       >
                         <div
                           style={{
-                            width: `${Math.min(100, friend.progress)}%`,
+                            width: `${Math.min(
+                              100,
+                              (friend.score / 135) * 100
+                            )}%`, // Corrected Scale
                             height: "100%",
                             background: friend.barColor,
                             borderRadius: 3,
@@ -1040,7 +1473,10 @@ export default function SocialPage() {
                             display: "flex",
                             alignItems: "center",
                             gap: 4,
-                            minWidth: 80,
+                            color:
+                              friend.stats.cals > friend.targets.cals
+                                ? "#ef4444"
+                                : "#888",
                           }}
                         >
                           <Flame size={12} color="#f59e0b" />
@@ -1062,11 +1498,16 @@ export default function SocialPage() {
                           </span>
                           /{friend.targets.p}g
                         </span>
+                        {/* Highlights if over limit */}
                         <span
                           style={{
                             display: "flex",
                             alignItems: "center",
                             gap: 4,
+                            color:
+                              friend.stats.c > friend.targets.c
+                                ? "#ef4444"
+                                : "#888",
                           }}
                         >
                           <PieIcon size={12} color="#10b981" />
@@ -1080,6 +1521,10 @@ export default function SocialPage() {
                             display: "flex",
                             alignItems: "center",
                             gap: 4,
+                            color:
+                              friend.stats.f > friend.targets.f
+                                ? "#ef4444"
+                                : "#888",
                           }}
                         >
                           <PieIcon size={12} color="#ef4444" />
@@ -1088,6 +1533,7 @@ export default function SocialPage() {
                           </span>
                           /{friend.targets.f}g
                         </span>
+                        {/* Water added for completeness */}
                         <span
                           style={{
                             display: "flex",
@@ -1122,7 +1568,7 @@ export default function SocialPage() {
                         handleInteract(
                           e,
                           friend.id,
-                          friend.progress === 0 ? "nudge" : "cheer"
+                          friend.score === 0 ? "nudge" : "cheer"
                         )
                       }
                       style={{
@@ -1145,7 +1591,7 @@ export default function SocialPage() {
                         "🔥"
                       ) : cheered[friend.id] === "nudge" ? (
                         "👋"
-                      ) : friend.progress === 0 ? (
+                      ) : friend.score === 0 ? (
                         <Zap size={18} color="#666" />
                       ) : (
                         <Trophy size={18} color="#f59e0b" />
