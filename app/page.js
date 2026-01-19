@@ -28,6 +28,7 @@ import {
   Utensils,
   Sparkles,
   Globe,
+  Edit3,
 } from "lucide-react";
 import { FOOD_CATEGORIES, FLATTENED_DB } from "./food-data";
 import { supabase } from "./supabase";
@@ -321,7 +322,7 @@ const StatsBoard = memo(({ totals, userProfile, onAddWater }) => {
             left: 0,
             width: `${Math.min(
               100,
-              ((totals.water * 0.25) / targetWater) * 100
+              ((totals.water * 0.25) / targetWater) * 100,
             )}%`,
             background: "rgba(59, 130, 246, 0.15)",
             transition: "0.3s",
@@ -404,6 +405,11 @@ export default function Home() {
   const [showWelcome, setShowWelcome] = useState(false);
   const [welcomeStep, setWelcomeStep] = useState(1);
 
+  // --- NEW: EDIT LOG STATE ---
+  const [isEditingLog, setIsEditingLog] = useState(false);
+  const [currentLogToEdit, setCurrentLogToEdit] = useState(null);
+  const [editQty, setEditQty] = useState(1);
+
   // Data
   const [userProfile, setUserProfile] = useState({
     weight: "",
@@ -436,7 +442,7 @@ export default function Home() {
   const [webResults, setWebResults] = useState([]);
   const [isWebSearching, setIsWebSearching] = useState(false);
 
-  // --- FEATURE 1: SMART RECOMMENDATIONS LOGIC (REWRITTEN) ---
+  // --- FEATURE 1: SMART RECOMMENDATIONS LOGIC ---
   const generateSmartMeals = () => {
     // 1. Calculate Targets & Remaining
     let targetCals = 2000;
@@ -490,13 +496,15 @@ export default function Home() {
           // SCORING ALGORITHM:
           // 1. Boost if it provides protein we need
           if (remainingPro > 5) {
-            if (item.protein > 15) score += 20; // High protein
+            if (item.protein > 15)
+              score += 20; // High protein
             else if (item.protein > 5) score += 5;
           }
 
           // 2. Penalize fat if we are out of budget
           if (remainingFat < 5) {
-            if (item.fats > 10) score -= 100; // Kill high fat items
+            if (item.fats > 10)
+              score -= 100; // Kill high fat items
             else if (item.fats > 5) score -= 50;
           }
 
@@ -599,7 +607,7 @@ export default function Home() {
 
   const smartRecommendations = useMemo(
     () => generateSmartMeals(),
-    [totals, userProfile]
+    [totals, userProfile],
   );
 
   // --- FEATURE 2: ACTUAL WEB SEARCH (OpenFoodFacts) ---
@@ -611,14 +619,14 @@ export default function Home() {
       }
 
       const localKeys = Object.keys(FLATTENED_DB).filter((k) =>
-        k.includes(query.toLowerCase())
+        k.includes(query.toLowerCase()),
       );
 
       if (localKeys.length === 0) {
         setIsWebSearching(true);
         try {
           const response = await fetch(
-            `https://world.openfoodfacts.org/cgi/search.pl?search_terms=${query}&search_simple=1&action=process&json=1&page_size=5`
+            `https://world.openfoodfacts.org/cgi/search.pl?search_terms=${query}&search_simple=1&action=process&json=1&page_size=5`,
           );
           const data = await response.json();
 
@@ -674,7 +682,7 @@ export default function Home() {
         let dbItem = FLATTENED_DB[log.name.toLowerCase()];
         if (!dbItem) {
           const key = Object.keys(FLATTENED_DB).find((k) =>
-            k.includes(log.name.toLowerCase())
+            k.includes(log.name.toLowerCase()),
           );
           if (key) dbItem = FLATTENED_DB[key];
         }
@@ -833,7 +841,7 @@ export default function Home() {
             username: username,
             updated_at: new Date(),
           },
-          { onConflict: "user_id" }
+          { onConflict: "user_id" },
         );
       if (profileError) {
         console.error(profileError);
@@ -870,7 +878,7 @@ export default function Home() {
           let dbData = FLATTENED_DB[foodName.toLowerCase()];
           if (!dbData) {
             const key = Object.keys(FLATTENED_DB).find((k) =>
-              k.includes(foodName.toLowerCase())
+              k.includes(foodName.toLowerCase()),
             );
             if (key) dbData = FLATTENED_DB[key];
           }
@@ -932,6 +940,51 @@ export default function Home() {
     setLogs((prev) => prev.filter((l) => l.id !== id));
   };
 
+  // --- NEW: FUNCTION TO OPEN EDIT MODAL ---
+  const openEditModal = (log) => {
+    setCurrentLogToEdit(log);
+    setEditQty(log.qty);
+    setIsEditingLog(true);
+  };
+
+  // --- NEW: FUNCTION TO SAVE EDITED LOG ---
+  const saveLogEdit = () => {
+    if (!currentLogToEdit) return;
+    const newQ = Number(editQty);
+
+    if (newQ <= 0) {
+      deleteLog(currentLogToEdit.id);
+      setIsEditingLog(false);
+      return;
+    }
+
+    const oldQ = currentLogToEdit.qty;
+    // Calculate ratio to scale macros
+    // If old qty was 3 and new is 2, ratio is 2/3 = 0.66
+    const ratio = newQ / oldQ;
+
+    setLogs((prevLogs) =>
+      prevLogs.map((log) => {
+        if (log.id === currentLogToEdit.id) {
+          return {
+            ...log,
+            qty: newQ,
+            calories: Math.round(log.calories * ratio),
+            protein: Math.round(log.protein * ratio),
+            carbs: Math.round(log.carbs * ratio),
+            fats: Math.round(log.fats * ratio),
+            fiber: Math.round((log.fiber || 0) * ratio),
+          };
+        }
+        return log;
+      }),
+    );
+
+    setHasUnsavedChanges(true);
+    setIsEditingLog(false);
+    setCurrentLogToEdit(null);
+  };
+
   const saveChanges = async () => {
     if (!session) return;
     setIsSaving(true);
@@ -975,8 +1028,8 @@ export default function Home() {
     if (existing)
       setMealBuilderItems(
         mealBuilderItems.map((i) =>
-          i.name === foodName ? { ...i, qty: i.qty + 1 } : i
-        )
+          i.name === foodName ? { ...i, qty: i.qty + 1 } : i,
+        ),
       );
     else setMealBuilderItems([...mealBuilderItems, { name: foodName, qty: 1 }]);
   };
@@ -997,8 +1050,8 @@ export default function Home() {
         savedMeals.map((m) =>
           m.id === editingMealId
             ? { ...m, name: newMealName, items: mealBuilderItems }
-            : m
-        )
+            : m,
+        ),
       );
     } else {
       const { data } = await supabase
@@ -1031,7 +1084,7 @@ export default function Home() {
         fiber: acc.fiber + (Number(item.fiber) || 0),
         water: item.name === "Water" ? acc.water + item.qty : acc.water,
       }),
-      { calories: 0, protein: 0, carbs: 0, fats: 0, fiber: 0, water: 0 }
+      { calories: 0, protein: 0, carbs: 0, fats: 0, fiber: 0, water: 0 },
     );
     setTotals(t);
   }, [logs]);
@@ -1050,7 +1103,7 @@ export default function Home() {
     // 1. SEARCH LOGIC (LOCAL + WEB)
     if (query) {
       const keys = Object.keys(FLATTENED_DB).filter((k) =>
-        k.includes(query.toLowerCase())
+        k.includes(query.toLowerCase()),
       );
       const results = hydrate(keys);
 
@@ -1103,7 +1156,7 @@ export default function Home() {
   const getBuilderSuggestions = () =>
     mealBuilderQuery
       ? Object.keys(FLATTENED_DB).filter((k) =>
-          k.includes(mealBuilderQuery.toLowerCase())
+          k.includes(mealBuilderQuery.toLowerCase()),
         )
       : recents;
 
@@ -1600,6 +1653,80 @@ export default function Home() {
         </div>
       )}
 
+      {/* EDIT LOG MODAL (NEW) */}
+      {isEditingLog && currentLogToEdit && (
+        <div className="modal-overlay">
+          <div
+            className="modal-content"
+            style={{ maxWidth: 300, width: "90%", textAlign: "center" }}
+          >
+            <h3 style={{ margin: "0 0 10px 0" }}>Modify Log</h3>
+            <div style={{ color: "#888", marginBottom: 20 }}>
+              {currentLogToEdit.name}
+            </div>
+
+            <div
+              style={{
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                gap: 15,
+                marginBottom: 20,
+              }}
+            >
+              <button
+                className="qty-btn"
+                onClick={() => setEditQty(Math.max(1, editQty - 1))}
+              >
+                <Minus size={18} />
+              </button>
+              <div style={{ fontSize: "1.5rem", fontWeight: 700 }}>
+                {editQty}
+              </div>
+              <button
+                className="qty-btn"
+                onClick={() => setEditQty(editQty + 1)}
+              >
+                <Plus size={18} />
+              </button>
+            </div>
+
+            <div style={{ display: "flex", gap: 10 }}>
+              <button
+                onClick={() => setIsEditingLog(false)}
+                style={{
+                  flex: 1,
+                  padding: 12,
+                  background: "transparent",
+                  border: "1px solid #333",
+                  borderRadius: 8,
+                  color: "#888",
+                  fontWeight: 600,
+                  cursor: "pointer",
+                }}
+              >
+                Cancel
+              </button>
+              <button
+                onClick={saveLogEdit}
+                style={{
+                  flex: 1,
+                  padding: 12,
+                  background: "var(--brand)",
+                  border: "none",
+                  borderRadius: 8,
+                  color: "#fff",
+                  fontWeight: 600,
+                  cursor: "pointer",
+                }}
+              >
+                Update
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* SETTINGS MODAL */}
       {isSettingGoal && (
         <div className="modal-overlay">
@@ -2036,8 +2163,8 @@ export default function Home() {
                                 ? g === "lose"
                                   ? "#ef4444"
                                   : g === "gain"
-                                  ? "#3b82f6"
-                                  : "#22c55e"
+                                    ? "#3b82f6"
+                                    : "#22c55e"
                                 : "#000",
                             border:
                               userProfile.goal === g
@@ -2583,8 +2710,8 @@ export default function Home() {
                       border: isSmart
                         ? "1px solid #8b5cf6"
                         : isWeb
-                        ? "1px dashed #3b82f6"
-                        : "none",
+                          ? "1px dashed #3b82f6"
+                          : "none",
                       background: isSmart
                         ? "rgba(139, 92, 246, 0.1)"
                         : "var(--surface)",
@@ -2810,19 +2937,35 @@ export default function Home() {
                 </div>
               </div>
 
-              <button
-                onClick={() => deleteLog(log.id)}
-                style={{
-                  background: "transparent",
-                  border: "none",
-                  color: "#ef4444",
-                  opacity: 0.6,
-                  cursor: "pointer",
-                  padding: 8,
-                }}
-              >
-                <Trash2 size={18} />
-              </button>
+              {/* --- NEW EDIT BUTTON --- */}
+              <div style={{ display: "flex", flexDirection: "column" }}>
+                <button
+                  onClick={() => openEditModal(log)}
+                  style={{
+                    background: "transparent",
+                    border: "none",
+                    color: "#888",
+                    cursor: "pointer",
+                    padding: 8,
+                    marginBottom: -5,
+                  }}
+                >
+                  <Edit3 size={18} />
+                </button>
+                <button
+                  onClick={() => deleteLog(log.id)}
+                  style={{
+                    background: "transparent",
+                    border: "none",
+                    color: "#ef4444",
+                    opacity: 0.6,
+                    cursor: "pointer",
+                    padding: 8,
+                  }}
+                >
+                  <Trash2 size={18} />
+                </button>
+              </div>
             </div>
           ))
         )}
