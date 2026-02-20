@@ -998,7 +998,414 @@ export default function SocialPage() {
           </div>
         </div>
       )}
-      
+      {selectedFriend && (
+        <div className="modal-overlay">
+          <div
+            className="modal-content"
+            style={{
+              width: "90%",
+              maxWidth: 450,
+              maxHeight: "80vh",
+              display: "flex",
+              flexDirection: "column",
+            }}
+          >
+            <div
+              style={{
+                display: "flex",
+                justifyContent: "space-between",
+                alignItems: "center",
+                marginBottom: 20,
+              }}
+            >
+              <h3 style={{ margin: 0, fontSize: "1.2rem", fontWeight: 700 }}>
+                {selectedFriend.name}'s Meals
+              </h3>
+              <button
+                onClick={closeLogs}
+                style={{
+                  background: "none",
+                  border: "none",
+                  color: "#666",
+                  cursor: "pointer",
+                }}
+              >
+                <X size={24} />
+              </button>
+            </div>
+
+            {/* --- 1. TOTAL SCORE DISPLAY --- */}
+            <div style={{ textAlign: "center", marginBottom: 20 }}>
+              <div
+                style={{
+                  fontSize: "0.8rem",
+                  color: "#888",
+                  textTransform: "uppercase",
+                  letterSpacing: 1,
+                }}
+              >
+                Total Score
+              </div>
+              <div
+                style={{
+                  fontSize: "2.5rem",
+                  fontWeight: 800,
+                  color: selectedFriend.barColor,
+                }}
+              >
+                {selectedFriend.score}{" "}
+                <span style={{ fontSize: "1rem", color: "#666" }}>/ 135</span>
+              </div>
+            </div>
+
+            {/* --- 2. INTAKE vs GOAL GRID --- */}
+            <div
+              style={{
+                display: "grid",
+                gridTemplateColumns: "repeat(3, 1fr)",
+                gap: 8,
+                marginBottom: 20,
+              }}
+            >
+              <div
+                style={{
+                  background: "rgba(59, 130, 246, 0.1)",
+                  padding: "10px 4px",
+                  borderRadius: 8,
+                  textAlign: "center",
+                  border: "1px solid rgba(59, 130, 246, 0.2)",
+                }}
+              >
+                <div
+                  style={{ fontSize: "0.7rem", color: "#888", marginBottom: 4 }}
+                >
+                  Protein
+                </div>
+                <div
+                  style={{
+                    fontSize: "0.85rem",
+                    fontWeight: 700,
+                    color: "#fff",
+                  }}
+                >
+                  <span style={{ color: "#3b82f6" }}>
+                    {selectedFriend.stats.p}
+                  </span>
+                  /{selectedFriend.targets.p}g
+                </div>
+              </div>
+              <div
+                style={{
+                  background: "rgba(168, 85, 247, 0.1)",
+                  padding: "10px 4px",
+                  borderRadius: 8,
+                  textAlign: "center",
+                  border: "1px solid rgba(168, 85, 247, 0.2)",
+                }}
+              >
+                <div
+                  style={{ fontSize: "0.7rem", color: "#888", marginBottom: 4 }}
+                >
+                  Fiber
+                </div>
+                <div
+                  style={{
+                    fontSize: "0.85rem",
+                    fontWeight: 700,
+                    color: "#fff",
+                  }}
+                >
+                  <span style={{ color: "#a855f7" }}>
+                    {selectedFriend.stats.fib}
+                  </span>
+                  /{selectedFriend.targets.fib}g
+                </div>
+              </div>
+              <div
+                style={{
+                  background: "rgba(59, 130, 246, 0.1)",
+                  padding: "10px 4px",
+                  borderRadius: 8,
+                  textAlign: "center",
+                  border: "1px solid rgba(59, 130, 246, 0.2)",
+                }}
+              >
+                <div
+                  style={{ fontSize: "0.7rem", color: "#888", marginBottom: 4 }}
+                >
+                  Water
+                </div>
+                <div
+                  style={{
+                    fontSize: "0.85rem",
+                    fontWeight: 700,
+                    color: "#fff",
+                  }}
+                >
+                  <span style={{ color: "#3b82f6" }}>
+                    {selectedFriend.stats.water}
+                  </span>
+                  /{selectedFriend.targets.water}L
+                </div>
+              </div>
+            </div>
+
+            {/* --- 3. DETAILED BREAKDOWN --- */}
+            <div
+              style={{
+                background: "#18181b",
+                padding: 16,
+                borderRadius: 12,
+                marginBottom: 20,
+                border: "1px solid #333",
+              }}
+            >
+              <div
+                style={{
+                  display: "flex",
+                  justifyContent: "space-between",
+                  marginBottom: 6,
+                }}
+              >
+                <span style={{ color: "#888", fontSize: "0.9rem" }}>
+                  Base Consistency
+                </span>
+                <span style={{ color: "#fff", fontWeight: 700 }}>
+                  {selectedFriend.breakdown.base}
+                </span>
+              </div>
+
+              <div
+                style={{
+                  display: "flex",
+                  justifyContent: "space-between",
+                  marginBottom: 6,
+                }}
+              >
+                <span style={{ color: "#888", fontSize: "0.9rem" }}>
+                  Bonuses
+                </span>
+                <span style={{ color: "#22c55e", fontWeight: 700 }}>
+                  +{selectedFriend.breakdown.bonus}
+                </span>
+              </div>
+              {/* Detailed Bonuses */}
+              {selectedFriend.stats.p >= selectedFriend.targets.p * 0.9 && (
+                <div
+                  style={{
+                    fontSize: "0.75rem",
+                    color: "#22c55e",
+                    paddingLeft: 10,
+                    marginBottom: 2,
+                  }}
+                >
+                  • Protein Hit (+15)
+                </div>
+              )}
+              {selectedFriend.stats.fib >= selectedFriend.targets.fib * 0.9 && (
+                <div
+                  style={{
+                    fontSize: "0.75rem",
+                    color: "#22c55e",
+                    paddingLeft: 10,
+                    marginBottom: 2,
+                  }}
+                >
+                  • Fiber Hit (+10)
+                </div>
+              )}
+              {selectedFriend.stats.water >=
+                selectedFriend.targets.water * 0.9 && (
+                <div
+                  style={{
+                    fontSize: "0.75rem",
+                    color: "#22c55e",
+                    paddingLeft: 10,
+                    marginBottom: 6,
+                  }}
+                >
+                  • Water Hit (+10)
+                </div>
+              )}
+
+              <div
+                style={{
+                  display: "flex",
+                  justifyContent: "space-between",
+                  borderTop: "1px solid #333",
+                  paddingTop: 6,
+                  marginTop: 4,
+                }}
+              >
+                <span style={{ color: "#888", fontSize: "0.9rem" }}>
+                  Penalties
+                </span>
+                <span style={{ color: "#ef4444", fontWeight: 700 }}>
+                  -{selectedFriend.breakdown.penalty}
+                </span>
+              </div>
+              {/* Detailed Penalties */}
+              {selectedFriend.stats.cals > selectedFriend.targets.cals && (
+                <div
+                  style={{
+                    fontSize: "0.75rem",
+                    color: "#ef4444",
+                    paddingLeft: 10,
+                    marginBottom: 2,
+                  }}
+                >
+                  • Calorie Overkill (-
+                  {Math.floor(
+                    ((selectedFriend.stats.cals - selectedFriend.targets.cals) /
+                      selectedFriend.targets.cals) *
+                      10,
+                  ) * 5}
+                  )
+                </div>
+              )}
+              {selectedFriend.stats.f > selectedFriend.targets.f && (
+                <div
+                  style={{
+                    fontSize: "0.75rem",
+                    color: "#ef4444",
+                    paddingLeft: 10,
+                    marginBottom: 2,
+                  }}
+                >
+                  • Fat Overkill (-
+                  {Math.floor(
+                    ((selectedFriend.stats.f - selectedFriend.targets.f) /
+                      selectedFriend.targets.f) *
+                      10,
+                  ) * 5}
+                  )
+                </div>
+              )}
+              {selectedFriend.stats.c > selectedFriend.targets.c && (
+                <div
+                  style={{
+                    fontSize: "0.75rem",
+                    color: "#ef4444",
+                    paddingLeft: 10,
+                  }}
+                >
+                  • Carb Overkill (-
+                  {Math.floor(
+                    ((selectedFriend.stats.c - selectedFriend.targets.c) /
+                      selectedFriend.targets.c) *
+                      10,
+                  ) * 3}
+                  )
+                </div>
+              )}
+            </div>
+
+            {logsLoading ? (
+              <div
+                style={{
+                  flex: 1,
+                  display: "flex",
+                  justifyContent: "center",
+                  alignItems: "center",
+                  minHeight: 150,
+                }}
+              >
+                <Loader2 className="animate-spin" color="#666" />
+              </div>
+            ) : friendLogs.length === 0 ? (
+              <div
+                style={{
+                  textAlign: "center",
+                  padding: 40,
+                  color: "#666",
+                  display: "flex",
+                  flexDirection: "column",
+                  alignItems: "center",
+                  gap: 10,
+                }}
+              >
+                <Utensils size={40} style={{ opacity: 0.3 }} />
+                <p>No food logged today.</p>
+              </div>
+            ) : (
+              <div style={{ overflowY: "auto", paddingRight: 5 }}>
+                {friendLogs.map((log) => (
+                  <div
+                    key={log.id}
+                    style={{
+                      background: "#1f1f22",
+                      padding: "12px",
+                      borderRadius: 12,
+                      marginBottom: 10,
+                      border:
+                        log.name === "Water"
+                          ? "1px solid #1e3a8a"
+                          : "1px solid #333",
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "space-between",
+                    }}
+                  >
+                    <div>
+                      <div
+                        style={{
+                          fontWeight: 600,
+                          fontSize: "0.95rem",
+                          textTransform: "capitalize",
+                          color: "#fff",
+                        }}
+                      >
+                        {log.qty}x {log.name}
+                      </div>
+                      {log.name !== "Water" && (
+                        <div
+                          style={{
+                            fontSize: "0.75rem",
+                            color: "#888",
+                            marginTop: 4,
+                            display: "flex",
+                            gap: 8,
+                          }}
+                        >
+                          <span style={{ color: "#3b82f6" }}>
+                            P: {log.protein}
+                          </span>
+                          <span style={{ color: "#10b981" }}>
+                            C: {log.carbs}
+                          </span>
+                          <span style={{ color: "#f59e0b" }}>
+                            F: {log.fats}
+                          </span>
+                          <span style={{ color: "#a855f7" }}>
+                            Fib: {log.fiber || 0}
+                          </span>
+                        </div>
+                      )}
+                    </div>
+                    <div style={{ textAlign: "right" }}>
+                      <div
+                        style={{
+                          fontWeight: 700,
+                          color: log.name === "Water" ? "#3b82f6" : "#fff",
+                        }}
+                      >
+                        {log.name === "Water"
+                          ? `${log.qty * 0.25}L`
+                          : log.calories}
+                      </div>
+                      {log.name !== "Water" && (
+                        <div style={{ fontSize: "0.7rem", color: "#666" }}>
+                          kcal
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
       {/* SQUAD DETAILS MODAL */}
       {showSquadModal && <SquadDetailsModal />}
 
