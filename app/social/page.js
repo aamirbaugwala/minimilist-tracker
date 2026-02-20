@@ -38,6 +38,9 @@ export default function SocialPage() {
   const [friendLogs, setFriendLogs] = useState([]);
   const [logsLoading, setLogsLoading] = useState(false);
   const [showGlobalRules, setShowGlobalRules] = useState(false);
+  const [squadStats, setSquadStats] = useState(null);
+  const [historicalStats, setHistoricalStats] = useState(null); // NEW: Historical comparison
+  const [showSquadModal, setShowSquadModal] = useState(false); // NEW: Modal for squad info
 
   useEffect(() => {
     fetchSocialData();
@@ -74,9 +77,281 @@ export default function SocialPage() {
     setFriendLogs([]);
   };
 
+  const HistoricalFaceoff = () => {
+    if (!historicalStats || friends.length < 2) return null;
+    const u1 = friends.find((f) => f.id === historicalStats.u1);
+    const u2 = friends.find((f) => f.id === historicalStats.u2);
+    if (!u1 || !u2) return null;
+
+    const u1Wins = historicalStats.wins[u1.id];
+    const u2Wins = historicalStats.wins[u2.id];
+    const total = u1Wins + u2Wins || 1; // avoid div/0
+
+    return (
+      <div
+        style={{
+          marginBottom: 24,
+          padding: 16,
+          background: "#0f172a",
+          borderRadius: 16,
+          border: "1px solid #334155",
+        }}
+      >
+        <h3
+          style={{
+            margin: "0 0 12px 0",
+            fontSize: "0.9rem",
+            color: "#94a3b8",
+            textAlign: "center",
+          }}
+        >
+          ⚔️ Past 30 Days - Head to Head
+        </h3>
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            marginBottom: 8,
+          }}
+        >
+          <div style={{ textAlign: "left" }}>
+            <div
+              style={{
+                fontSize: "1rem",
+                fontWeight: "bold",
+                color: "#fff",
+              }}
+            >
+              {u1.name.split(" ")[0]}
+            </div>
+            <div
+              style={{
+                fontSize: "0.8rem",
+                color: "#64748b",
+              }}
+            >
+              {u1Wins} wins
+            </div>
+          </div>
+          <div style={{ fontSize: "1.5rem" }}>vs</div>
+          <div style={{ textAlign: "right" }}>
+            <div
+              style={{
+                fontSize: "1rem",
+                fontWeight: "bold",
+                color: "#fff",
+              }}
+            >
+              {u2.name.split(" ")[0]}
+            </div>
+            <div
+              style={{
+                fontSize: "0.8rem",
+                color: "#64748b",
+              }}
+            >
+              {u2Wins} wins
+            </div>
+          </div>
+        </div>
+
+        <div
+          style={{
+            height: 8,
+            background: "#334155",
+            borderRadius: 4,
+            overflow: "hidden",
+            display: "flex",
+          }}
+        >
+          <div
+            style={{
+              width: `${(u1Wins / total) * 100}%`,
+              background: "#3b82f6",
+            }}
+          />
+          <div
+            style={{
+              width: `${(u2Wins / total) * 100}%`,
+              background: "#ef4444",
+            }}
+          />
+        </div>
+        <div
+          style={{
+            marginTop: 8,
+            textAlign: "center",
+            fontSize: "0.8rem",
+            color: "#cbd5e1",
+          }}
+        >
+          {u1Wins > u2Wins
+            ? `${u1.name.split(" ")[0]} holds the crown! 👑`
+            : u2Wins > u1Wins
+            ? `${u2.name.split(" ")[0]} is dominating! 🔥`
+            : "It's a dead heat! 🤝"}
+        </div>
+      </div>
+    );
+  };
+
+  // NEW: Squad Goals Component (Modified for Modal)
+  const SquadGoals = () => {
+    if (!squadStats) return null;
+
+    const totalProteinGoal = Math.max(squadStats.targetP, 1); // Ensure at least 1
+    const totalWaterGoal = Math.max(squadStats.targetWater, 1);
+    
+    const pProgress = Number.isFinite(squadStats.p / totalProteinGoal) 
+      ? Math.min(100, (squadStats.p / totalProteinGoal) * 100) 
+      : 0;
+      
+    const wProgress = Number.isFinite(squadStats.water / totalWaterGoal) 
+      ? Math.min(100, (squadStats.water / totalWaterGoal) * 100) 
+      : 0;
+
+    return (
+      <div
+        style={{
+          background:
+            "linear-gradient(135deg, #1e1b4b 0%, #312e81 100%)",
+          padding: 20,
+          borderRadius: 16,
+          marginBottom: 24,
+          boxShadow: "0 4px 20px rgba(49, 46, 129, 0.4)",
+          border: "1px solid #4338ca",
+        }}
+      >
+        <div
+          style={{
+            display: "flex",
+            justifyContent: "space-between",
+            alignItems: "center",
+            marginBottom: 15,
+          }}
+        >
+          <h3
+            style={{
+              margin: 0,
+              color: "#e0e7ff",
+              display: "flex",
+              alignItems: "center",
+              gap: 8,
+            }}
+          >
+            <Zap size={20} color="#fbbf24" fill="#fbbf24" /> Squad Goals
+          </h3>
+          <span
+            style={{
+              fontSize: "0.8rem",
+              color: "#c7d2fe",
+              background: "#4338ca",
+              padding: "2px 8px",
+              borderRadius: 12,
+            }}
+          >
+            {squadStats.fighters} Fighters Active
+          </span>
+        </div>
+
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 15 }}>
+          {/* Protein Goal */}
+          <div style={{ background: 'rgba(0,0,0,0.2)', padding: 12, borderRadius: 12 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8 }}>
+              <span style={{ fontSize: '0.8rem', color: '#cbd5e1' }}>Squad Protein</span>
+              <span style={{ fontSize: '0.8rem', fontWeight: 'bold', color: '#fbbf24' }}>
+                {Math.round(pProgress)}%
+              </span>
+            </div>
+            <div style={{ width: '100%', height: 8, background: '#1e293b', borderRadius: 4, overflow: 'hidden' }}>
+              <div style={{ 
+                width: `${pProgress}%`, 
+                height: '100%', 
+                background: '#fbbf24',
+                transition: 'width 1s ease'
+              }} />
+            </div>
+            <div style={{ marginTop: 6, fontSize: '0.7rem', color: '#94a3b8', textAlign: 'right' }}>
+              {Math.round(squadStats.p)} / {totalProteinGoal}g
+            </div>
+          </div>
+
+          {/* Water Goal */}
+          <div style={{ background: 'rgba(0,0,0,0.2)', padding: 12, borderRadius: 12 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8 }}>
+              <span style={{ fontSize: '0.8rem', color: '#cbd5e1' }}>Squad Hydration</span>
+              <span style={{ fontSize: '0.8rem', fontWeight: 'bold', color: '#60a5fa' }}>
+                {Math.round(wProgress)}%
+              </span>
+            </div>
+            <div style={{ width: '100%', height: 8, background: '#1e293b', borderRadius: 4, overflow: 'hidden' }}>
+              <div style={{ 
+                width: `${wProgress}%`, 
+                height: '100%', 
+                background: '#60a5fa',
+                transition: 'width 1s ease'
+              }} />
+            </div>
+            <div style={{ marginTop: 6, fontSize: '0.7rem', color: '#94a3b8', textAlign: 'right' }}>
+              {squadStats.water.toFixed(1)} / {totalWaterGoal.toFixed(1)}L
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  };
+
+  const SquadDetailsModal = () => {
+    if (!showSquadModal || !squadStats) return null;
+
+    return (
+      <div className="modal-overlay" style={{ zIndex: 9999 }}>
+        <div className="modal-content" style={{ maxWidth: 500, background: '#1e293b', border: '1px solid #334155' }}>
+           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
+             <h3 style={{ margin: 0, color: '#e0e7ff', display: 'flex', alignItems: 'center', gap: 8 }}>
+                <Zap size={20} color="#fbbf24" fill="#fbbf24" /> Squad Stats
+             </h3>
+             <button 
+               onClick={() => setShowSquadModal(false)}
+               style={{ background: 'none', border: 'none', color: '#64748b', cursor: 'pointer' }}
+             >
+               <X size={24} />
+             </button>
+           </div>
+           
+           <div style={{ overflowY: 'auto', maxHeight: '70vh' }}>
+             {/* Squad Goals Section */}
+             <div style={{ marginBottom: 24 }}>
+                <h4 style={{ margin: '0 0 12px 0', fontSize: '0.9rem', color: '#94a3b8' }}>Today&apos;s Progress</h4>
+                <SquadGoals />
+             </div>
+             
+             {/* Historical Faceoff Section */}
+             {historicalStats && (
+               <div>
+                  <h4 style={{ margin: '0 0 12px 0', fontSize: '0.9rem', color: '#94a3b8' }}>History</h4>
+                  <HistoricalFaceoff />
+               </div>
+             )}
+           </div>
+        </div>
+      </div>
+    );
+  };
+
   const calculateTargets = (prof) => {
     if (!prof || !prof.weight)
-      return { cals: 2000, p: 150, c: 200, f: 65, fib: 28, water: 3 };
+      return {
+        targetCals: 2000,
+        targetMacros: { p: 150, c: 200, f: 65, fib: 28 }, // Matches dashboard structure
+        p: 150, // Backwards compat
+        c: 200,
+        f: 65,
+        fib: 28,
+        water: 3,
+        waterTarget: 3 // Matches dashboard structure
+      };
 
     let targetCals = 2000;
     if (prof.target_calories) {
@@ -118,6 +393,7 @@ export default function SocialPage() {
     if (prof.activity === "active" || prof.activity === "moderate")
       waterTarget += 0.5;
 
+    // Return structure matching Dashboard's calculateTargets AND local expectations
     return {
       cals: targetCals,
       p: targetP,
@@ -125,6 +401,11 @@ export default function SocialPage() {
       f: targetF,
       fib: targetFib,
       water: waterTarget,
+      
+      // Dashboard compatibility
+      targetCals,
+      targetMacros: { p: targetP, c: targetC, f: targetF, fib: targetFib },
+      waterTarget
     };
   };
 
@@ -238,6 +519,7 @@ export default function SocialPage() {
         barColor = "#f59e0b";
       }
 
+      // NEW: Return detailed progress for Squad Goals
       return {
         id: uid,
         name: profile?.username || profile?.email?.split("@")[0] || "User",
@@ -252,6 +534,13 @@ export default function SocialPage() {
         statusLabel,
         barColor,
         isMe: uid === myId,
+        // Calculate completion percentages for ticker
+        achievements: {
+          proteinHit: stats.p >= targets.p,
+          waterHit: stats.water >= targets.water,
+          fiberHit: stats.fib >= targets.fib,
+          perfectScore: finalScore >= 100,
+        },
       };
     };
 
@@ -282,8 +571,98 @@ export default function SocialPage() {
     myData.name += " (You)";
     friendList.push(myData);
 
-    setFriends(friendList.sort((a, b) => b.score - a.score));
+    // Sort by score to find top 2 for race/squad
+    const sortedFriends = friendList.sort((a, b) => b.score - a.score);
+    const top2 = sortedFriends.slice(0, 2);
+
+    // NEW: Calculate Squad Stats for only top 2
+    const totalSquadStats = top2.reduce((acc, curr) => {
+      // FIX: Use the SAME robust calculation logic as dashboard
+      
+      const tP = curr.targets?.targetMacros?.p || 
+                 (curr.targets?.p) || 
+                 (curr.targets?.targetP) || 
+                 150;
+
+      const tW = curr.targets?.waterTarget || 
+                 (curr.targets?.water) || 
+                 3;
+      
+      return {
+        cals: acc.cals + (Number(curr.stats?.cals) || 0),
+        p: acc.p + (Number(curr.stats?.p) || 0),
+        water: acc.water + (Number(curr.stats?.water) || 0),
+        targetP: acc.targetP + Number(tP),
+        targetWater: acc.targetWater + Number(tW),
+        fighters: acc.fighters + 1
+      };
+    }, { cals: 0, p: 0, water: 0, targetP: 0, targetWater: 0, fighters: 0 });
+    
+    setSquadStats(totalSquadStats);
+    setFriends(sortedFriends);
     setRequests(requestList);
+
+    // NEW: Fetch Historical Data for top 2
+    if (top2.length === 2) {
+      const last30Days = Array.from({ length: 30 }, (_, i) => {
+        const d = new Date();
+        d.setDate(d.getDate() - i - 1); // Start from yesterday
+        return d.toISOString().slice(0, 10);
+      });
+
+      const { data: historyLogs } = await supabase
+        .from("food_logs")
+        .select(
+          "user_id, date, calories, protein, carbs, fats, fiber, name, qty",
+        )
+        .in("user_id", top2.map((u) => u.id))
+        .in("date", last30Days);
+
+      // Process history to find winner
+      const wins = { [top2[0].id]: 0, [top2[1].id]: 0 };
+
+      last30Days.forEach((date) => {
+        const dayLogs = historyLogs?.filter((l) => l.date === date) || [];
+
+        // Calculate daily scores for each user on this date
+        const dayScores = top2.map((user) => {
+          const userLogs = dayLogs.filter((l) => l.user_id === user.id);
+          if (!userLogs.length) return { id: user.id, score: 0 };
+
+          const stats = userLogs.reduce(
+            (acc, item) => {
+              // ... simplified stat calculation logic from main function ...
+              return {
+                cals: acc.cals + (item.calories || 0),
+                // We only really need cals/protein/water for rough scoring if full scoring is complex
+                // but let's try to match main logic loosely or just use cals adherence
+                // however, if item.calories is null/undefined, this won't help
+                p: acc.p + (item.protein || 0),
+                c: acc.c + (item.carbs || 0),
+                f: acc.f + (item.fats || 0),
+              };
+            },
+            { cals: 0, p: 0, c: 0, f: 0 },
+          );
+
+          // Simplified scoring for history (just calorie adherence)
+          const targetCals = user.targets.cals;
+          const diff = Math.abs(stats.cals - targetCals);
+          const score = Math.max(0, 100 - (diff / targetCals) * 100); // Simple adherence score
+          return { id: user.id, score };
+        });
+
+        if (dayScores[0].score > dayScores[1].score) wins[dayScores[0].id]++;
+        else if (dayScores[1].score > dayScores[0].score) wins[dayScores[1].id]++;
+      });
+
+      setHistoricalStats({
+        u1: top2[0].id,
+        u2: top2[1].id,
+        wins,
+      });
+    }
+
     setLoading(false);
   };
 
@@ -481,7 +860,7 @@ export default function SocialPage() {
             }}
           >
             <span
-              style={{ fontSize: "1.5rem", fontWeight: 800, color: "#e9d5ff" }}
+              style={{ fontSize: "1.5rem", fontWeight: 800, color: "#e9d5e1" }}
             >
               3
             </span>
@@ -540,7 +919,15 @@ export default function SocialPage() {
                 <X size={24} />
               </button>
             </div>
-            <div style={{ lineHeight: 1.6, color: "#ccc", fontSize: "0.9rem" }}>
+            <div
+              style={{
+                lineHeight: 1.6,
+                color: "#ccc",
+                fontSize: "0.9rem",
+                overflowY: "auto",
+                maxHeight: "70vh",
+              }}
+            >
               <div
                 style={{
                   marginBottom: 12,
@@ -611,446 +998,62 @@ export default function SocialPage() {
           </div>
         </div>
       )}
+      
+      {/* SQUAD DETAILS MODAL */}
+      {showSquadModal && <SquadDetailsModal />}
 
-      {selectedFriend && (
-        <div className="modal-overlay">
-          <div
-            className="modal-content"
+      {/* NEW: Race and Squad Goals Integrated Here - REMOVED, Replaced with Button */}
+      {friends.length > 0 && (
+        <div style={{ marginBottom: 20, display: 'flex', justifyContent: 'center' }}>
+          <button
+            onClick={() => setShowSquadModal(true)}
             style={{
-              width: "90%",
-              maxWidth: 450,
-              maxHeight: "80vh",
-              display: "flex",
-              flexDirection: "column",
+              background: 'linear-gradient(135deg, #4f46e5 0%, #3730a3 100%)',
+              border: 0,
+              padding: '12px 24px',
+              borderRadius: 24,
+              color: '#fff',
+              fontWeight: 600,
+              fontSize: '0.9rem',
+              display: 'flex',
+              alignItems: 'center',
+              gap: 8,
+              boxShadow: '0 4px 12px rgba(79, 70, 229, 0.4)',
+              cursor: 'pointer',
+              transition: 'transform 0.2s',
             }}
+            onMouseOver={(e) => e.target.style.transform = 'scale(1.05)'}
+            onMouseOut={(e) => e.target.style.transform = 'scale(1)'}
           >
-            <div
-              style={{
-                display: "flex",
-                justifyContent: "space-between",
-                alignItems: "center",
-                marginBottom: 20,
-              }}
-            >
-              <h3 style={{ margin: 0, fontSize: "1.2rem", fontWeight: 700 }}>
-                {selectedFriend.name}'s Meals
-              </h3>
-              <button
-                onClick={closeLogs}
-                style={{
-                  background: "none",
-                  border: "none",
-                  color: "#666",
-                  cursor: "pointer",
-                }}
-              >
-                <X size={24} />
-              </button>
-            </div>
-
-            {/* --- 1. TOTAL SCORE DISPLAY --- */}
-            <div style={{ textAlign: "center", marginBottom: 20 }}>
-              <div
-                style={{
-                  fontSize: "0.8rem",
-                  color: "#888",
-                  textTransform: "uppercase",
-                  letterSpacing: 1,
-                }}
-              >
-                Total Score
-              </div>
-              <div
-                style={{
-                  fontSize: "2.5rem",
-                  fontWeight: 800,
-                  color: selectedFriend.barColor,
-                }}
-              >
-                {selectedFriend.score}{" "}
-                <span style={{ fontSize: "1rem", color: "#666" }}>/ 135</span>
-              </div>
-            </div>
-
-            {/* --- 2. INTAKE vs GOAL GRID --- */}
-            <div
-              style={{
-                display: "grid",
-                gridTemplateColumns: "repeat(3, 1fr)",
-                gap: 8,
-                marginBottom: 20,
-              }}
-            >
-              <div
-                style={{
-                  background: "rgba(59, 130, 246, 0.1)",
-                  padding: "10px 4px",
-                  borderRadius: 8,
-                  textAlign: "center",
-                  border: "1px solid rgba(59, 130, 246, 0.2)",
-                }}
-              >
-                <div
-                  style={{ fontSize: "0.7rem", color: "#888", marginBottom: 4 }}
-                >
-                  Protein
-                </div>
-                <div
-                  style={{
-                    fontSize: "0.85rem",
-                    fontWeight: 700,
-                    color: "#fff",
-                  }}
-                >
-                  <span style={{ color: "#3b82f6" }}>
-                    {selectedFriend.stats.p}
-                  </span>
-                  /{selectedFriend.targets.p}g
-                </div>
-              </div>
-              <div
-                style={{
-                  background: "rgba(168, 85, 247, 0.1)",
-                  padding: "10px 4px",
-                  borderRadius: 8,
-                  textAlign: "center",
-                  border: "1px solid rgba(168, 85, 247, 0.2)",
-                }}
-              >
-                <div
-                  style={{ fontSize: "0.7rem", color: "#888", marginBottom: 4 }}
-                >
-                  Fiber
-                </div>
-                <div
-                  style={{
-                    fontSize: "0.85rem",
-                    fontWeight: 700,
-                    color: "#fff",
-                  }}
-                >
-                  <span style={{ color: "#a855f7" }}>
-                    {selectedFriend.stats.fib}
-                  </span>
-                  /{selectedFriend.targets.fib}g
-                </div>
-              </div>
-              <div
-                style={{
-                  background: "rgba(59, 130, 246, 0.1)",
-                  padding: "10px 4px",
-                  borderRadius: 8,
-                  textAlign: "center",
-                  border: "1px solid rgba(59, 130, 246, 0.2)",
-                }}
-              >
-                <div
-                  style={{ fontSize: "0.7rem", color: "#888", marginBottom: 4 }}
-                >
-                  Water
-                </div>
-                <div
-                  style={{
-                    fontSize: "0.85rem",
-                    fontWeight: 700,
-                    color: "#fff",
-                  }}
-                >
-                  <span style={{ color: "#3b82f6" }}>
-                    {selectedFriend.stats.water}
-                  </span>
-                  /{selectedFriend.targets.water}L
-                </div>
-              </div>
-            </div>
-
-            {/* --- 3. DETAILED BREAKDOWN --- */}
-            <div
-              style={{
-                background: "#18181b",
-                padding: 16,
-                borderRadius: 12,
-                marginBottom: 20,
-                border: "1px solid #333",
-              }}
-            >
-              <div
-                style={{
-                  display: "flex",
-                  justifyContent: "space-between",
-                  marginBottom: 6,
-                }}
-              >
-                <span style={{ color: "#888", fontSize: "0.9rem" }}>
-                  Base Consistency
-                </span>
-                <span style={{ color: "#fff", fontWeight: 700 }}>
-                  {selectedFriend.breakdown.base}
-                </span>
-              </div>
-
-              <div
-                style={{
-                  display: "flex",
-                  justifyContent: "space-between",
-                  marginBottom: 6,
-                }}
-              >
-                <span style={{ color: "#888", fontSize: "0.9rem" }}>
-                  Bonuses
-                </span>
-                <span style={{ color: "#22c55e", fontWeight: 700 }}>
-                  +{selectedFriend.breakdown.bonus}
-                </span>
-              </div>
-              {/* Detailed Bonuses */}
-              {selectedFriend.stats.p >= selectedFriend.targets.p * 0.9 && (
-                <div
-                  style={{
-                    fontSize: "0.75rem",
-                    color: "#22c55e",
-                    paddingLeft: 10,
-                    marginBottom: 2,
-                  }}
-                >
-                  • Protein Hit (+15)
-                </div>
-              )}
-              {selectedFriend.stats.fib >= selectedFriend.targets.fib * 0.9 && (
-                <div
-                  style={{
-                    fontSize: "0.75rem",
-                    color: "#22c55e",
-                    paddingLeft: 10,
-                    marginBottom: 2,
-                  }}
-                >
-                  • Fiber Hit (+10)
-                </div>
-              )}
-              {selectedFriend.stats.water >=
-                selectedFriend.targets.water * 0.9 && (
-                <div
-                  style={{
-                    fontSize: "0.75rem",
-                    color: "#22c55e",
-                    paddingLeft: 10,
-                    marginBottom: 6,
-                  }}
-                >
-                  • Water Hit (+10)
-                </div>
-              )}
-
-              <div
-                style={{
-                  display: "flex",
-                  justifyContent: "space-between",
-                  borderTop: "1px solid #333",
-                  paddingTop: 6,
-                  marginTop: 4,
-                }}
-              >
-                <span style={{ color: "#888", fontSize: "0.9rem" }}>
-                  Penalties
-                </span>
-                <span style={{ color: "#ef4444", fontWeight: 700 }}>
-                  -{selectedFriend.breakdown.penalty}
-                </span>
-              </div>
-              {/* Detailed Penalties */}
-              {selectedFriend.stats.cals > selectedFriend.targets.cals && (
-                <div
-                  style={{
-                    fontSize: "0.75rem",
-                    color: "#ef4444",
-                    paddingLeft: 10,
-                    marginBottom: 2,
-                  }}
-                >
-                  • Calorie Overkill (-
-                  {Math.floor(
-                    ((selectedFriend.stats.cals - selectedFriend.targets.cals) /
-                      selectedFriend.targets.cals) *
-                      10,
-                  ) * 5}
-                  )
-                </div>
-              )}
-              {selectedFriend.stats.f > selectedFriend.targets.f && (
-                <div
-                  style={{
-                    fontSize: "0.75rem",
-                    color: "#ef4444",
-                    paddingLeft: 10,
-                    marginBottom: 2,
-                  }}
-                >
-                  • Fat Overkill (-
-                  {Math.floor(
-                    ((selectedFriend.stats.f - selectedFriend.targets.f) /
-                      selectedFriend.targets.f) *
-                      10,
-                  ) * 5}
-                  )
-                </div>
-              )}
-              {selectedFriend.stats.c > selectedFriend.targets.c && (
-                <div
-                  style={{
-                    fontSize: "0.75rem",
-                    color: "#ef4444",
-                    paddingLeft: 10,
-                  }}
-                >
-                  • Carb Overkill (-
-                  {Math.floor(
-                    ((selectedFriend.stats.c - selectedFriend.targets.c) /
-                      selectedFriend.targets.c) *
-                      10,
-                  ) * 3}
-                  )
-                </div>
-              )}
-            </div>
-
-            {logsLoading ? (
-              <div
-                style={{
-                  flex: 1,
-                  display: "flex",
-                  justifyContent: "center",
-                  alignItems: "center",
-                  minHeight: 150,
-                }}
-              >
-                <Loader2 className="animate-spin" color="#666" />
-              </div>
-            ) : friendLogs.length === 0 ? (
-              <div
-                style={{
-                  textAlign: "center",
-                  padding: 40,
-                  color: "#666",
-                  display: "flex",
-                  flexDirection: "column",
-                  alignItems: "center",
-                  gap: 10,
-                }}
-              >
-                <Utensils size={40} style={{ opacity: 0.3 }} />
-                <p>No food logged today.</p>
-              </div>
-            ) : (
-              <div style={{ overflowY: "auto", paddingRight: 5 }}>
-                {friendLogs.map((log) => (
-                  <div
-                    key={log.id}
-                    style={{
-                      background: "#1f1f22",
-                      padding: "12px",
-                      borderRadius: 12,
-                      marginBottom: 10,
-                      border:
-                        log.name === "Water"
-                          ? "1px solid #1e3a8a"
-                          : "1px solid #333",
-                      display: "flex",
-                      alignItems: "center",
-                      justifyContent: "space-between",
-                    }}
-                  >
-                    <div>
-                      <div
-                        style={{
-                          fontWeight: 600,
-                          fontSize: "0.95rem",
-                          textTransform: "capitalize",
-                          color: "#fff",
-                        }}
-                      >
-                        {log.qty}x {log.name}
-                      </div>
-                      {log.name !== "Water" && (
-                        <div
-                          style={{
-                            fontSize: "0.75rem",
-                            color: "#888",
-                            marginTop: 4,
-                            display: "flex",
-                            gap: 8,
-                          }}
-                        >
-                          <span style={{ color: "#3b82f6" }}>
-                            P: {log.protein}
-                          </span>
-                          <span style={{ color: "#10b981" }}>
-                            C: {log.carbs}
-                          </span>
-                          <span style={{ color: "#f59e0b" }}>
-                            F: {log.fats}
-                          </span>
-                          <span style={{ color: "#a855f7" }}>
-                            Fib: {log.fiber || 0}
-                          </span>
-                        </div>
-                      )}
-                    </div>
-                    <div style={{ textAlign: "right" }}>
-                      <div
-                        style={{
-                          fontWeight: 700,
-                          color: log.name === "Water" ? "#3b82f6" : "#fff",
-                        }}
-                      >
-                        {log.name === "Water"
-                          ? `${log.qty * 0.25}L`
-                          : log.calories}
-                      </div>
-                      {log.name !== "Water" && (
-                        <div style={{ fontSize: "0.7rem", color: "#666" }}>
-                          kcal
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
+            <Zap size={18} fill="#fbbf24" color="#fbbf24" /> View Squad Details & Faceoff
+          </button>
         </div>
       )}
 
-      {/* HEADER */}
       <div
         style={{
           display: "flex",
           alignItems: "center",
-          justifyContent: "space-between",
+          gap: 12,
           marginBottom: 24,
         }}
       >
-        <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-          <button
-            onClick={() => router.back()}
-            style={{
-              background: "#1f1f22",
-              border: "1px solid #333",
-              color: "#fff",
-              cursor: "pointer",
-              display: "flex",
-              alignItems: "center",
-              padding: 10,
-              borderRadius: 10,
-            }}
-          >
-            <ArrowLeft size={20} />
-          </button>
-          <h1 style={{ fontSize: "1.8rem", fontWeight: 800, margin: 0 }}>
-            Social Hub
-          </h1>
-        </div>
-
+        <button
+          onClick={() => router.push("/dashboard")}
+          style={{
+            background: "none",
+            border: "none",
+            cursor: "pointer",
+            padding: 8,
+            color: "#64748b",
+          }}
+        >
+          <ArrowLeft size={24} />
+        </button>
+        <h1 style={{ margin: 0, fontSize: "1.5rem", fontWeight: 800 }}>
+          Social Hub
+        </h1>
+        <div style={{ flex: 1 }} />
         {/* --- NEW POINTS SYSTEM BUTTON --- */}
         <button
           onClick={() => setShowGlobalRules(true)}
@@ -1632,6 +1635,9 @@ export default function SocialPage() {
           )}
         </div>
       )}
+
+      {/* Render Squad Details Modal */}
+      <SquadDetailsModal />
     </div>
   );
 }

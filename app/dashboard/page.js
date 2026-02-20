@@ -19,6 +19,7 @@ import {
   Bot,
   Loader2,
   BarChart2,
+  Scale, // <-- New icon added
 } from "lucide-react";
 import {
   PieChart,
@@ -31,7 +32,7 @@ import {
   XAxis,
   YAxis,
   CartesianGrid,
-  ReferenceLine, // <--- 1. Imported ReferenceLine
+  ReferenceLine,
 } from "recharts";
 import { supabase } from "../supabase";
 
@@ -41,6 +42,7 @@ const COLORS = {
   fat: "#ef4444",
   fib: "#10b981",
   cals: "#a855f7",
+  weight: "#ec4899", // Pink color for weight trends
 };
 
 const getSmartRemedy = (nutrient, historyLogs) => {
@@ -103,49 +105,101 @@ export default function UserDashboard() {
   const [selectedDate, setSelectedDate] = useState(null);
   const [selectedLogs, setSelectedLogs] = useState([]);
 
+  // WEIGHT STATE
+  const [weightLogs, setWeightLogs] = useState([]);
+  const [weightInput, setWeightInput] = useState("");
+  const [isLoggingWeight, setIsLoggingWeight] = useState(false);
+
   // MODALS
   const [showResearch, setShowResearch] = useState(false);
   const [showAI, setShowAI] = useState(false);
   const [aiLoading, setAiLoading] = useState(false);
   const [aiResponse, setAiResponse] = useState("");
 
+  const init = async () => {
+    const {
+      data: { session },
+    } = await supabase.auth.getSession();
+    if (!session) {
+      router.push("/");
+      return;
+    }
+
+    const today = new Date().toISOString().slice(0, 10);
+    const { data: profileData } = await supabase
+      .from("user_profiles")
+      .select("*")
+      .eq("user_id", session.user.id)
+      .single();
+
+    const startDay = new Date();
+    startDay.setDate(startDay.getDate() - 30);
+    const startStr = startDay.toISOString().slice(0, 10);
+
+    const { data: logData } = await supabase
+      .from("food_logs")
+      .select("*")
+      .eq("user_id", session.user.id)
+      .gte("date", startStr)
+      .order("created_at", { ascending: true });
+
+    // Fetch weight logs
+    const { data: weightData } = await supabase
+      .from("weight_logs")
+      .select("*")
+      .eq("user_id", session.user.id)
+      .gte("date", startStr)
+      .order("date", { ascending: true });
+
+    setProfile(profileData);
+    setAllLogs(logData || []);
+    setWeightLogs(weightData || []);
+
+    const calculatedTargets = processCalendarData(
+      profileData,
+      logData || [],
+      weightData || [],
+    );
+    handleDateSelect(today, logData || [], calculatedTargets);
+    setLoading(false);
+  };
+
   useEffect(() => {
-    const init = async () => {
-      const {
-        data: { session },
-      } = await supabase.auth.getSession();
-      if (!session) {
-        router.push("/");
-        return;
-      }
-
-      const today = new Date().toISOString().slice(0, 10);
-      const { data: profileData } = await supabase
-        .from("user_profiles")
-        .select("*")
-        .eq("user_id", session.user.id)
-        .single();
-
-      const startDay = new Date();
-      startDay.setDate(startDay.getDate() - 30);
-      const startStr = startDay.toISOString().slice(0, 10);
-
-      const { data: logData } = await supabase
-        .from("food_logs")
-        .select("*")
-        .eq("user_id", session.user.id)
-        .gte("date", startStr)
-        .order("created_at", { ascending: true });
-
-      setProfile(profileData);
-      setAllLogs(logData || []);
-
-      const calculatedTargets = processCalendarData(profileData, logData || []);
-      handleDateSelect(today, logData || [], calculatedTargets);
-      setLoading(false);
-    };
     init();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  const handleLogWeight = async () => {
+    if (!weightInput) return;
+    setIsLoggingWeight(true);
+    const {
+      data: { session },
+    } = await supabase.auth.getSession();
+    const today = new Date().toISOString().slice(0, 10);
+    const numWeight = Number(weightInput);
+
+    // Upsert to weight logs (requires unique user_id, date constraint)
+    await supabase.from("weight_logs").upsert(
+      {
+        user_id: session.user.id,
+        date: today,
+        weight: numWeight,
+      },
+      { onConflict: "user_id, date" },
+    );
+
+    // Update main profile
+    await supabase
+      .from("user_profiles")
+      .update({ weight: numWeight })
+      .eq("user_id", session.user.id);
+
+    setWeightInput("");
+    setIsLoggingWeight(false);
+
+    // Refresh to recalculate targets based on new weight
+    init();
+  };
 
   const handleAskAI = async () => {
     setShowAI(true);
@@ -155,17 +209,20 @@ export default function UserDashboard() {
     sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
     const recentLogs = allLogs.filter((l) => new Date(l.date) >= sevenDaysAgo);
 
+    const recentWeightLogs = weightLogs.filter((l) => new Date(l.date) >= sevenDaysAgo);
+
     try {
       const res = await fetch("/api/ai-coach", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ profile: profile, logs: recentLogs }),
+        body: JSON.stringify({ profile: profile, logs: recentLogs, weightLogs: recentWeightLogs }),
       });
       const data = await res.json();
       setAiResponse(data.message);
     } catch (e) {
+      console.error(e);
       setAiResponse(
-        "I'm having trouble connecting to the nutrition database right now."
+        "I'm having trouble connecting to the nutrition database right now.",
       );
     } finally {
       setAiLoading(false);
@@ -234,7 +291,7 @@ export default function UserDashboard() {
       const culprit = dailyLogs.reduce(
         (prev, current) =>
           (prev.fats || 0) > (current.fats || 0) ? prev : current,
-        { fats: 0, name: "Unknown" }
+        { fats: 0, name: "Unknown" },
       );
       if (culprit.id) newCulprits.add(culprit.id);
       suggestions.push({
@@ -248,7 +305,7 @@ export default function UserDashboard() {
       const culprit = dailyLogs.reduce(
         (prev, current) =>
           (prev.carbs || 0) > (current.carbs || 0) ? prev : current,
-        { carbs: 0, name: "Unknown" }
+        { carbs: 0, name: "Unknown" },
       );
       if (culprit.id) newCulprits.add(culprit.id);
       suggestions.push({
@@ -305,7 +362,7 @@ export default function UserDashboard() {
     setSelectedLogs(dailyLogs);
     const eatenCals = dailyLogs.reduce(
       (sum, item) => sum + (item.calories || 0),
-      0
+      0,
     );
     const macrosEaten = dailyLogs.reduce(
       (acc, item) => {
@@ -321,7 +378,7 @@ export default function UserDashboard() {
           fib: acc.fib + fib,
         };
       },
-      { p: 0, c: 0, f: 0, fib: 0 }
+      { p: 0, c: 0, f: 0, fib: 0 },
     );
     const waterConsumed = dailyLogs
       .filter((i) => i.name === "Water")
@@ -368,13 +425,13 @@ export default function UserDashboard() {
       targets,
       macrosEaten,
       dailyLogs,
-      logsToFilter
+      logsToFilter,
     );
     setInsights(analysis.suggestions);
     setCulpritIds(analysis.newCulprits);
   };
 
-  const processCalendarData = (prof, logs) => {
+  const processCalendarData = (prof, logs, weightLogsData = []) => {
     if (!prof) return;
     const targets = calculateTargets(prof);
     const calendarMap = {};
@@ -389,6 +446,7 @@ export default function UserDashboard() {
         carbs: 0,
         fats: 0,
         fiber: 0,
+        weight: null, // Default to null for connectNulls to work perfectly
         dateFormatted: d.toLocaleDateString("en-US", {
           month: "short",
           day: "numeric",
@@ -423,6 +481,11 @@ export default function UserDashboard() {
       }
     });
 
+    // Populate weight data into map
+    weightLogsData.forEach((w) => {
+      if (calendarMap[w.date]) calendarMap[w.date].weight = Number(w.weight);
+    });
+
     const calData = Object.keys(calendarMap)
       .sort()
       .map((date) => {
@@ -449,13 +512,13 @@ export default function UserDashboard() {
         carbs: calendarMap[date].carbs,
         fats: calendarMap[date].fats,
         fiber: calendarMap[date].fiber,
+        weight: calendarMap[date].weight, // Pass weight to trend data
       }));
     setTrendData(tData);
 
     return targets;
   };
 
-  // --- 2. Helper to get the correct goal target dynamically ---
   const getCurrentTarget = () => {
     if (!metrics || !metrics.targets) return 0;
     switch (trendMetric) {
@@ -467,6 +530,8 @@ export default function UserDashboard() {
         return metrics.targets.f;
       case "fiber":
         return metrics.targets.fib;
+      case "weight":
+        return profile?.target_weight || null; // Return null if no target weight is set
       case "calories":
       default:
         return metrics.target;
@@ -490,6 +555,8 @@ export default function UserDashboard() {
         return COLORS.fat;
       case "fiber":
         return COLORS.fib;
+      case "weight":
+        return COLORS.weight;
       default:
         return COLORS.cals;
     }
@@ -516,7 +583,6 @@ export default function UserDashboard() {
         .custom-scrollbar::-webkit-scrollbar-thumb:hover {
           background: #666;
         }
-        /* --- 3. FIX: Responsive Grid Logic --- */
         .chart-grid-container {
           display: grid;
           grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
@@ -526,13 +592,12 @@ export default function UserDashboard() {
         .trend-card-span {
           grid-column: span 2;
         }
-        /* Mobile Breakpoint */
         @media (max-width: 768px) {
           .chart-grid-container {
-            grid-template-columns: 1fr; /* Stack everything */
+            grid-template-columns: 1fr;
           }
           .trend-card-span {
-            grid-column: span 1; /* Reset the 2-column span */
+            grid-column: span 1;
           }
         }
       `}</style>
@@ -541,8 +606,7 @@ export default function UserDashboard() {
       {showAI && (
         <div className="modal-overlay">
           <div className="modal-content">
-            {/* 1. Header (Always Visible) */}
-            <div className="modal-header">
+            <div className="modal-header" style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}>
               <h3
                 style={{
                   margin: 0,
@@ -574,8 +638,6 @@ export default function UserDashboard() {
                 <X size={20} />
               </button>
             </div>
-
-            {/* 2. Scrollable Body */}
             <div className="modal-body custom-scrollbar">
               {aiLoading ? (
                 <div
@@ -596,8 +658,6 @@ export default function UserDashboard() {
                 <div style={{ whiteSpace: "pre-wrap" }}>{aiResponse}</div>
               )}
             </div>
-
-            {/* 3. Footer (Always Visible) */}
             <div className="modal-footer">
               <div
                 style={{
@@ -766,6 +826,7 @@ export default function UserDashboard() {
           </div>
         </div>
       )}
+
       {/* HEADER */}
       <div
         style={{
@@ -908,7 +969,7 @@ export default function UserDashboard() {
             </div>
           </div>
 
-          {/* ROW 2: ANALYSIS & TRENDS (Updated Container) */}
+          {/* ROW 2: ANALYSIS & TRENDS */}
           <div className="chart-grid-container">
             {/* 1. SMART INSIGHTS CARD */}
             <div
@@ -949,14 +1010,14 @@ export default function UserDashboard() {
                         insight.type === "success"
                           ? "rgba(34, 197, 94, 0.1)"
                           : insight.type === "danger"
-                          ? "rgba(239, 68, 68, 0.1)"
-                          : "rgba(245, 158, 11, 0.1)",
+                            ? "rgba(239, 68, 68, 0.1)"
+                            : "rgba(245, 158, 11, 0.1)",
                       border: `1px solid ${
                         insight.type === "success"
                           ? "#22c55e"
                           : insight.type === "danger"
-                          ? "#ef4444"
-                          : "#f59e0b"
+                            ? "#ef4444"
+                            : "#f59e0b"
                       }`,
                       padding: 12,
                       borderRadius: 12,
@@ -1022,7 +1083,7 @@ export default function UserDashboard() {
               </div>
             </div>
 
-            {/* 2. TREND CHART (Updated Class for responsiveness) */}
+            {/* 2. TREND CHART */}
             <div
               className="chart-card trend-card-span"
               style={{
@@ -1072,6 +1133,7 @@ export default function UserDashboard() {
                     }}
                   >
                     <option value="calories">Calories</option>
+                    <option value="weight">Weight</option>
                     <option value="protein">Protein</option>
                     <option value="carbs">Carbs</option>
                     <option value="fats">Fats</option>
@@ -1141,6 +1203,11 @@ export default function UserDashboard() {
                       tick={{ fill: "#666", fontSize: 12 }}
                       axisLine={false}
                       tickLine={false}
+                      domain={
+                        trendMetric === "weight"
+                          ? ["auto", "auto"]
+                          : [0, "auto"]
+                      }
                     />
                     <Tooltip
                       contentStyle={{
@@ -1151,29 +1218,37 @@ export default function UserDashboard() {
                       }}
                       itemStyle={{ color: getTrendColor() }}
                       formatter={(value) => [
-                        `${value}${trendMetric === "calories" ? " kcal" : "g"}`,
+                        `${value}${
+                          trendMetric === "calories"
+                            ? " kcal"
+                            : trendMetric === "weight"
+                              ? " kg"
+                              : "g"
+                        }`,
                         trendMetric.charAt(0).toUpperCase() +
                           trendMetric.slice(1),
                       ]}
                       labelStyle={{ color: "#888" }}
                     />
-                    {/* --- 4. FIX: Added ReferenceLine for Goal --- */}
-                    <ReferenceLine
-                      y={getCurrentTarget()}
-                      stroke="#ef4444"
-                      strokeDasharray="3 3"
-                      label={{
-                        position: "top",
-                        value: "Goal",
-                        fill: "#ef4444",
-                        fontSize: 12,
-                      }}
-                    />
+                    {getCurrentTarget() && (
+                      <ReferenceLine
+                        y={getCurrentTarget()}
+                        stroke="#ef4444"
+                        strokeDasharray="3 3"
+                        label={{
+                          position: "top",
+                          value: "Goal",
+                          fill: "#ef4444",
+                          fontSize: 12,
+                        }}
+                      />
+                    )}
                     <Line
                       type="monotone"
                       dataKey={trendMetric}
                       stroke={getTrendColor()}
                       strokeWidth={3}
+                      connectNulls={true}
                       dot={{
                         r: 4,
                         fill: "#1f1f22",
@@ -1283,7 +1358,7 @@ export default function UserDashboard() {
                   }}
                 >
                   {Math.round(
-                    (metrics.water.current / metrics.water.target) * 100
+                    (metrics.water.current / metrics.water.target) * 100,
                   ) || 0}
                   %
                 </span>
@@ -1318,7 +1393,7 @@ export default function UserDashboard() {
                   style={{
                     width: `${Math.min(
                       100,
-                      (metrics.water.current / metrics.water.target) * 100
+                      (metrics.water.current / metrics.water.target) * 100,
                     )}%`,
                     height: "100%",
                     background: "#3b82f6",
@@ -1674,7 +1749,7 @@ export default function UserDashboard() {
                                     (FLATTENED_DB[log.name.toLowerCase()]?.fiber
                                       ? Math.round(
                                           FLATTENED_DB[log.name.toLowerCase()]
-                                            .fiber * log.qty
+                                            .fiber * log.qty,
                                         )
                                       : 0)}
                                 </span>
@@ -1711,7 +1786,7 @@ export default function UserDashboard() {
                     <span>
                       {selectedLogs.reduce(
                         (sum, item) => sum + (item.calories || 0),
-                        0
+                        0,
                       )}{" "}
                       kcal
                     </span>

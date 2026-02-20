@@ -29,6 +29,8 @@ import {
   Sparkles,
   Globe,
   Edit3,
+  PlusCircle,
+  Scale, // Added icon
 } from "lucide-react";
 import { FOOD_CATEGORIES, FLATTENED_DB } from "./food-data";
 import { supabase } from "./supabase";
@@ -405,10 +407,26 @@ export default function Home() {
   const [showWelcome, setShowWelcome] = useState(false);
   const [welcomeStep, setWelcomeStep] = useState(1);
 
-  // --- NEW: EDIT LOG STATE ---
+  // --- EDIT LOG STATE ---
   const [isEditingLog, setIsEditingLog] = useState(false);
   const [currentLogToEdit, setCurrentLogToEdit] = useState(null);
   const [editQty, setEditQty] = useState(1);
+
+  // --- CUSTOM FOODS & MANUAL ENTRY STATE ---
+  const [customFoods, setCustomFoods] = useState([]);
+  const [isManualEntryOpen, setIsManualEntryOpen] = useState(false);
+  const [manualFood, setManualFood] = useState({
+    name: "",
+    calories: "",
+    protein: "",
+    carbs: "",
+    fats: "",
+    fiber: "",
+  });
+
+  // --- NEW: WEIGHT TRACKING STATE ---
+  const [weightInput, setWeightInput] = useState("");
+  const [isLoggingWeight, setIsLoggingWeight] = useState(false);
 
   // Data
   const [userProfile, setUserProfile] = useState({
@@ -438,9 +456,18 @@ export default function Home() {
   const [usePasswordLogin, setUsePasswordLogin] = useState(false);
   const [authLoading, setAuthLoading] = useState(false);
 
-  // --- NEW: WEB SEARCH STATE ---
+  // --- WEB SEARCH STATE ---
   const [webResults, setWebResults] = useState([]);
   const [isWebSearching, setIsWebSearching] = useState(false);
+
+  // --- MERGE LOCAL DB WITH CUSTOM DB ---
+  const COMBINED_DB = useMemo(() => {
+    const combined = { ...FLATTENED_DB };
+    customFoods.forEach((cf) => {
+      combined[cf.name.toLowerCase()] = cf;
+    });
+    return combined;
+  }, [customFoods]);
 
   // --- FEATURE 1: SMART RECOMMENDATIONS LOGIC ---
   const generateSmartMeals = () => {
@@ -487,8 +514,8 @@ export default function Home() {
     if (remainingCals < 50) return [];
 
     const candidates = [];
-    if (FLATTENED_DB) {
-      Object.entries(FLATTENED_DB).forEach(([key, item]) => {
+    if (COMBINED_DB) {
+      Object.entries(COMBINED_DB).forEach(([key, item]) => {
         // Must fit in remaining calories (with slight buffer)
         if (item.calories <= remainingCals * 1.1) {
           let score = 0;
@@ -585,7 +612,7 @@ export default function Home() {
 
     // Fallback if empty (e.g. only 60 cals left) -> Find smallest items
     if (recommendations.length === 0) {
-      const smallSnacks = Object.entries(FLATTENED_DB)
+      const smallSnacks = Object.entries(COMBINED_DB)
         .filter(([_, val]) => val.calories <= remainingCals)
         .sort((a, b) => b[1].calories - a[1].calories) // Biggest possible filler
         .slice(0, 3);
@@ -607,10 +634,10 @@ export default function Home() {
 
   const smartRecommendations = useMemo(
     () => generateSmartMeals(),
-    [totals, userProfile],
+    [totals, userProfile, COMBINED_DB], // Added COMBINED_DB dependency
   );
 
-  // --- FEATURE 2: ACTUAL WEB SEARCH (OpenFoodFacts) ---
+  // --- ACTUAL WEB SEARCH (OpenFoodFacts) ---
   useEffect(() => {
     const delayDebounceFn = setTimeout(async () => {
       if (!query || query.length < 3) {
@@ -618,7 +645,8 @@ export default function Home() {
         return;
       }
 
-      const localKeys = Object.keys(FLATTENED_DB).filter((k) =>
+      // Check COMBINED_DB instead of FLATTENED_DB
+      const localKeys = Object.keys(COMBINED_DB).filter((k) =>
         k.includes(query.toLowerCase()),
       );
 
@@ -657,7 +685,7 @@ export default function Home() {
     }, 600);
 
     return () => clearTimeout(delayDebounceFn);
-  }, [query]);
+  }, [query, COMBINED_DB]);
 
   // --- INIT ---
   const fetchData = async (isBackground = false) => {
@@ -679,12 +707,13 @@ export default function Home() {
       const enrichedLogs = data.map((log) => {
         if (log.name === "Water") return { ...log, fiber: 0 };
         if (log.fiber && log.fiber > 0) return log;
-        let dbItem = FLATTENED_DB[log.name.toLowerCase()];
+        // Use COMBINED_DB
+        let dbItem = COMBINED_DB[log.name.toLowerCase()];
         if (!dbItem) {
-          const key = Object.keys(FLATTENED_DB).find((k) =>
+          const key = Object.keys(COMBINED_DB).find((k) =>
             k.includes(log.name.toLowerCase()),
           );
-          if (key) dbItem = FLATTENED_DB[key];
+          if (key) dbItem = COMBINED_DB[key];
         }
         if (dbItem && dbItem.fiber) {
           return { ...log, fiber: Math.round(dbItem.fiber * log.qty) };
@@ -723,6 +752,12 @@ export default function Home() {
         .single();
       if (profile) setUserProfile(profile);
       if (profile.username) setUsername(profile.username);
+
+      const { data: custom } = await supabase
+        .from("custom_foods")
+        .select("*")
+        .eq("user_id", session.user.id);
+      if (custom) setCustomFoods(custom);
     }
   };
 
@@ -857,6 +892,97 @@ export default function Home() {
     setShowPasswordSetup(false);
   };
 
+  // --- NEW: HANDLE LOG WEIGHT ---
+  const handleLogWeight = async () => {
+    if (!weightInput) return;
+    setIsLoggingWeight(true);
+    const today = new Date().toISOString().slice(0, 10);
+    const numWeight = Number(weightInput);
+
+    try {
+      // 1. Upsert to weight_logs (for dashboard trends)
+      await supabase.from("weight_logs").upsert(
+        {
+          user_id: session.user.id,
+          date: today,
+          weight: numWeight,
+        },
+        { onConflict: "user_id, date" },
+      );
+
+      // 2. Update main profile (updates targets immediately)
+      await supabase
+        .from("user_profiles")
+        .update({ weight: numWeight })
+        .eq("user_id", session.user.id);
+
+      // 3. Update local state
+      setUserProfile((prev) => ({ ...prev, weight: numWeight }));
+      setWeightInput("");
+    } catch (err) {
+      console.error(err);
+      alert("Failed to log weight");
+    } finally {
+      setIsLoggingWeight(false);
+    }
+  };
+
+  const saveCustomFoodToDb = async (item) => {
+    if (!session) return;
+    const exists = customFoods.find(
+      (cf) => cf.name.toLowerCase() === item.name.toLowerCase(),
+    );
+    if (exists) return;
+
+    const newFood = {
+      user_id: session.user.id,
+      name: item.name,
+      calories: Number(item.calories) || 0,
+      protein: Number(item.protein) || 0,
+      carbs: Number(item.carbs) || 0,
+      fats: Number(item.fats) || 0,
+      fiber: Number(item.fiber) || 0,
+    };
+
+    const { data, error } = await supabase
+      .from("custom_foods")
+      .insert([newFood])
+      .select();
+
+    if (!error && data) {
+      setCustomFoods((prev) => [...prev, data[0]]);
+    }
+  };
+
+  const handleManualAddSubmit = (e) => {
+    e.preventDefault();
+    if (!manualFood.name || !manualFood.calories)
+      return alert("Missing details!");
+
+    const formattedFood = {
+      ...manualFood,
+      calories: Number(manualFood.calories),
+      protein: Number(manualFood.protein) || 0,
+      carbs: Number(manualFood.carbs) || 0,
+      fats: Number(manualFood.fats) || 0,
+      fiber: Number(manualFood.fiber) || 0,
+    };
+
+    saveCustomFoodToDb(formattedFood);
+    addFood(formattedFood.name, qty, formattedFood);
+
+    setManualFood({
+      name: "",
+      calories: "",
+      protein: "",
+      carbs: "",
+      fats: "",
+      fiber: "",
+    });
+    setIsManualEntryOpen(false);
+    setQuery("");
+  };
+
   const handleLocalAdd = (itemsToAdd) => {
     setHasUnsavedChanges(true);
     setLogs((currentLogs) => {
@@ -864,7 +990,6 @@ export default function Home() {
       itemsToAdd.forEach((newItem) => {
         const foodName = newItem.name;
         const quantity = Number(newItem.qty);
-        // Default to provided macros (for web results)
         let baseData = {
           calories: newItem.calories || 0,
           protein: newItem.protein || 0,
@@ -873,14 +998,13 @@ export default function Home() {
           fiber: newItem.fiber || 0,
         };
 
-        // If local DB lookup needed
         if (foodName !== "Water" && baseData.calories === 0 && !newItem.isWeb) {
-          let dbData = FLATTENED_DB[foodName.toLowerCase()];
+          let dbData = COMBINED_DB[foodName.toLowerCase()];
           if (!dbData) {
-            const key = Object.keys(FLATTENED_DB).find((k) =>
+            const key = Object.keys(COMBINED_DB).find((k) =>
               k.includes(foodName.toLowerCase()),
             );
-            if (key) dbData = FLATTENED_DB[key];
+            if (key) dbData = COMBINED_DB[key];
           }
           if (dbData) baseData = dbData;
         }
@@ -940,14 +1064,12 @@ export default function Home() {
     setLogs((prev) => prev.filter((l) => l.id !== id));
   };
 
-  // --- NEW: FUNCTION TO OPEN EDIT MODAL ---
   const openEditModal = (log) => {
     setCurrentLogToEdit(log);
     setEditQty(log.qty);
     setIsEditingLog(true);
   };
 
-  // --- NEW: FUNCTION TO SAVE EDITED LOG ---
   const saveLogEdit = () => {
     if (!currentLogToEdit) return;
     const newQ = Number(editQty);
@@ -959,8 +1081,6 @@ export default function Home() {
     }
 
     const oldQ = currentLogToEdit.qty;
-    // Calculate ratio to scale macros
-    // If old qty was 3 and new is 2, ratio is 2/3 = 0.66
     const ratio = newQ / oldQ;
 
     setLogs((prevLogs) =>
@@ -1093,21 +1213,19 @@ export default function Home() {
     const hydrate = (keys) =>
       keys.map((key) => {
         const item =
-          FLATTENED_DB[key.toLowerCase()] ||
-          FLATTENED_DB[
-            Object.keys(FLATTENED_DB).find((k) => k.includes(key.toLowerCase()))
+          COMBINED_DB[key.toLowerCase()] ||
+          COMBINED_DB[
+            Object.keys(COMBINED_DB).find((k) => k.includes(key.toLowerCase()))
           ];
         return item ? { name: key, ...item } : { name: key };
       });
 
-    // 1. SEARCH LOGIC (LOCAL + WEB)
     if (query) {
-      const keys = Object.keys(FLATTENED_DB).filter((k) =>
+      const keys = Object.keys(COMBINED_DB).filter((k) =>
         k.includes(query.toLowerCase()),
       );
       const results = hydrate(keys);
 
-      // If local is empty, try showing web results
       if (results.length === 0) {
         if (isWebSearching) {
           return [{ id: "loading", name: "Searching Web...", isWeb: true }];
@@ -1126,7 +1244,6 @@ export default function Home() {
       return results;
     }
 
-    // 2. SMART RECOMMENDATIONS
     if (activeCategory === "Smart") {
       return smartRecommendations.length > 0
         ? smartRecommendations
@@ -1155,7 +1272,7 @@ export default function Home() {
 
   const getBuilderSuggestions = () =>
     mealBuilderQuery
-      ? Object.keys(FLATTENED_DB).filter((k) =>
+      ? Object.keys(COMBINED_DB).filter((k) =>
           k.includes(mealBuilderQuery.toLowerCase()),
         )
       : recents;
@@ -1412,6 +1529,227 @@ export default function Home() {
         boxSizing: "border-box",
       }}
     >
+      {/* MANUAL ENTRY MODAL */}
+      {isManualEntryOpen && (
+        <div className="modal-overlay" style={{ zIndex: 10000 }}>
+          <div
+            className="modal-content"
+            style={{ maxWidth: 350, width: "90%", textAlign: "left" }}
+          >
+            <div
+              style={{
+                display: "flex",
+                justifyContent: "space-between",
+                alignItems: "center",
+                marginBottom: 16,
+              }}
+            >
+              <h3
+                style={{
+                  margin: 0,
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 8,
+                }}
+              >
+                <PlusCircle size={20} color="#3b82f6" /> Add Custom Food
+              </h3>
+              <button
+                onClick={() => setIsManualEntryOpen(false)}
+                style={{
+                  background: "none",
+                  border: "none",
+                  color: "#666",
+                  cursor: "pointer",
+                }}
+              >
+                <X size={20} />
+              </button>
+            </div>
+
+            <form onSubmit={handleManualAddSubmit}>
+              <div style={{ marginBottom: 12 }}>
+                <label
+                  style={{
+                    fontSize: "0.8rem",
+                    color: "#888",
+                    display: "block",
+                    marginBottom: 4,
+                  }}
+                >
+                  Food Name *
+                </label>
+                <input
+                  required
+                  placeholder="e.g. Grandma's Pasta"
+                  value={manualFood.name}
+                  onChange={(e) =>
+                    setManualFood({ ...manualFood, name: e.target.value })
+                  }
+                  style={{
+                    width: "100%",
+                    padding: 10,
+                    background: "#000",
+                    border: "1px solid #333",
+                    color: "#fff",
+                    borderRadius: 8,
+                  }}
+                />
+              </div>
+
+              <div
+                style={{
+                  display: "grid",
+                  gridTemplateColumns: "1fr 1fr",
+                  gap: 10,
+                  marginBottom: 12,
+                }}
+              >
+                <div>
+                  <label
+                    style={{
+                      fontSize: "0.8rem",
+                      color: "#888",
+                      display: "block",
+                      marginBottom: 4,
+                    }}
+                  >
+                    Calories *
+                  </label>
+                  <input
+                    required
+                    type="number"
+                    placeholder="kcal"
+                    value={manualFood.calories}
+                    onChange={(e) =>
+                      setManualFood({ ...manualFood, calories: e.target.value })
+                    }
+                    style={{
+                      width: "100%",
+                      padding: 10,
+                      background: "#000",
+                      border: "1px solid #333",
+                      color: "#fff",
+                      borderRadius: 8,
+                    }}
+                  />
+                </div>
+                <div>
+                  <label
+                    style={{
+                      fontSize: "0.8rem",
+                      color: "#888",
+                      display: "block",
+                      marginBottom: 4,
+                    }}
+                  >
+                    Protein (g)
+                  </label>
+                  <input
+                    type="number"
+                    placeholder="g"
+                    value={manualFood.protein}
+                    onChange={(e) =>
+                      setManualFood({ ...manualFood, protein: e.target.value })
+                    }
+                    style={{
+                      width: "100%",
+                      padding: 10,
+                      background: "#000",
+                      border: "1px solid #333",
+                      color: "#fff",
+                      borderRadius: 8,
+                    }}
+                  />
+                </div>
+              </div>
+
+              <div
+                style={{
+                  display: "grid",
+                  gridTemplateColumns: "1fr 1fr",
+                  gap: 10,
+                  marginBottom: 20,
+                }}
+              >
+                <div>
+                  <label
+                    style={{
+                      fontSize: "0.8rem",
+                      color: "#888",
+                      display: "block",
+                      marginBottom: 4,
+                    }}
+                  >
+                    Carbs (g)
+                  </label>
+                  <input
+                    type="number"
+                    placeholder="g"
+                    value={manualFood.carbs}
+                    onChange={(e) =>
+                      setManualFood({ ...manualFood, carbs: e.target.value })
+                    }
+                    style={{
+                      width: "100%",
+                      padding: 10,
+                      background: "#000",
+                      border: "1px solid #333",
+                      color: "#fff",
+                      borderRadius: 8,
+                    }}
+                  />
+                </div>
+                <div>
+                  <label
+                    style={{
+                      fontSize: "0.8rem",
+                      color: "#888",
+                      display: "block",
+                      marginBottom: 4,
+                    }}
+                  >
+                    Fats (g)
+                  </label>
+                  <input
+                    type="number"
+                    placeholder="g"
+                    value={manualFood.fats}
+                    onChange={(e) =>
+                      setManualFood({ ...manualFood, fats: e.target.value })
+                    }
+                    style={{
+                      width: "100%",
+                      padding: 10,
+                      background: "#000",
+                      border: "1px solid #333",
+                      color: "#fff",
+                      borderRadius: 8,
+                    }}
+                  />
+                </div>
+              </div>
+
+              <button
+                type="submit"
+                style={{
+                  width: "100%",
+                  padding: 12,
+                  background: "var(--brand)",
+                  border: "none",
+                  color: "#fff",
+                  borderRadius: 8,
+                  fontWeight: 600,
+                  cursor: "pointer",
+                }}
+              >
+                Save & Log
+              </button>
+            </form>
+          </div>
+        </div>
+      )}
+
       {/* WELCOME MODAL */}
       {showWelcome && (
         <div className="modal-overlay" style={{ zIndex: 10000 }}>
@@ -2380,11 +2718,9 @@ export default function Home() {
           padding: "16px 20px",
           borderBottom: "1px solid #222",
           width: "100%",
-          // --- FIX 1: Explicit Flex Layout ---
           display: "flex",
           justifyContent: "space-between",
           alignItems: "center",
-          // --- FIX 2: Raise Stacking Context ---
           position: "relative",
           zIndex: 50,
         }}
@@ -2501,8 +2837,102 @@ export default function Home() {
         userProfile={userProfile}
       />
 
+      {/* === NEW WEIGHT TRACKER CARD === */}
+      <section style={{ marginBottom: 24, padding: "0 20px" }}>
+        <div
+          style={{
+            background: "#1f1f22",
+            borderRadius: 20,
+            padding: "20px",
+            border: "1px solid #333",
+            display: "flex",
+            flexDirection: "column",
+            gap: 15,
+          }}
+        >
+          <div
+            style={{
+              display: "flex",
+              justifyContent: "space-between",
+              alignItems: "center",
+            }}
+          >
+            <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+              <div
+                style={{
+                  background: "rgba(236, 72, 153, 0.2)",
+                  padding: 10,
+                  borderRadius: 12,
+                }}
+              >
+                <Scale size={22} color="#ec4899" />
+              </div>
+              <div>
+                <div
+                  style={{ fontWeight: 700, fontSize: "1rem", color: "#fff" }}
+                >
+                  Current Weight
+                </div>
+                <div style={{ fontSize: "0.8rem", color: "#888" }}>
+                  Track daily to adjust targets
+                </div>
+              </div>
+            </div>
+            <div style={{ fontSize: "1.6rem", fontWeight: 800, color: "#fff" }}>
+              {userProfile.weight || "--"}{" "}
+              <span
+                style={{ fontSize: "1rem", color: "#888", fontWeight: 600 }}
+              >
+                kg
+              </span>
+            </div>
+          </div>
+
+          <div style={{ display: "flex", gap: 10 }}>
+            <input
+              type="number"
+              step="0.1"
+              placeholder="Log today's weight..."
+              value={weightInput}
+              onChange={(e) => setWeightInput(e.target.value)}
+              style={{
+                flex: 1,
+                padding: 12,
+                borderRadius: 12,
+                background: "#000",
+                border: "1px solid #333",
+                color: "#fff",
+                outline: "none",
+              }}
+            />
+            <button
+              onClick={handleLogWeight}
+              disabled={isLoggingWeight || !weightInput}
+              style={{
+                padding: "0 20px",
+                background: "var(--brand)",
+                color: "#fff",
+                border: "none",
+                borderRadius: 12,
+                fontWeight: 600,
+                cursor: "pointer",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+              }}
+            >
+              {isLoggingWeight ? (
+                <Loader2 size={18} className="animate-spin" />
+              ) : (
+                "Save"
+              )}
+            </button>
+          </div>
+        </div>
+      </section>
+
       <section className="command-center">
-        <div className="input-row">
+        <div className="input-row" style={{ display: "flex", gap: 10 }}>
           <div className="qty-wrapper">
             <button
               className="qty-btn"
@@ -2515,15 +2945,37 @@ export default function Home() {
               <Plus size={14} />
             </button>
           </div>
-          <div className="search-container">
+          <div className="search-container" style={{ flex: 1 }}>
             <Search className="search-icon" size={16} />
             <input
               className="search-input"
-              placeholder="Add food..."
+              placeholder="Search or add custom..."
               value={query}
               onChange={(e) => setQuery(e.target.value)}
             />
           </div>
+          {/* NEW CUSTOM BUTTON */}
+          <button
+            onClick={() => {
+              setManualFood({ ...manualFood, name: query }); // Prefill with current search
+              setIsManualEntryOpen(true);
+            }}
+            style={{
+              background: "#1f1f22",
+              border: "1px solid #333",
+              color: "#fff",
+              borderRadius: 12,
+              padding: "0 14px",
+              display: "flex",
+              alignItems: "center",
+              gap: 6,
+              cursor: "pointer",
+              fontWeight: 600,
+              fontSize: "0.85rem",
+            }}
+          >
+            <PlusCircle size={16} color="#3b82f6" /> Custom
+          </button>
         </div>
         <div className="suggestions-box">
           {!query && (
@@ -2668,13 +3120,14 @@ export default function Home() {
                     ? item.fats
                     : null;
                 const fib =
-                  typeof item === "object" && item.fats !== undefined
+                  typeof item === "object" && item.fiber !== undefined
                     ? item.fiber
                     : null;
 
                 const isMeal = activeCategory === "Meals" && !query;
                 const isSmart = item.isSmart === true;
                 const isWeb = item.isWeb === true;
+                const isNoRes = item.id === "no-res";
                 const displayLabel = isMeal || isSmart ? item.name : foodName;
 
                 return (
@@ -2682,18 +3135,25 @@ export default function Home() {
                     key={item.id || displayLabel}
                     className="suggestion-chip"
                     onClick={() => {
+                      if (isNoRes) {
+                        setIsManualEntryOpen(true);
+                        return;
+                      }
                       if (isMeal) loadMeal(item);
                       else if (isSmart) loadMeal(item);
-                      else if (isWeb)
-                        addFood(displayLabel, null, {
-                          // Pass explicit macros for web results
+                      else if (isWeb) {
+                        const webItemData = {
+                          name: displayLabel,
                           calories: item.calories,
                           protein: item.protein,
                           carbs: item.carbs,
                           fats: item.fats,
                           fiber: item.fiber,
-                        });
-                      else addFood(displayLabel);
+                        };
+                        // Automatically save web items to your custom DB
+                        saveCustomFoodToDb(webItemData);
+                        addFood(displayLabel, null, webItemData);
+                      } else addFood(displayLabel);
                     }}
                     style={{
                       whiteSpace: "normal",
@@ -2726,13 +3186,13 @@ export default function Home() {
                       }}
                     >
                       {isSmart && <Sparkles size={12} color="#8b5cf6" />}
-                      {isWeb && <Globe size={12} color="#3b82f6" />}
+                      {isWeb && !isNoRes && <Globe size={12} color="#3b82f6" />}
                       {displayLabel.charAt(0).toUpperCase() +
                         displayLabel.slice(1)}
                     </span>
 
                     {/* SHOW MACROS IF AVAILABLE */}
-                    {p !== null && !isMeal && (
+                    {p !== null && !isMeal && !isNoRes && (
                       <div
                         style={{
                           fontSize: "0.65rem",
@@ -2750,7 +3210,7 @@ export default function Home() {
                         <span style={{ color: "#10b981" }}>Fib:{fib}</span>
                       </div>
                     )}
-                    {isWeb && (
+                    {isWeb && !isNoRes && (
                       <span
                         style={{
                           fontSize: "0.6rem",
@@ -2758,7 +3218,7 @@ export default function Home() {
                           marginTop: 2,
                         }}
                       >
-                        Web Search Estimate
+                        Web Search Estimate (Will be saved)
                       </span>
                     )}
                   </button>
