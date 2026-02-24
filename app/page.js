@@ -756,7 +756,6 @@ export default function Home() {
       const { data: custom } = await supabase
         .from("custom_foods")
         .select("*")
-        .eq("user_id", session.user.id);
       if (custom) setCustomFoods(custom);
     }
   };
