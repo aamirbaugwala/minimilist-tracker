@@ -1728,6 +1728,34 @@ export default function Home() {
                     }}
                   />
                 </div>
+                <div>
+                  <label
+                    style={{
+                      fontSize: "0.8rem",
+                      color: "#888",
+                      display: "block",
+                      marginBottom: 4,
+                    }}
+                  >
+                    Fiber (g)
+                  </label>
+                  <input
+                    type="number"
+                    placeholder="g"
+                    value={manualFood.fiber}
+                    onChange={(e) =>
+                      setManualFood({ ...manualFood, fiber: e.target.value })
+                    }
+                    style={{
+                      width: "100%",
+                      padding: 10,
+                      background: "#000",
+                      border: "1px solid #333",
+                      color: "#fff",
+                      borderRadius: 8,
+                    }}
+                  />
+                </div>
               </div>
 
               <button
