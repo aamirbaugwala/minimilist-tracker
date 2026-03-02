@@ -30,7 +30,7 @@ export async function POST(req) {
       ${JSON.stringify(weightLogs || [])}
 
       TASK:
-      Analyze these logs for patterns and trends. Don't just summarize numbers; find the behavioral cause.
+      Analyze these logs for patterns and trends. Don't just summarize numbers; find the behavioral cause. Also explain the cause of the diet the user is taking.
       
       OUTPUT FORMAT (Keep it short, max 200 words, use emojis):
       
