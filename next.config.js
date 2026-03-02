@@ -1,16 +1,15 @@
 /** @type {import('next').NextConfig} */
-const withPWA = require("next-pwa")({
-  dest: "public",
+
+const withPWA = require('next-pwa')({
+  dest: 'public',
+  disable: process.env.NODE_ENV === 'development',
   register: true,
   skipWaiting: true,
-  disable: process.env.NODE_ENV === "development",
 });
 
 const nextConfig = {
   reactStrictMode: true,
-  // Add any other existing config options here if you had them
+  // Add any other custom Next.js config here if you had it
 };
 
 module.exports = withPWA(nextConfig);
-
-import('@opennextjs/cloudflare').then(m => m.initOpenNextCloudflareForDev());
