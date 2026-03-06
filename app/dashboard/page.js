@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
+import Link from "next/link";
 import { FLATTENED_DB } from "../food-data";
 import {
   ArrowLeft,
@@ -15,11 +16,8 @@ import {
   TrendingUp,
   AlertTriangle,
   Lightbulb,
-  Sparkles,
   Bot,
-  Loader2,
   BarChart2,
-  Scale, // <-- New icon added
 } from "lucide-react";
 import {
   PieChart,
@@ -105,16 +103,8 @@ export default function UserDashboard() {
   const [selectedDate, setSelectedDate] = useState(null);
   const [selectedLogs, setSelectedLogs] = useState([]);
 
-  // WEIGHT STATE
-  const [weightLogs, setWeightLogs] = useState([]);
-  const [weightInput, setWeightInput] = useState("");
-  const [isLoggingWeight, setIsLoggingWeight] = useState(false);
-
   // MODALS
   const [showResearch, setShowResearch] = useState(false);
-  const [showAI, setShowAI] = useState(false);
-  const [aiLoading, setAiLoading] = useState(false);
-  const [aiResponse, setAiResponse] = useState("");
 
   const init = async () => {
     const {
@@ -151,14 +141,21 @@ export default function UserDashboard() {
       .gte("date", startStr)
       .order("date", { ascending: true });
 
+    // Fetch goal history — so each past day is judged against the goal active then
+    const { data: goalHistory } = await supabase
+      .from("goal_history")
+      .select("goal, activity, target_calories, effective_from")
+      .eq("user_id", session.user.id)
+      .order("effective_from", { ascending: true });
+
     setProfile(profileData);
     setAllLogs(logData || []);
-    setWeightLogs(weightData || []);
 
     const calculatedTargets = processCalendarData(
       profileData,
       logData || [],
       weightData || [],
+      goalHistory || [],
     );
     handleDateSelect(today, logData || [], calculatedTargets);
     setLoading(false);
@@ -168,66 +165,6 @@ export default function UserDashboard() {
     init();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
-
-  const handleLogWeight = async () => {
-    if (!weightInput) return;
-    setIsLoggingWeight(true);
-    const {
-      data: { session },
-    } = await supabase.auth.getSession();
-    const today = new Date().toISOString().slice(0, 10);
-    const numWeight = Number(weightInput);
-
-    // Upsert to weight logs (requires unique user_id, date constraint)
-    await supabase.from("weight_logs").upsert(
-      {
-        user_id: session.user.id,
-        date: today,
-        weight: numWeight,
-      },
-      { onConflict: "user_id, date" },
-    );
-
-    // Update main profile
-    await supabase
-      .from("user_profiles")
-      .update({ weight: numWeight })
-      .eq("user_id", session.user.id);
-
-    setWeightInput("");
-    setIsLoggingWeight(false);
-
-    // Refresh to recalculate targets based on new weight
-    init();
-  };
-
-  const handleAskAI = async () => {
-    setShowAI(true);
-    if (aiResponse) return;
-    setAiLoading(true);
-    const sevenDaysAgo = new Date();
-    sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
-    const recentLogs = allLogs.filter((l) => new Date(l.date) >= sevenDaysAgo);
-
-    const recentWeightLogs = weightLogs.filter((l) => new Date(l.date) >= sevenDaysAgo);
-
-    try {
-      const res = await fetch("/api/ai-coach", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ profile: profile, logs: recentLogs, weightLogs: recentWeightLogs }),
-      });
-      const data = await res.json();
-      setAiResponse(data.message);
-    } catch (e) {
-      console.error(e);
-      setAiResponse(
-        "I'm having trouble connecting to the nutrition database right now.",
-      );
-    } finally {
-      setAiLoading(false);
-    }
-  };
 
   const calculateTargets = (prof) => {
     if (!prof || !prof.weight)
@@ -431,9 +368,32 @@ export default function UserDashboard() {
     setCulpritIds(analysis.newCulprits);
   };
 
-  const processCalendarData = (prof, logs, weightLogsData = []) => {
+  const processCalendarData = (prof, logs, weightLogsData = [], goalHistory = []) => {
     if (!prof) return;
-    const targets = calculateTargets(prof);
+    // "Today's" targets — always from current profile
+    const currentTargets = calculateTargets(prof);
+
+    // Build a helper: given a date string, find which goal was active on that day
+    // goalHistory is sorted ascending by effective_from
+    const getTargetsForDate = (dateStr) => {
+      if (!goalHistory || goalHistory.length === 0) return currentTargets;
+      // Find the last goal snapshot whose effective_from <= dateStr
+      let activeSnapshot = null;
+      for (const snap of goalHistory) {
+        if (snap.effective_from <= dateStr) activeSnapshot = snap;
+        else break;
+      }
+      if (!activeSnapshot) return currentTargets;
+      // Build a fake profile merging current profile body stats with snapshot goal
+      const snapProfile = {
+        ...prof,
+        goal: activeSnapshot.goal,
+        activity: activeSnapshot.activity || prof.activity,
+        target_calories: activeSnapshot.target_calories,
+      };
+      return calculateTargets(snapProfile);
+    };
+
     const calendarMap = {};
 
     for (let i = 29; i >= 0; i--) {
@@ -490,6 +450,7 @@ export default function UserDashboard() {
       .sort()
       .map((date) => {
         const day = calendarMap[date];
+        const targets = getTargetsForDate(date); // ← per-day targets
         let color = "#27272a";
         if (day.cals > 0) {
           const calDiff = Math.abs(day.cals - targets.targetCals);
@@ -516,7 +477,7 @@ export default function UserDashboard() {
       }));
     setTrendData(tData);
 
-    return targets;
+    return currentTargets;
   };
 
   const getCurrentTarget = () => {
@@ -601,78 +562,6 @@ export default function UserDashboard() {
           }
         }
       `}</style>
-
-      {/* AI COACH MODAL */}
-      {showAI && (
-        <div className="modal-overlay">
-          <div className="modal-content">
-            <div className="modal-header" style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}>
-              <h3
-                style={{
-                  margin: 0,
-                  display: "flex",
-                  alignItems: "center",
-                  gap: 10,
-                  fontSize: "1.2rem",
-                  background: "linear-gradient(to right, #3b82f6, #8b5cf6)",
-                  WebkitBackgroundClip: "text",
-                  WebkitTextFillColor: "transparent",
-                }}
-              >
-                <Sparkles size={22} color="#8b5cf6" /> AI Coach
-              </h3>
-              <button
-                onClick={() => setShowAI(false)}
-                style={{
-                  background: "rgba(255,255,255,0.05)",
-                  border: "none",
-                  color: "#888",
-                  cursor: "pointer",
-                  padding: 8,
-                  borderRadius: "50%",
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "center",
-                }}
-              >
-                <X size={20} />
-              </button>
-            </div>
-            <div className="modal-body custom-scrollbar">
-              {aiLoading ? (
-                <div
-                  style={{
-                    padding: "40px 0",
-                    textAlign: "center",
-                    color: "#888",
-                  }}
-                >
-                  <Loader2
-                    className="animate-spin"
-                    style={{ margin: "0 auto 15px", display: "block" }}
-                    size={32}
-                  />
-                  <p>Analyzing your food history...</p>
-                </div>
-              ) : (
-                <div style={{ whiteSpace: "pre-wrap" }}>{aiResponse}</div>
-              )}
-            </div>
-            <div className="modal-footer">
-              <div
-                style={{
-                  fontSize: "0.75rem",
-                  color: "#666",
-                  fontStyle: "italic",
-                  textAlign: "center",
-                }}
-              >
-                * AI advice is based on logs. Consult a doctor.
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
 
       {/* RESEARCH MODAL */}
       {showResearch && (
@@ -858,8 +747,8 @@ export default function UserDashboard() {
         </div>
 
         <div style={{ display: "flex", gap: 10 }}>
-          <button
-            onClick={handleAskAI}
+          <Link
+            href="/agent"
             style={{
               background: "linear-gradient(135deg, #3b82f6, #8b5cf6)",
               border: "none",
@@ -873,10 +762,11 @@ export default function UserDashboard() {
               fontSize: "0.9rem",
               fontWeight: 700,
               boxShadow: "0 4px 15px rgba(59, 130, 246, 0.3)",
+              textDecoration: "none",
             }}
           >
-            <Bot size={18} /> Ask AI
-          </button>
+            <Bot size={18} />
+          </Link>
 
           <button
             onClick={() => setShowResearch(true)}

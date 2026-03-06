@@ -469,7 +469,45 @@ export default function Home() {
     return combined;
   }, [customFoods]);
 
-  // --- FEATURE 1: SMART RECOMMENDATIONS LOGIC ---
+  // --- AI MEAL PLAN STATE ---
+  const [aiMealPlan, setAiMealPlan] = useState(null); // { text, toolsUsed }
+  const [aiMealPlanLoading, setAiMealPlanLoading] = useState(false);
+
+  const fetchAiMealPlan = async () => {
+    if (!session || aiMealPlanLoading) return;
+    setAiMealPlan(null);
+    setAiMealPlanLoading(true);
+    try {
+      const res = await fetch("/api/agent", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          message: "Build me a meal plan for the rest of the day based on my macro gap. Be specific with Indian food options and serving sizes. For every food you mention that is not already in the internal database, call save_food_to_database with your best estimated macros.",
+          history: [],
+          userId: session.user.id,
+          accessToken: session.access_token,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok || data.error) {
+        setAiMealPlan({ text: "⚠️ " + (data.error || "Could not generate plan. Try again."), toolsUsed: [] });
+      } else {
+        setAiMealPlan({ text: data.reply, toolsUsed: data.toolsUsed || [] });
+        // Refresh custom foods so newly saved items appear as loggable chips
+        const { data: freshCustom } = await supabase
+          .from("custom_foods")
+          .select("*")
+          .eq("user_id", session.user.id);
+        if (freshCustom) setCustomFoods(freshCustom);
+      }
+    } catch {
+      setAiMealPlan({ text: "⚠️ Network error. Please try again.", toolsUsed: [] });
+    } finally {
+      setAiMealPlanLoading(false);
+    }
+  };
+
+  // --- FEATURE 1: SMART RECOMMENDATIONS LOGIC (legacy, unused) ---
   const generateSmartMeals = () => {
     // 1. Calculate Targets & Remaining
     let targetCals = 2000;
@@ -850,11 +888,21 @@ export default function Home() {
         : null,
       updated_at: new Date(),
     });
-    if (error) alert("Error saving goal");
-    else {
-      alert("Profile updated!");
-      setIsSettingGoal(false);
-    }
+    if (error) { alert("Error saving goal"); return; }
+
+    // Snapshot the goal so past days retain their original targets
+    await supabase.from("goal_history").insert({
+      user_id: session.user.id,
+      goal: userProfile.goal,
+      activity: userProfile.activity,
+      target_calories: userProfile.target_calories
+        ? Number(userProfile.target_calories)
+        : null,
+      effective_from: new Date().toISOString().slice(0, 10),
+    });
+
+    alert("Profile updated!");
+    setIsSettingGoal(false);
   };
 
   const handleUpdatePassword = async () => {
@@ -2831,6 +2879,21 @@ export default function Home() {
               <LayoutDashboard size={20} />
             </button>
           </Link>
+          <Link href="/agent">
+            <button
+              className="menu-btn"
+              title="NutriCoach AI"
+              style={{
+                color: "#8b5cf6",
+                background: "transparent",
+                border: "none",
+                cursor: "pointer",
+                position: "relative",
+              }}
+            >
+              <Sparkles size={20} />
+            </button>
+          </Link>
           <Link href="/social">
             <button
               className="menu-btn"
@@ -3012,7 +3075,12 @@ export default function Home() {
                 className={`suggestion-chip ${
                   activeCategory === "Smart" ? "active" : ""
                 }`}
-                onClick={() => setActiveCategory("Smart")}
+                onClick={() => {
+                  setActiveCategory("Smart");
+                  if (!aiMealPlan && !aiMealPlanLoading) {
+                    fetchAiMealPlan();
+                  }
+                }}
                 style={{
                   border:
                     activeCategory === "Smart"
@@ -3063,14 +3131,165 @@ export default function Home() {
               display: "grid",
               gridTemplateColumns:
                 query ||
-                activeCategory === "Meals" ||
-                activeCategory === "Smart"
+                activeCategory === "Meals"
                   ? "1fr"
-                  : "repeat(3, 1fr)",
+                  : activeCategory === "Smart"
+                    ? "1fr"
+                    : "repeat(3, 1fr)",
               gap: 8,
             }}
           >
-            {activeCategory === "Meals" && !query ? (
+            {activeCategory === "Smart" && !query ? (
+              <div style={{ padding: "4px 0" }}>
+                {/* Header row */}
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: "0.8rem", color: "#8b5cf6", fontWeight: 700 }}>
+                    <Sparkles size={13} color="#8b5cf6" />
+                    NutriCoach · AI Meal Plan
+                  </div>
+                  <button
+                    onClick={() => { setAiMealPlan(null); fetchAiMealPlan(); }}
+                    disabled={aiMealPlanLoading}
+                    style={{
+                      background: "transparent",
+                      border: "1px solid #333",
+                      color: "#666",
+                      cursor: aiMealPlanLoading ? "wait" : "pointer",
+                      padding: "3px 10px",
+                      borderRadius: 8,
+                      fontSize: "0.72rem",
+                      display: "flex",
+                      alignItems: "center",
+                      gap: 4,
+                    }}
+                  >
+                    {aiMealPlanLoading ? (
+                      <Loader2 size={11} className="animate-spin" />
+                    ) : (
+                      <Sparkles size={11} />
+                    )}
+                    {aiMealPlanLoading ? "Thinking…" : "Regenerate"}
+                  </button>
+                </div>
+
+                {/* Loading state */}
+                {aiMealPlanLoading && !aiMealPlan && (
+                  <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "14px 0", color: "#666", fontSize: "0.85rem" }}>
+                    <Loader2 size={16} className="animate-spin" color="#8b5cf6" />
+                    <span>Agent is building your personalized meal plan…</span>
+                  </div>
+                )}
+
+                {/* AI Response + matched loggable foods */}
+                {aiMealPlan && (() => {
+                  // Find all DB keys mentioned in the AI text
+                  const planText = aiMealPlan.text.toLowerCase();
+                  const dbKeys = Object.keys(COMBINED_DB);
+                  // Sort longest first so "chicken tikka masala" matches before "chicken"
+                  const matched = dbKeys
+                    .filter((k) => planText.includes(k))
+                    .sort((a, b) => b.length - a.length)
+                    .slice(0, 8); // cap at 8 chips
+
+                  return (
+                    <>
+                      {/* Plan text */}
+                      <div
+                        style={{
+                          background: "rgba(139, 92, 246, 0.06)",
+                          border: "1px solid rgba(139, 92, 246, 0.25)",
+                          borderRadius: 12,
+                          padding: "14px 16px",
+                          fontSize: "0.88rem",
+                          color: "#ddd",
+                          lineHeight: 1.7,
+                          whiteSpace: "pre-wrap",
+                          marginBottom: matched.length > 0 ? 12 : 0,
+                        }}
+                      >
+                        {aiMealPlan.text}
+                      </div>
+
+                      {/* Loggable chips */}
+                      {matched.length > 0 && (
+                        <div>
+                          <div style={{ fontSize: "0.72rem", color: "#666", marginBottom: 8, display: "flex", alignItems: "center", gap: 5 }}>
+                            <Sparkles size={11} color="#8b5cf6" />
+                            Found in your DB — tap to log:
+                          </div>
+                          <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                            {matched.map((key) => {
+                              const item = COMBINED_DB[key];
+                              return (
+                                <button
+                                  key={key}
+                                  onClick={() => addFood(key)}
+                                  className="suggestion-chip"
+                                  style={{
+                                    display: "flex",
+                                    alignItems: "center",
+                                    justifyContent: "space-between",
+                                    width: "100%",
+                                    border: "1px solid rgba(139, 92, 246, 0.4)",
+                                    background: "rgba(139, 92, 246, 0.08)",
+                                    padding: "10px 14px",
+                                    borderRadius: 10,
+                                    cursor: "pointer",
+                                    textAlign: "left",
+                                    height: "auto",
+                                    whiteSpace: "normal",
+                                  }}
+                                >
+                                  <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                                    <Sparkles size={11} color="#8b5cf6" />
+                                    <span style={{ fontWeight: 600, color: "#fff", fontSize: "0.85rem", textTransform: "capitalize" }}>
+                                      {key}
+                                    </span>
+                                  </div>
+                                  <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                                    <div style={{ display: "flex", gap: 6, fontSize: "0.7rem" }}>
+                                      <span style={{ color: "#a78bfa" }}>{item.calories} kcal</span>
+                                      <span style={{ color: "#3b82f6" }}>P:{item.protein}g</span>
+                                      <span style={{ color: "#f59e0b" }}>C:{item.carbs}g</span>
+                                      <span style={{ color: "#ef4444" }}>F:{item.fats}g</span>
+                                    </div>
+                                    <div style={{
+                                      background: "#8b5cf6",
+                                      color: "#fff",
+                                      borderRadius: 6,
+                                      padding: "2px 8px",
+                                      fontSize: "0.7rem",
+                                      fontWeight: 700,
+                                      flexShrink: 0,
+                                    }}>
+                                      + Log
+                                    </div>
+                                  </div>
+                                </button>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      )}
+
+                      {/* No DB matches hint */}
+                      {matched.length === 0 && (
+                        <div style={{ fontSize: "0.75rem", color: "#555", marginTop: 6 }}>
+                          💡 None of the suggested foods are in your DB yet. Search for them above or add via Manual Entry.
+                        </div>
+                      )}
+                    </>
+                  );
+                })()}
+
+                {/* Empty / not yet loaded */}
+                {!aiMealPlanLoading && !aiMealPlan && (
+                  <div style={{ color: "#555", fontSize: "0.85rem", padding: "10px 0" }}>
+                    Tap <strong style={{ color: "#8b5cf6" }}>Smart Recs</strong> to generate your AI meal plan.
+                  </div>
+                )}
+              </div>
+            ) : activeCategory === "Meals" && !query ? (
               <>
                 <button
                   className="suggestion-chip"
