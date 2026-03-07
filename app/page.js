@@ -1805,14 +1805,17 @@ export default function Home() {
 
       {/* EDIT LOG MODAL (NEW) */}
       {isEditingLog && currentLogToEdit && (
-        <div className="modal-overlay">
+        <div className="modal-overlay" style={{ alignItems: "center" }}>
           <div
             className="modal-content"
-            style={{ maxWidth: 300, width: "90%", textAlign: "center" }}
+            style={{ maxWidth: 320, width: "88%", textAlign: "center", borderRadius: 20, border: "1px solid rgba(255,255,255,0.07)" }}
           >
-            <h3 style={{ margin: "0 0 10px 0" }}>Modify Log</h3>
-            <div style={{ color: "#888", marginBottom: 20 }}>
+            <div style={{ fontSize: "0.65rem", color: "#666", textTransform: "uppercase", letterSpacing: 1, marginBottom: 6 }}>Modify Quantity</div>
+            <h3 style={{ margin: "0 0 4px 0", fontSize: "1rem", color: "#fff", fontWeight: 700, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
               {currentLogToEdit.name}
+            </h3>
+            <div style={{ color: "#555", fontSize: "0.8rem", marginBottom: 24 }}>
+              {currentLogToEdit.calories} kcal per serving
             </div>
 
             <div
@@ -1820,22 +1823,27 @@ export default function Home() {
                 display: "flex",
                 alignItems: "center",
                 justifyContent: "center",
-                gap: 15,
-                marginBottom: 20,
+                gap: 24,
+                marginBottom: 28,
               }}
             >
               <button
                 className="qty-btn"
-                onClick={() => setEditQty(Math.max(1, editQty - 1))}
+                onClick={() => setEditQty(Math.max(0.5, editQty - 0.5))}
+                style={{ width: 44, height: 44, borderRadius: 12, background: "#1a1a1f", border: "1px solid #2a2a30", color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer" }}
               >
                 <Minus size={18} />
               </button>
-              <div style={{ fontSize: "1.5rem", fontWeight: 700 }}>
-                {editQty}
+              <div>
+                <div style={{ fontSize: "2.2rem", fontWeight: 800, color: "#fff", lineHeight: 1 }}>{editQty}</div>
+                <div style={{ fontSize: "0.7rem", color: "#555", marginTop: 2 }}>
+                  = {Math.round(currentLogToEdit.calories * editQty)} kcal
+                </div>
               </div>
               <button
                 className="qty-btn"
-                onClick={() => setEditQty(editQty + 1)}
+                onClick={() => setEditQty(editQty + 0.5)}
+                style={{ width: 44, height: 44, borderRadius: 12, background: "#1a1a1f", border: "1px solid #2a2a30", color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer" }}
               >
                 <Plus size={18} />
               </button>
@@ -1845,14 +1853,11 @@ export default function Home() {
               <button
                 onClick={() => setIsEditingLog(false)}
                 style={{
-                  flex: 1,
-                  padding: 12,
+                  flex: 1, padding: 13,
                   background: "transparent",
-                  border: "1px solid #333",
-                  borderRadius: 8,
-                  color: "#888",
-                  fontWeight: 600,
-                  cursor: "pointer",
+                  border: "1px solid #2a2a30",
+                  borderRadius: 12, color: "#666",
+                  fontWeight: 600, cursor: "pointer",
                 }}
               >
                 Cancel
@@ -1860,14 +1865,11 @@ export default function Home() {
               <button
                 onClick={saveLogEdit}
                 style={{
-                  flex: 1,
-                  padding: 12,
+                  flex: 1, padding: 13,
                   background: "var(--brand)",
                   border: "none",
-                  borderRadius: 8,
-                  color: "#fff",
-                  fontWeight: 600,
-                  cursor: "pointer",
+                  borderRadius: 12, color: "#fff",
+                  fontWeight: 700, cursor: "pointer",
                 }}
               >
                 Update
@@ -3309,8 +3311,8 @@ export default function Home() {
                       </div>
                       {!isWater && pct > 0 && (
                         <div style={{
-                          fontSize: "0.6rem", color: "#333", fontWeight: 600,
-                          background: "#1e1e26", borderRadius: 5, padding: "1px 4px", marginTop: 2,
+                          fontSize: "0.62rem", color: "#aaa", fontWeight: 700,
+                          background: "rgba(255,255,255,0.07)", borderRadius: 5, padding: "1px 5px", marginTop: 2,
                         }}>
                           {pct}%
                         </div>
