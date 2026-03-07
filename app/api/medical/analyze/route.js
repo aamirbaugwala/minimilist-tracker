@@ -9,6 +9,7 @@
  *   include_foods jsonb default '[]', -- [{ food, reason }]
  *   exclude_foods jsonb default '[]', -- [{ food, reason }]
  *   flags jsonb default '[]',         -- [{ marker, value, status, note }]
+ *   trends jsonb default '[]',        -- [{ marker, direction, previous, current, note }]
  *   created_at timestamptz default now()
  * );
  * alter table medical_reports enable row level security;
@@ -60,12 +61,32 @@ export async function POST(req) {
     const base64Data = Buffer.from(arrayBuffer).toString("base64");
 
     const db = getSupabaseForUser(accessToken);
+
+    // ── Fetch ALL historical reports for longitudinal context ─────────────
+    const { data: pastReports } = await db
+      .from("medical_reports")
+      .select("file_name, created_at, flags, analysis")
+      .eq("user_id", userId)
+      .order("created_at", { ascending: false });
+
+    const hasHistory = pastReports && pastReports.length > 0;
+
+    const historicalContext = hasHistory
+      ? `\n\nHISTORICAL REPORTS (most recent first — use these to identify trends):\n${
+          pastReports.map((r, i) => `
+Report ${i + 1} — ${r.file_name} (${new Date(r.created_at).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" })}):
+Markers: ${JSON.stringify(r.flags)}
+Summary: ${r.analysis?.slice(0, 300)}…`
+          ).join("\n")
+        }`
+      : "";
+
     const genAI = new GoogleGenerativeAI(apiKey);
     // gemini-3-flash-preview supports PDF inline natively
     const model = genAI.getGenerativeModel({ model: "gemini-3-flash-preview" });
 
     const systemPrompt = `You are a clinical dietitian and medical nutrition expert.
-You have been given a patient's medical report (blood test, lipid panel, thyroid, HbA1c, etc.).
+You have been given a patient's medical report (blood test, lipid panel, thyroid, HbA1c, etc.).${historicalContext}
 
 Analyse the report carefully and return ONLY a valid JSON object — no markdown, no code fences, no explanation.
 
@@ -80,6 +101,15 @@ JSON schema (follow exactly):
       "note": "Brief clinical significance"
     }
   ],
+  "trends": [
+    {
+      "marker": "e.g. HbA1c",
+      "direction": "improving | worsening | stable",
+      "previous": "e.g. 7.2% (Jan 2026)",
+      "current": "e.g. 6.8%",
+      "note": "Brief interpretation of the change"
+    }
+  ],
   "include_foods": [
     {
       "food": "e.g. oats, salmon, methi (fenugreek)",
@@ -92,13 +122,14 @@ JSON schema (follow exactly):
       "reason": "Why to avoid based on the report findings"
     }
   ],
-  "analysis": "Detailed 200-300 word dietary analysis referencing specific values found in the report. Be specific — mention actual numbers. Include meal timing advice if relevant.",
+  "analysis": "Detailed 200-300 word dietary analysis referencing specific values found in the report. If historical data is available, explicitly comment on trajectory (improving/worsening). Be specific — mention actual numbers. Include meal timing advice if relevant.",
   "disclaimer": "This analysis is for informational purposes only and does not replace advice from a qualified physician or registered dietitian."
 }
 
 Rules:
 - Only flag markers that are actually present in the document.
 - If a value is within normal range, still include it in flags with status "normal".
+- "trends" array: only populate if historical report data was provided above. Compare the same markers across reports. If no history exists, return "trends": [].
 - include_foods and exclude_foods must be grounded in the actual findings — not generic advice.
 - Prefer common Indian foods where applicable.
 - If the document is NOT a medical report, return: { "error": "This does not appear to be a medical report." }`;
@@ -145,6 +176,7 @@ Rules:
         include_foods: parsed.include_foods || [],
         exclude_foods: parsed.exclude_foods || [],
         flags: parsed.flags || [],
+        trends: parsed.trends || [],
       })
       .select()
       .single();

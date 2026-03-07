@@ -20,6 +20,9 @@ import {
   Activity,
   Info,
   Clock,
+  TrendingUp,
+  TrendingDown,
+  Minus,
 } from "lucide-react";
 
 // ─── STATUS BADGE ─────────────────────────────────────────────────────────────
@@ -122,6 +125,47 @@ function ReportCard({ report, onDelete }) {
                     <StatusBadge status={flag.status} />
                   </div>
                 ))}
+              </div>
+            </div>
+          )}
+
+          {/* Trends across reports */}
+          {report.trends?.length > 0 && (
+            <div>
+              <div style={{ fontWeight: 700, fontSize: "0.82rem", marginBottom: 8, display: "flex", alignItems: "center", gap: 6, color: "#8b5cf6" }}>
+                <TrendingUp size={13} /> Trends vs Previous Reports
+              </div>
+              <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                {report.trends.map((t, i) => {
+                  const isImproving = t.direction === "improving";
+                  const isWorsening = t.direction === "worsening";
+                  const TrendIcon = isImproving ? TrendingUp : isWorsening ? TrendingDown : Minus;
+                  const trendColor = isImproving ? "#10b981" : isWorsening ? "#ef4444" : "#71717a";
+                  const trendBg = isImproving ? "#10b98112" : isWorsening ? "#ef444412" : "#27272a";
+                  return (
+                    <div key={i} style={{
+                      padding: "10px 12px", borderRadius: 10,
+                      background: trendBg, border: `1px solid ${trendColor}25`,
+                    }}>
+                      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 4 }}>
+                        <span style={{ fontWeight: 700, fontSize: "0.82rem" }}>{t.marker}</span>
+                        <span style={{
+                          display: "inline-flex", alignItems: "center", gap: 4,
+                          fontSize: "0.7rem", fontWeight: 700, color: trendColor,
+                          padding: "2px 8px", borderRadius: 20,
+                          background: `${trendColor}18`, border: `1px solid ${trendColor}30`,
+                        }}>
+                          <TrendIcon size={10} />
+                          {t.direction.charAt(0).toUpperCase() + t.direction.slice(1)}
+                        </span>
+                      </div>
+                      <div style={{ fontSize: "0.75rem", color: "#71717a" }}>
+                        {t.previous} → <span style={{ color: "#e4e4e7", fontWeight: 600 }}>{t.current}</span>
+                      </div>
+                      {t.note && <div style={{ fontSize: "0.74rem", color: "#a1a1aa", marginTop: 4 }}>{t.note}</div>}
+                    </div>
+                  );
+                })}
               </div>
             </div>
           )}

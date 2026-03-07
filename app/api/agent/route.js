@@ -115,21 +115,29 @@ const tools = [
       },
       {
         name: "update_goal",
-        description: "Updates the user's fitness goal, activity level, and/or custom calorie target in their profile. Use this ONLY when the user explicitly says they want to change their goal (e.g. 'change my goal to lose weight', 'switch to bulking', 'I want to maintain now', 'set my calories to 2200'). Always fetch the current profile first with get_user_profile, then confirm the change with the user in your reply.",
+        description: "Updates the user's fitness goal in their profile. Use this ONLY when the user explicitly says they want to change their goal. Always fetch the current profile first with get_user_profile, then confirm the change in your reply with the new targets. You can set a preset goal (which auto-fills calorie_adjustment and protein_priority), or set the two axes directly for precise custom goals.",
         parameters: {
           type: "OBJECT",
           properties: {
             goal: {
               type: "STRING",
-              description: "The new goal. Must be exactly one of: 'lose', 'gain', or 'maintain'.",
+              description: "Display label. Use a preset id ('lose', 'gain', 'maintain', 'recomp') OR 'custom' when setting exact values. Presets: lose=−500kcal+preserve protein, gain=+300kcal+balanced, maintain=0+balanced, recomp=0+maximize protein.",
+            },
+            calorie_adjustment: {
+              type: "NUMBER",
+              description: "kcal delta from TDEE. Range −700 to +500. Negative=deficit, 0=TDEE, positive=surplus. Use for nuanced requests like 'slight cut' (−250), 'gentle bulk' (+200). Presets auto-set this — only provide when overriding or going custom.",
+            },
+            protein_priority: {
+              type: "STRING",
+              description: "'preserve' (2.0g/kg — protect muscle in a deficit), 'balanced' (1.8g/kg — standard), 'maximize' (2.4g/kg — recomp or aggressive build). Presets auto-set this — only provide when going custom.",
             },
             activity: {
               type: "STRING",
-              description: "The new activity level. Must be exactly one of: 'sedentary', 'light', 'moderate', or 'active'. Only include if the user mentioned changing their activity level.",
+              description: "New activity level: 'sedentary', 'light', 'moderate', or 'active'. Only include if user mentioned changing activity.",
             },
             target_calories: {
               type: "NUMBER",
-              description: "A custom daily calorie target (e.g. 2000). Only include if the user explicitly specified a calorie number. Leave out to let the app auto-calculate from the new goal.",
+              description: "Hard manual calorie ceiling. Overrides TDEE+adjustment entirely. Only set when user explicitly names a number ('set my calories to 1800').",
             },
           },
           required: ["goal"],
@@ -150,6 +158,11 @@ const tools = [
           },
           required: ["name", "calories", "protein", "carbs", "fats", "fiber"],
         },
+      },
+      {
+        name: "get_medical_context",
+        description: "Fetches the user's medical report history from their uploaded blood tests and health reports. Returns all reports with their flagged markers (e.g. high HbA1c, low Vitamin D), dietary recommendations (foods to include/avoid), and longitudinal trends across reports. Call this when: the user asks about their health conditions, blood work, or medical diet advice; you are generating a meal plan and want to personalise it to their medical profile; or the user mentions any health condition, marker, or medication.",
+        parameters: { type: "OBJECT", properties: {}, required: [] },
       },
     ],
   },
@@ -335,7 +348,7 @@ async function executeTool(toolName, args, userId, db) {
 
   if (toolName === "get_user_profile") {
     const { data } = await db.from("user_profiles")
-      .select("weight, height, age, gender, activity, goal, target_calories, username")
+      .select("weight, height, age, gender, activity, goal, calorie_adjustment, protein_priority, target_calories, username")
       .eq("user_id", userId).single();
     if (!data) return { result: "No profile found." };
     return { profile: data };
@@ -384,38 +397,54 @@ async function executeTool(toolName, args, userId, db) {
     };
   }
 
-  // ── NEW: Update goal, activity, and/or calorie target ─────────────────────
+  // ── Update goal (two-axis model) ──────────────────────────────────────────
   if (toolName === "update_goal") {
-    const VALID_GOALS = ["lose", "gain", "maintain"];
+    // Preset definitions — mirror GOAL_PRESETS in nutrition.js
+    const PRESETS = {
+      lose:     { calorie_adjustment: -500, protein_priority: "preserve" },
+      gain:     { calorie_adjustment:  300, protein_priority: "balanced" },
+      maintain: { calorie_adjustment:    0, protein_priority: "balanced" },
+      recomp:   { calorie_adjustment:    0, protein_priority: "maximize" },
+    };
     const VALID_ACTIVITIES = ["sedentary", "light", "moderate", "active"];
+    const VALID_PRIORITIES = ["preserve", "balanced", "maximize"];
 
-    const newGoal = (args.goal || "").toLowerCase().trim();
+    const newGoal    = (args.goal || "custom").toLowerCase().trim();
     const newActivity = args.activity ? args.activity.toLowerCase().trim() : null;
     const newTargetCals = args.target_calories ? Number(args.target_calories) : null;
 
-    // Validate goal
-    if (!VALID_GOALS.includes(newGoal)) {
-      return { error: `Invalid goal "${args.goal}". Must be one of: lose, gain, maintain.` };
-    }
+    // If a preset, auto-fill axes (agent can still override with explicit args)
+    const preset = PRESETS[newGoal] || null;
+    const newAdj = args.calorie_adjustment !== undefined
+      ? Number(args.calorie_adjustment)
+      : (preset ? preset.calorie_adjustment : 0);
+    const newPriority = args.protein_priority
+      ? args.protein_priority
+      : (preset ? preset.protein_priority : "balanced");
 
-    // Validate activity if provided
+    // ── Validate ──────────────────────────────────────────────────────────
+    if (newAdj < -700 || newAdj > 500) {
+      return { error: `calorie_adjustment ${newAdj} is out of range (−700 to +500).` };
+    }
+    if (!VALID_PRIORITIES.includes(newPriority)) {
+      return { error: `Invalid protein_priority "${newPriority}". Must be: preserve, balanced, maximize.` };
+    }
     if (newActivity && !VALID_ACTIVITIES.includes(newActivity)) {
-      return { error: `Invalid activity "${args.activity}". Must be one of: sedentary, light, moderate, active.` };
+      return { error: `Invalid activity "${newActivity}". Must be: sedentary, light, moderate, active.` };
     }
-
-    // Validate calorie target if provided
     if (newTargetCals !== null && (newTargetCals < 800 || newTargetCals > 6000)) {
-      return { error: `Calorie target ${newTargetCals} is out of safe range (800–6000 kcal). Please specify a realistic target.` };
+      return { error: `target_calories ${newTargetCals} is out of safe range (800–6000).` };
     }
 
-    // Build the update payload — only update what was provided
+    // ── Build payload ─────────────────────────────────────────────────────
     const updatePayload = {
       goal: newGoal,
+      calorie_adjustment: newAdj,
+      protein_priority: newPriority,
+      target_calories: newTargetCals, // null = auto-calculate
       updated_at: new Date().toISOString(),
     };
     if (newActivity) updatePayload.activity = newActivity;
-    if (newTargetCals !== null) updatePayload.target_calories = newTargetCals;
-    else updatePayload.target_calories = null; // reset to auto-calculate when goal changes
 
     const { error: updateError } = await db
       .from("user_profiles")
@@ -424,27 +453,39 @@ async function executeTool(toolName, args, userId, db) {
 
     if (updateError) return { error: `Failed to update goal: ${updateError.message}` };
 
-    // Snapshot the goal change so past days retain their original targets
+    // Snapshot for goal_history so past days retain their original targets
     await db.from("goal_history").insert({
       user_id: userId,
       goal: newGoal,
-      activity: newActivity || updatePayload.activity,
+      calorie_adjustment: newAdj,
+      protein_priority: newPriority,
+      activity: newActivity || undefined,
       target_calories: newTargetCals,
       effective_from: today,
     });
 
-    const GOAL_LABELS = { lose: "Lose Weight 🔥", gain: "Build Muscle 💪", maintain: "Maintain Weight ⚖️" };
-    const ACTIVITY_LABELS = { sedentary: "Sedentary", light: "Lightly Active", moderate: "Moderately Active", active: "Very Active" };
+    const PRIORITY_LABELS = {
+      preserve: "2.0g/kg protein (muscle preservation)",
+      balanced: "1.8g/kg protein (balanced)",
+      maximize: "2.4g/kg protein (maximum muscle synthesis)",
+    };
+
+    const adjLabel = newTargetCals
+      ? `${newTargetCals} kcal/day (manual)`
+      : newAdj === 0 ? "TDEE (maintenance calories)"
+      : newAdj > 0  ? `TDEE +${newAdj} kcal (surplus)`
+      :                `TDEE ${newAdj} kcal (deficit)`;
 
     return {
       updated: true,
-      changes: {
-        goal: GOAL_LABELS[newGoal],
-        ...(newActivity && { activity: ACTIVITY_LABELS[newActivity] }),
-        ...(newTargetCals !== null && { target_calories: `${newTargetCals} kcal/day (custom)` }),
-        ...(!newTargetCals && { target_calories: "Auto-calculated from new goal" }),
+      goal: newGoal,
+      calorie_adjustment: newAdj,
+      protein_priority: newPriority,
+      summary: {
+        calories: adjLabel,
+        protein: PRIORITY_LABELS[newPriority],
       },
-      message: `✅ Goal updated to "${GOAL_LABELS[newGoal]}". Your calorie and macro targets will now reflect this change across the app.`,
+      message: `✅ Goal updated. Calories: ${adjLabel}. Protein: ${PRIORITY_LABELS[newPriority]}.`,
     };
   }
 
@@ -534,6 +575,58 @@ async function executeTool(toolName, args, userId, db) {
     };
   }
 
+  // ── Medical context from uploaded reports ────────────────────────────────
+  if (toolName === "get_medical_context") {
+    const { data: reports, error } = await db
+      .from("medical_reports")
+      .select("file_name, created_at, flags, include_foods, exclude_foods, trends, analysis")
+      .eq("user_id", userId)
+      .order("created_at", { ascending: false });
+
+    if (error || !reports || reports.length === 0) {
+      return { result: "No medical reports found. The user has not uploaded any blood test or health reports yet." };
+    }
+
+    // Build a structured summary across all reports
+    const summary = reports.map((r, i) => {
+      const date = new Date(r.created_at).toLocaleDateString("en-IN", {
+        day: "numeric", month: "short", year: "numeric",
+      });
+
+      // Separate markers by status for quick scanning
+      const abnormal = (r.flags || []).filter((f) => f.status !== "normal");
+      const normal   = (r.flags || []).filter((f) => f.status === "normal");
+
+      return {
+        report: i === 0 ? `Latest — ${r.file_name} (${date})` : `Report ${i + 1} — ${r.file_name} (${date})`,
+        abnormalMarkers: abnormal.map((f) => `${f.marker}: ${f.value} [${f.status.toUpperCase()}] — ${f.note}`),
+        normalMarkers:   normal.map((f)   => `${f.marker}: ${f.value}`),
+        includeInDiet:   (r.include_foods || []).map((f) => `${f.food} — ${f.reason}`),
+        avoidInDiet:     (r.exclude_foods || []).map((f) => `${f.food} — ${f.reason}`),
+        trends:          (r.trends || []).map((t) => `${t.marker}: ${t.previous} → ${t.current} (${t.direction}) — ${t.note}`),
+        analysisSummary: r.analysis?.slice(0, 400) || "",
+      };
+    });
+
+    // Latest report's dietary rules — most actionable for meal planning
+    const latest = reports[0];
+    const dietaryProfile = {
+      mustInclude: (latest.include_foods || []).map((f) => f.food),
+      mustAvoid:   (latest.exclude_foods || []).map((f) => f.food),
+      criticalFlags: (latest.flags || [])
+        .filter((f) => f.status === "high" || f.status === "low")
+        .map((f) => `${f.marker} is ${f.status} (${f.value})`),
+    };
+
+    return {
+      totalReports: reports.length,
+      latestReportDate: new Date(reports[0].created_at).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" }),
+      dietaryProfile,
+      allReports: summary,
+      instruction: "Use this medical context to personalise all food suggestions. Prioritise including foods from mustInclude and strictly avoid foods in mustAvoid. Reference specific markers when explaining dietary advice.",
+    };
+  }
+
   return { error: `Unknown tool: ${toolName}` };
 }
 
@@ -575,23 +668,31 @@ export async function POST(req) {
       tools,
       systemInstruction: `You are NutriCoach, an elite AI nutrition agent built into the NutriTrack app.
 
-You have live access to the user's real food logs, weight history, and nutritional targets through tools.
+You have live access to the user's real food logs, weight history, nutritional targets, and medical reports through tools.
 ALWAYS call tools to get real data before giving advice — never guess or invent numbers.
 
 Personality: Direct, motivating, science-backed. Use emojis sparingly. Keep responses under 150 words unless doing a full analysis. Always reference the user's ACTUAL data. Prefer Indian food suggestions (dal, roti, biryani, paneer, etc.) or user's food history.
 
 Tool rules:
-- "What should I eat?" → call get_macro_gap FIRST, then generate_meal_plan
-- "Give me a meal plan" / "Plan my meals" → call generate_meal_plan (it auto-fetches the gap)
+- "What should I eat?" → call get_macro_gap FIRST, then get_medical_context in PARALLEL, then generate_meal_plan
+- "Give me a meal plan" / "Plan my meals" → call generate_meal_plan AND get_medical_context in PARALLEL (generate_meal_plan auto-fetches the macro gap)
 - "How am I doing this week?" → get_logs_for_days with days=7
 - "How many calories in X?" → search_food_database. If confidence is "estimated", say "approximately" and mention values may vary slightly.
 - "Am I losing weight?" → get_weight_trend
 - "Log X" or "Add X to my diary" → log_food_item (confirm what was logged)
 - "What's my streak?" → get_streak
-- "Change my goal to X" / "Switch to bulking" / "I want to lose weight" / "Set calories to N" → ALWAYS call get_user_profile first to see current goal, then call update_goal with the appropriate values. Confirm the change in your reply and explain what the new targets will look like.
+- "Change my goal to X" / "Switch to bulking" / "I want to lose weight" / "I want a slight cut" / "Set calories to N" / "I want to lose fat and build muscle" → ALWAYS call get_user_profile first, then call update_goal. For presets use goal='lose'/'gain'/'maintain'/'recomp'. For nuanced requests ('slight cut', 'aggressive deficit', 'gentle bulk') set goal='custom' with explicit calorie_adjustment and protein_priority values. Confirm the change and explain the new targets.
+- User mentions any health condition, blood marker, symptom, or medication → call get_medical_context to check their report history before responding.
+- User asks about their health, blood test, medical reports, diet restrictions, or what foods are good/bad for them → call get_medical_context.
 - Call multiple tools in one turn when needed
 - NEVER log food without the user explicitly asking you to
 - NEVER change the goal without the user explicitly asking you to
+
+Medical context rules (get_medical_context):
+- When medical context is available, ALWAYS cross-reference meal plans and food suggestions against mustInclude and mustAvoid lists.
+- If a food in the default meal plan conflicts with a medical restriction (e.g. high-sugar food for a diabetic), replace it with a compliant alternative.
+- When explaining why you chose a food, mention the relevant marker (e.g. "oats are included because your HbA1c is elevated — they help with blood sugar control").
+- If the user has critical flags (high/low markers), proactively mention the relevant dietary advice even if they didn't ask.
 
 CRITICAL — save_food_to_database rule:
 - Whenever you recommend or mention a specific food item in a meal plan or suggestion, you MUST call save_food_to_database for each food that is NOT already in the internal database.
