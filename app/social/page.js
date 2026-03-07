@@ -3,8 +3,8 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { FLATTENED_DB } from "../food-data";
+import { calculateTargets, capPct } from "../lib/nutrition";
 import {
-  ArrowLeft,
   UserPlus,
   Check,
   X,
@@ -340,74 +340,7 @@ export default function SocialPage() {
     );
   };
 
-  const calculateTargets = (prof) => {
-    if (!prof || !prof.weight)
-      return {
-        targetCals: 2000,
-        targetMacros: { p: 150, c: 200, f: 65, fib: 28 }, // Matches dashboard structure
-        p: 150, // Backwards compat
-        c: 200,
-        f: 65,
-        fib: 28,
-        water: 3,
-        waterTarget: 3 // Matches dashboard structure
-      };
-
-    let targetCals = 2000;
-    if (prof.target_calories) {
-      targetCals = Number(prof.target_calories);
-    } else {
-      let bmr = 10 * prof.weight + 6.25 * prof.height - 5 * prof.age;
-      bmr += prof.gender === "male" ? 5 : -161;
-      const multipliers = {
-        sedentary: 1.2,
-        light: 1.375,
-        moderate: 1.55,
-        active: 1.725,
-      };
-      let tdee = bmr * (multipliers[prof.activity] || 1.2);
-      targetCals = Math.round(tdee);
-      if (prof.goal === "lose") targetCals -= 500;
-      else if (prof.goal === "gain") targetCals += 300;
-    }
-
-    const weight = Number(prof.weight);
-    let targetP, targetF, targetC;
-
-    if (prof.goal === "lose") {
-      targetP = Math.round(weight * 2.2);
-      targetF = Math.round((targetCals * 0.3) / 9);
-    } else if (prof.goal === "gain") {
-      targetP = Math.round(weight * 1.8);
-      targetF = Math.round((targetCals * 0.25) / 9);
-    } else {
-      targetP = Math.round(weight * 1.6);
-      targetF = Math.round((targetCals * 0.3) / 9);
-    }
-
-    const usedCals = targetP * 4 + targetF * 9;
-    targetC = Math.round(Math.max(0, targetCals - usedCals) / 4);
-    const targetFib = Math.round((targetCals / 1000) * 14);
-
-    let waterTarget = Math.round(weight * 0.035 * 10) / 10;
-    if (prof.activity === "active" || prof.activity === "moderate")
-      waterTarget += 0.5;
-
-    // Return structure matching Dashboard's calculateTargets AND local expectations
-    return {
-      cals: targetCals,
-      p: targetP,
-      c: targetC,
-      f: targetF,
-      fib: targetFib,
-      water: waterTarget,
-      
-      // Dashboard compatibility
-      targetCals,
-      targetMacros: { p: targetP, c: targetC, f: targetF, fib: targetFib },
-      waterTarget
-    };
-  };
+  // calculateTargets is imported from lib/nutrition — single source of truth
 
   const fetchSocialData = async () => {
     setLoading(true);
@@ -462,16 +395,13 @@ export default function SocialPage() {
       const targets = calculateTargets(profile);
 
       // --- SCORING LOGIC ---
-      const getCapPct = (val, target) =>
-        Math.min(100, (val / target) * 100) || 0;
-
       const baseScore = Math.round(
-        (getCapPct(stats.cals, targets.cals) +
-          getCapPct(stats.p, targets.p) +
-          getCapPct(stats.c, targets.c) +
-          getCapPct(stats.f, targets.f) +
-          getCapPct(stats.fib, targets.fib) +
-          getCapPct(stats.water, targets.water)) /
+        (capPct(stats.cals, targets.cals) +
+          capPct(stats.p, targets.p) +
+          capPct(stats.c, targets.c) +
+          capPct(stats.f, targets.f) +
+          capPct(stats.fib, targets.fib) +
+          capPct(stats.water, targets.water)) /
           6,
       );
 
@@ -1019,7 +949,7 @@ export default function SocialPage() {
               }}
             >
               <h3 style={{ margin: 0, fontSize: "1.2rem", fontWeight: 700 }}>
-                {selectedFriend.name}'s Meals
+                {selectedFriend.name}&apos;s Meals
               </h3>
               <button
                 onClick={closeLogs}
@@ -1445,18 +1375,6 @@ export default function SocialPage() {
           marginBottom: 24,
         }}
       >
-        <button
-          onClick={() => router.push("/dashboard")}
-          style={{
-            background: "none",
-            border: "none",
-            cursor: "pointer",
-            padding: 8,
-            color: "#64748b",
-          }}
-        >
-          <ArrowLeft size={24} />
-        </button>
         <h1 style={{ margin: 0, fontSize: "1.5rem", fontWeight: 800 }}>
           Social Hub
         </h1>

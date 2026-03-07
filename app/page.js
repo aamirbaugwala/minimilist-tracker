@@ -1,15 +1,12 @@
 "use client";
 
 import React, { useState, useEffect, memo, useMemo } from "react";
-import Link from "next/link";
 import { PieChart, Pie, Cell, ResponsiveContainer } from "recharts";
 import {
   Search,
   Plus,
   Minus,
   X,
-  LayoutDashboard,
-  LogOut,
   Loader2,
   Flame,
   Droplets,
@@ -18,7 +15,6 @@ import {
   Pencil,
   Target,
   Calculator,
-  Users,
   Shield,
   KeyRound,
   Settings,
@@ -30,67 +26,24 @@ import {
   Globe,
   Edit3,
   PlusCircle,
-  Scale, // Added icon
+  Scale,
 } from "lucide-react";
 import { FOOD_CATEGORIES, FLATTENED_DB } from "./food-data";
 import { supabase } from "./supabase";
+import { calculateTargets, capPct } from "./lib/nutrition";
+import { useAuth } from "./hooks/useAuth";
 
 // --- MEMOIZED STATS ---
 const StatsBoard = memo(({ totals, userProfile, onAddWater }) => {
-  // 1. Get Calorie Target
-  let targetCals = 2000;
-  if (userProfile.target_calories) {
-    targetCals = Number(userProfile.target_calories);
-  } else {
-    // Default fallback
-    const weight = Number(userProfile.weight) || 70;
-    const height = Number(userProfile.height) || 170;
-    const age = Number(userProfile.age) || 30;
+  const targets = calculateTargets(userProfile);
+  const targetCals = targets.cals;
+  const targetP    = targets.p;
+  const targetC    = targets.c;
+  const targetF    = targets.f;
+  const targetFib  = targets.fib;
+  const targetWater = targets.water;
 
-    let bmr = 10 * weight + 6.25 * height - 5 * age;
-    bmr += userProfile.gender === "male" ? 5 : -161;
-    const multipliers = {
-      sedentary: 1.2,
-      light: 1.375,
-      moderate: 1.55,
-      active: 1.725,
-    };
-    let tdee = bmr * (multipliers[userProfile.activity] || 1.2);
-
-    targetCals = Math.round(tdee);
-    if (userProfile.goal === "lose") targetCals -= 500;
-    else if (userProfile.goal === "gain") targetCals += 300;
-  }
-
-  // 2. Calculate Exact Macro Targets
-  const weight = Number(userProfile?.weight) || 70;
-  const goal = userProfile?.goal || "maintain";
-
-  let targetP, targetF, targetC;
-
-  if (goal === "lose") {
-    targetP = Math.round(weight * 2.2);
-    targetF = Math.round((targetCals * 0.3) / 9);
-  } else if (goal === "gain") {
-    targetP = Math.round(weight * 1.8);
-    targetF = Math.round((targetCals * 0.25) / 9);
-  } else {
-    targetP = Math.round(weight * 1.6);
-    targetF = Math.round((targetCals * 0.3) / 9);
-  }
-
-  const usedCals = targetP * 4 + targetF * 9;
-  targetC = Math.round(Math.max(0, targetCals - usedCals) / 4);
-  const targetFib = Math.round((targetCals / 1000) * 14);
-
-  let targetWater = Math.round(weight * 0.035 * 10) / 10;
-  if (
-    userProfile?.activity === "active" ||
-    userProfile?.activity === "moderate"
-  )
-    targetWater += 0.5;
-
-  const pct = (val, target) => Math.min(100, Math.round((val / target) * 100));
+  const pct = capPct;
 
   return (
     <section style={{ marginBottom: 20 }}>
@@ -380,7 +333,14 @@ const StatsBoard = memo(({ totals, userProfile, onAddWater }) => {
 StatsBoard.displayName = "StatsBoard";
 
 export default function Home() {
-  const [session, setSession] = useState(null);
+  const {
+    session,
+    authLoading,
+    sendOtp,
+    verifyOtp,
+    signInWithPassword,
+    updatePassword: authUpdatePassword,
+  } = useAuth();
   const [loading, setLoading] = useState(true);
   const [logs, setLogs] = useState([]);
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
@@ -454,7 +414,7 @@ export default function Home() {
   const [otp, setOtp] = useState("");
   const [isCodeSent, setIsCodeSent] = useState(false);
   const [usePasswordLogin, setUsePasswordLogin] = useState(false);
-  const [authLoading, setAuthLoading] = useState(false);
+  // authLoading comes from useAuth hook above
 
   // --- WEB SEARCH STATE ---
   const [webResults, setWebResults] = useState([]);
@@ -509,38 +469,12 @@ export default function Home() {
 
   // --- FEATURE 1: SMART RECOMMENDATIONS LOGIC (legacy, unused) ---
   const generateSmartMeals = () => {
-    // 1. Calculate Targets & Remaining
-    let targetCals = 2000;
-    let targetP, targetF, targetC;
-
-    if (userProfile.target_calories) {
-      targetCals = Number(userProfile.target_calories);
-    } else {
-      const w = Number(userProfile.weight) || 70;
-      const h = Number(userProfile.height) || 170;
-      const a = Number(userProfile.age) || 30;
-      let bmr = 10 * w + 6.25 * h - 5 * a;
-      bmr += userProfile.gender === "male" ? 5 : -161;
-      let tdee = bmr * 1.2;
-      targetCals = Math.round(tdee);
-      if (userProfile.goal === "lose") targetCals -= 500;
-      else if (userProfile.goal === "gain") targetCals += 300;
-    }
-
-    const w = Number(userProfile.weight) || 70;
-    const goal = userProfile.goal || "maintain";
-    if (goal === "lose") {
-      targetP = Math.round(w * 2.2);
-      targetF = Math.round((targetCals * 0.3) / 9);
-    } else if (goal === "gain") {
-      targetP = Math.round(w * 1.8);
-      targetF = Math.round((targetCals * 0.25) / 9);
-    } else {
-      targetP = Math.round(w * 1.6);
-      targetF = Math.round((targetCals * 0.3) / 9);
-    }
-    const usedCals = targetP * 4 + targetF * 9;
-    targetC = Math.round(Math.max(0, targetCals - usedCals) / 4);
+    // Use centralised target calculation
+    const t = calculateTargets(userProfile);
+    const targetCals = t.cals;
+    const targetP    = t.p;
+    const targetF    = t.f;
+    const targetC    = t.c;
 
     // REAL Remaining values
     const remainingCals = targetCals - totals.calories;
@@ -651,7 +585,7 @@ export default function Home() {
     // Fallback if empty (e.g. only 60 cals left) -> Find smallest items
     if (recommendations.length === 0) {
       const smallSnacks = Object.entries(COMBINED_DB)
-        .filter(([_, val]) => val.calories <= remainingCals)
+        .filter(([, val]) => val.calories <= remainingCals)
         .sort((a, b) => b[1].calories - a[1].calories) // Biggest possible filler
         .slice(0, 3);
 
@@ -672,7 +606,8 @@ export default function Home() {
 
   const smartRecommendations = useMemo(
     () => generateSmartMeals(),
-    [totals, userProfile, COMBINED_DB], // Added COMBINED_DB dependency
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [totals, userProfile, COMBINED_DB],
   );
 
   // --- ACTUAL WEB SEARCH (OpenFoodFacts) ---
@@ -838,36 +773,21 @@ export default function Home() {
     setStreak(count);
   };
 
+  // useAuth handles getSession + onAuthStateChange subscription internally.
+  // React to session changes: fetch data when session arrives, clear when it goes.
   useEffect(() => {
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      setSession(session);
-      if (session) {
-        fetchData();
-        fetchUserData();
-        calculateStreak();
-        const hasSeen = localStorage.getItem("hasSeenWelcome");
-        if (!hasSeen) {
-          setShowWelcome(true);
-        }
-      } else {
-        setLoading(false);
-      }
-    });
-    const {
-      data: { subscription },
-    } = supabase.auth.onAuthStateChange((_event, session) => {
-      setSession(session);
-      if (session) {
-        fetchData();
-        fetchUserData();
-        calculateStreak();
-      } else {
-        setLogs([]);
-        setLoading(false);
-      }
-    });
-    return () => subscription.unsubscribe();
-  }, []);
+    if (session) {
+      fetchData();
+      fetchUserData();
+      calculateStreak();
+      const hasSeen = localStorage.getItem("hasSeenWelcome");
+      if (!hasSeen) setShowWelcome(true);
+    } else {
+      setLogs([]);
+      setLoading(false);
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [session]);
 
   const closeWelcome = () => {
     localStorage.setItem("hasSeenWelcome", "true");
@@ -908,10 +828,8 @@ export default function Home() {
   const handleUpdatePassword = async () => {
     let msg = "";
     if (newPassword) {
-      const { error } = await supabase.auth.updateUser({
-        password: newPassword,
-      });
-      if (error) return alert(error.message);
+      const result = await authUpdatePassword(newPassword);
+      if (!result.ok) return alert(result.error);
       msg += "Password updated. ";
     }
     if (username) {
@@ -1162,8 +1080,9 @@ export default function Home() {
         .delete()
         .eq("user_id", session.user.id)
         .eq("date", todayKey);
-      const cleanLogs = logs.map(({ id, created_at, ...rest }) => ({
-        ...rest,
+      const OMIT = new Set(["id", "created_at"]);
+      const cleanLogs = logs.map((log) => ({
+        ...Object.fromEntries(Object.entries(log).filter(([k]) => !OMIT.has(k))),
         user_id: session.user.id,
         date: todayKey,
       }));
@@ -1171,7 +1090,7 @@ export default function Home() {
         await supabase.from("food_logs").insert(cleanLogs);
       setHasUnsavedChanges(false);
       await fetchData(true);
-    } catch (err) {
+    } catch {
       alert("Save failed");
     } finally {
       setIsSaving(false);
@@ -1326,43 +1245,20 @@ export default function Home() {
 
   const handleSendCode = async (e) => {
     e.preventDefault();
-    setAuthLoading(true);
-    const { error } = await supabase.auth.signInWithOtp({ email });
-    if (error) alert(error.message);
+    const result = await sendOtp(email);
+    if (!result.ok) alert(result.error);
     else setIsCodeSent(true);
-    setAuthLoading(false);
   };
   const handleVerifyCode = async (e) => {
     e.preventDefault();
-    setAuthLoading(true);
-    const { error } = await supabase.auth.verifyOtp({
-      email,
-      token: otp,
-      type: "email",
-    });
-    if (error) {
-      alert("Invalid code.");
-    } else {
-      setShowPasswordSetup(true);
-    }
-    setAuthLoading(false);
+    const result = await verifyOtp(email, otp);
+    if (!result.ok) alert("Invalid code.");
+    else setShowPasswordSetup(true);
   };
   const handlePasswordLogin = async (e) => {
     e.preventDefault();
-    setAuthLoading(true);
-    const { error } = await supabase.auth.signInWithPassword({
-      email,
-      password,
-    });
-    if (error) alert(error.message);
-    setAuthLoading(false);
-  };
-  const handleLogout = async () => {
-    await supabase.auth.signOut();
-    setIsCodeSent(false);
-    setOtp("");
-    setEmail("");
-    setPassword("");
+    const result = await signInWithPassword(email, password);
+    if (!result.ok) alert(result.error);
   };
 
   if (!session)
@@ -2845,7 +2741,7 @@ export default function Home() {
               background: "transparent",
               border: "none",
               cursor: "pointer",
-              position: "relative", // Ensure button itself is positioned
+              position: "relative",
             }}
           >
             <Target size={20} />
@@ -2865,58 +2761,6 @@ export default function Home() {
             }}
           >
             <Settings size={20} />
-          </button>
-          <Link href="/dashboard">
-            <button
-              className="menu-btn"
-              style={{
-                color: "var(--brand)",
-                background: "transparent",
-                border: "none",
-                cursor: "pointer",
-              }}
-            >
-              <LayoutDashboard size={20} />
-            </button>
-          </Link>
-          <Link href="/agent">
-            <button
-              className="menu-btn"
-              title="NutriCoach AI"
-              style={{
-                color: "#8b5cf6",
-                background: "transparent",
-                border: "none",
-                cursor: "pointer",
-                position: "relative",
-              }}
-            >
-              <Sparkles size={20} />
-            </button>
-          </Link>
-          <Link href="/social">
-            <button
-              className="menu-btn"
-              style={{
-                color: "#8b5cf6",
-                background: "transparent",
-                border: "none",
-                cursor: "pointer",
-              }}
-            >
-              <Users size={20} />
-            </button>
-          </Link>
-          <button
-            className="menu-btn"
-            onClick={handleLogout}
-            style={{
-              background: "transparent",
-              border: "none",
-              cursor: "pointer",
-            }}
-          >
-            <LogOut size={20} />
           </button>
         </div>
       </header>
@@ -3681,11 +3525,11 @@ export default function Home() {
         <div
           style={{
             position: "fixed",
-            bottom: 20,
+            bottom: 82,
             left: 0,
             width: "100%",
             padding: "0 20px",
-            zIndex: 100,
+            zIndex: 99,
           }}
         >
           <button

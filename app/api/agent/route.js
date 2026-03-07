@@ -2,6 +2,7 @@ import { GoogleGenerativeAI } from "@google/generative-ai";
 import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { FLATTENED_DB } from "../../food-data";
+import { calculateTargets } from "../../lib/nutrition";
 
 // ─── RATE LIMITER (in-memory, per user, max 20 req/min) ──────────────────────
 const rateLimitMap = new Map(); // userId → { count, resetAt }
@@ -195,19 +196,7 @@ async function executeTool(toolName, args, userId, db) {
       db.from("user_profiles").select("*").eq("user_id", userId).single(),
     ]);
     if (!profile) return { result: "Profile not set. Cannot calculate targets." };
-    let targetCals = profile.target_calories ? Number(profile.target_calories) : (() => {
-      let bmr = 10 * profile.weight + 6.25 * profile.height - 5 * profile.age + (profile.gender === "male" ? 5 : -161);
-      const mults = { sedentary: 1.2, light: 1.375, moderate: 1.55, active: 1.725 };
-      let tdee = bmr * (mults[profile.activity] || 1.2);
-      return Math.round(profile.goal === "lose" ? tdee - 500 : profile.goal === "gain" ? tdee + 300 : tdee);
-    })();
-    const w = Number(profile.weight);
-    const targetP = profile.goal === "lose" ? Math.round(w * 2.2) : profile.goal === "gain" ? Math.round(w * 1.8) : Math.round(w * 1.6);
-    const targetF = profile.goal === "gain" ? Math.round((targetCals * 0.25) / 9) : Math.round((targetCals * 0.3) / 9);
-    const targetC = Math.round(Math.max(0, targetCals - targetP * 4 - targetF * 9) / 4);
-    const targetFib = Math.round((targetCals / 1000) * 14);
-    let targetWater = Math.round(w * 0.035 * 10) / 10;
-    if (profile.activity === "active" || profile.activity === "moderate") targetWater += 0.5;
+    const { cals: targetCals, p: targetP, c: targetC, f: targetF, fib: targetFib, water: targetWater } = calculateTargets(profile);
     const totals = (logs || []).reduce((acc, l) => ({
       calories: acc.calories + (l.calories || 0), protein: acc.protein + (l.protein || 0),
       carbs: acc.carbs + (l.carbs || 0), fats: acc.fats + (l.fats || 0), fiber: acc.fiber + (l.fiber || 0),
@@ -262,17 +251,8 @@ async function executeTool(toolName, args, userId, db) {
     ]);
     if (!profile) return { result: "Profile not set. Cannot generate a meal plan." };
 
-    // Compute targets (same logic as get_macro_gap)
-    let targetCals = profile.target_calories ? Number(profile.target_calories) : (() => {
-      const bmr = 10 * profile.weight + 6.25 * profile.height - 5 * profile.age + (profile.gender === "male" ? 5 : -161);
-      const mults = { sedentary: 1.2, light: 1.375, moderate: 1.55, active: 1.725 };
-      const tdee = bmr * (mults[profile.activity] || 1.2);
-      return Math.round(profile.goal === "lose" ? tdee - 500 : profile.goal === "gain" ? tdee + 300 : tdee);
-    })();
-    const w = Number(profile.weight);
-    const targetP = profile.goal === "lose" ? Math.round(w * 2.2) : profile.goal === "gain" ? Math.round(w * 1.8) : Math.round(w * 1.6);
-    const targetF = profile.goal === "gain" ? Math.round((targetCals * 0.25) / 9) : Math.round((targetCals * 0.3) / 9);
-    const targetC = Math.round(Math.max(0, targetCals - targetP * 4 - targetF * 9) / 4);
+    // Compute targets via shared lib/nutrition
+    const { cals: targetCals, p: targetP, c: targetC, f: targetF } = calculateTargets(profile);
 
     const consumed = (logs || []).reduce(
       (acc, l) => ({
@@ -598,7 +578,7 @@ export async function POST(req) {
 You have live access to the user's real food logs, weight history, and nutritional targets through tools.
 ALWAYS call tools to get real data before giving advice — never guess or invent numbers.
 
-Personality: Direct, motivating, science-backed. Use emojis sparingly. Keep responses under 150 words unless doing a full analysis. Always reference the user's ACTUAL data. Prefer Indian food suggestions (dal, roti, biryani, paneer, etc.)
+Personality: Direct, motivating, science-backed. Use emojis sparingly. Keep responses under 150 words unless doing a full analysis. Always reference the user's ACTUAL data. Prefer Indian food suggestions (dal, roti, biryani, paneer, etc.) or user's food history.
 
 Tool rules:
 - "What should I eat?" → call get_macro_gap FIRST, then generate_meal_plan

@@ -341,7 +341,7 @@ export default function AgentPage() {
   return (
     <div
       style={{
-        height: "100dvh",
+        height: "calc(100dvh - 62px)",
         display: "flex",
         flexDirection: "column",
         background: "#09090b",

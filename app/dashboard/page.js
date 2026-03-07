@@ -4,8 +4,8 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { FLATTENED_DB } from "../food-data";
+import { calculateTargets } from "../lib/nutrition";
 import {
-  ArrowLeft,
   Calendar,
   AlertCircle,
   Info,
@@ -166,54 +166,7 @@ export default function UserDashboard() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const calculateTargets = (prof) => {
-    if (!prof || !prof.weight)
-      return {
-        targetCals: 2000,
-        targetMacros: { p: 150, c: 200, f: 60 },
-        waterTarget: 3,
-      };
-    let targetCals = 2000;
-    if (prof.target_calories) {
-      targetCals = Number(prof.target_calories);
-    } else {
-      let bmr = 10 * prof.weight + 6.25 * prof.height - 5 * prof.age;
-      bmr += prof.gender === "male" ? 5 : -161;
-      const multipliers = {
-        sedentary: 1.2,
-        light: 1.375,
-        moderate: 1.55,
-        active: 1.725,
-      };
-      let tdee = bmr * (multipliers[prof.activity] || 1.2);
-      targetCals = Math.round(tdee);
-      if (prof.goal === "lose") targetCals -= 500;
-      else if (prof.goal === "gain") targetCals += 300;
-    }
-    const weight = Number(prof.weight);
-    let targetP, targetF, targetC;
-    if (prof.goal === "lose") {
-      targetP = Math.round(weight * 2.2);
-      targetF = Math.round((targetCals * 0.3) / 9);
-    } else if (prof.goal === "gain") {
-      targetP = Math.round(weight * 1.8);
-      targetF = Math.round((targetCals * 0.25) / 9);
-    } else {
-      targetP = Math.round(weight * 1.6);
-      targetF = Math.round((targetCals * 0.3) / 9);
-    }
-    const usedCals = targetP * 4 + targetF * 9;
-    targetC = Math.round(Math.max(0, targetCals - usedCals) / 4);
-    const targetFib = Math.round((targetCals / 1000) * 14);
-    let waterTarget = Math.round(weight * 0.035 * 10) / 10;
-    if (prof.activity === "active" || prof.activity === "moderate")
-      waterTarget += 0.5;
-    return {
-      targetCals,
-      targetMacros: { p: targetP, c: targetC, f: targetF, fib: targetFib },
-      waterTarget,
-    };
-  };
+  // calculateTargets is imported from lib/nutrition — single source of truth
 
   const generateInsights = (eaten, targets, macros, dailyLogs, historyLogs) => {
     const suggestions = [];
@@ -726,21 +679,6 @@ export default function UserDashboard() {
         }}
       >
         <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-          <button
-            onClick={() => router.back()}
-            style={{
-              background: "#1f1f22",
-              border: "1px solid #333",
-              color: "#fff",
-              cursor: "pointer",
-              display: "flex",
-              alignItems: "center",
-              padding: 10,
-              borderRadius: 10,
-            }}
-          >
-            <ArrowLeft size={20} />
-          </button>
           <h1 style={{ fontSize: "1.8rem", fontWeight: 800, margin: 0 }}>
             Performance
           </h1>
