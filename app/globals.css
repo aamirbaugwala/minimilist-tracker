@@ -268,15 +268,49 @@ body {
 
 /* --- DATA SYNC MODALS --- */
 .modal-overlay {
-  position: fixed; top: 0; left: 0; width: 100%; height: 100%;
-  background: rgba(0,0,0,0.8); backdrop-filter: blur(5px); z-index: 100;
-  display: flex; align-items: center; justify-content: center;
+  position: fixed; inset: 0;
+  background: rgba(0,0,0,0.72);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  z-index: 100;
+  display: flex;
+  align-items: flex-end;       /* bottom-sheet on mobile */
+  justify-content: center;
+  padding: 0 0 env(safe-area-inset-bottom, 0);
+  animation: overlayIn 0.18s ease;
+}
+@keyframes overlayIn { from { opacity: 0 } to { opacity: 1 } }
+
+@media (min-width: 600px) {
+  .modal-overlay { align-items: center; }
+  .modal-content { border-radius: 20px !important; }
 }
 
 .modal-content {
-  background: var(--surface); border: 1px solid var(--border);
-  border-radius: var(--radius-lg); padding: 2rem; width: 90%; max-width: 400px;
-  text-align: center; box-shadow: 0 10px 40px rgba(0,0,0,0.5);
+  background: #131318;
+  border: 1px solid rgba(255,255,255,0.07);
+  border-bottom: none;
+  border-radius: 24px 24px 0 0;
+  padding: 20px 20px 32px;
+  width: 100%;
+  max-width: 520px;
+  text-align: left;
+  box-shadow: 0 -8px 48px rgba(0,0,0,0.7), 0 0 0 1px rgba(255,255,255,0.04) inset;
+  animation: sheetUp 0.28s cubic-bezier(0.32,0.72,0,1);
+}
+@keyframes sheetUp {
+  from { transform: translateY(60px); opacity: 0; }
+  to   { transform: translateY(0);    opacity: 1; }
+}
+
+/* drag handle */
+.modal-content::before {
+  content: "";
+  display: block;
+  width: 36px; height: 4px;
+  background: rgba(255,255,255,0.12);
+  border-radius: 99px;
+  margin: 0 auto 18px;
 }
 
 .modal-title { font-size: 1.5rem; font-weight: 700; margin-bottom: 0.5rem; color: var(--text-primary); }
@@ -303,3 +337,4 @@ body {
   animation: bounceIn 0.5s cubic-bezier(0.175, 0.885, 0.32, 1.275);
 }
 @keyframes bounceIn { from { transform: translate(-50%, 100%); opacity: 0; } to { transform: translate(-50%, 0); opacity: 1; } }
+@keyframes fabBounce { 0% { transform: scale(0.5) translateY(20px); opacity: 0; } 70% { transform: scale(1.08) translateY(-4px); opacity: 1; } 100% { transform: scale(1) translateY(0); opacity: 1; } }

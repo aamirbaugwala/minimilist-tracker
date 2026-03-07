@@ -1,8 +1,7 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import Link from "next/link";
 import { FLATTENED_DB } from "../food-data";
 import { calculateTargets } from "../lib/nutrition";
 import {
@@ -12,17 +11,12 @@ import {
   BookOpen,
   X,
   Droplets,
-  CheckCircle,
-  TrendingUp,
-  AlertTriangle,
-  Lightbulb,
   Bot,
   BarChart2,
+  Sparkles,
+  RefreshCw,
 } from "lucide-react";
 import {
-  PieChart,
-  Pie,
-  Cell,
   ResponsiveContainer,
   Tooltip,
   LineChart,
@@ -43,30 +37,154 @@ const COLORS = {
   weight: "#ec4899", // Pink color for weight trends
 };
 
-const getSmartRemedy = (nutrient, historyLogs) => {
-  const thresholds = { p: 15, fib: 5 };
-  const minVal = thresholds[nutrient] || 0;
-  const frequencyMap = {};
-  historyLogs.forEach((log) => {
-    if (log.name === "Water") return;
-    let val = log[nutrient === "p" ? "protein" : "fiber"] || 0;
-    if (!val && FLATTENED_DB[log.name.toLowerCase()]) {
-      const dbItem = FLATTENED_DB[log.name.toLowerCase()];
-      val = nutrient === "p" ? dbItem.protein : dbItem.fiber;
-      val = val * log.qty;
+// ─── GOAL PACE CALCULATOR ────────────────────────────────────────────────────
+// Uses last 14 days of weight logs + avg calorie deficit to predict goal date
+const computeGoalPace = (trendData, profile) => {
+  if (!profile) return null;
+  const targetWeight = profile.target_weight;
+  const currentWeight = profile.weight;
+  const goal = profile.goal; // "fat_loss" | "muscle_gain" | "maintain"
+
+  // Need at least current weight
+  if (!currentWeight) return null;
+
+  // Filter weight entries from trendData (last 14 days with real readings)
+  const weightPoints = trendData
+    .filter((d) => d.weight !== null && d.weight !== undefined)
+    .slice(-14);
+
+  // Compute weekly rate from linear regression if ≥2 points
+  let weeklyRateKg = null;
+  if (weightPoints.length >= 2) {
+    const n = weightPoints.length;
+    const xs = weightPoints.map((_, i) => i);
+    const ys = weightPoints.map((d) => d.weight);
+    const sumX = xs.reduce((a, b) => a + b, 0);
+    const sumY = ys.reduce((a, b) => a + b, 0);
+    const sumXY = xs.reduce((a, x, i) => a + x * ys[i], 0);
+    const sumXX = xs.reduce((a, x) => a + x * x, 0);
+    const slope = (n * sumXY - sumX * sumY) / (n * sumXX - sumX * sumX); // kg/day
+    weeklyRateKg = slope * 7;
+  }
+
+  // Avg daily calorie deficit from last 7 days of trendData
+  const last7 = trendData.filter((d) => d.calories > 0).slice(-7);
+  const avgCalTarget = profile.target_calories || 2000;
+  const avgEaten = last7.length
+    ? last7.reduce((s, d) => s + d.calories, 0) / last7.length
+    : avgCalTarget;
+  const dailyDeficit = avgCalTarget - avgEaten; // positive = deficit, negative = surplus
+
+  const latestWeight =
+    weightPoints.length > 0
+      ? weightPoints[weightPoints.length - 1].weight
+      : currentWeight;
+
+  // Build pace object
+  const pace = {
+    latestWeight,
+    targetWeight,
+    goal,
+    weeklyRateKg,
+    dailyDeficit: Math.round(dailyDeficit),
+    weeksToGoal: null,
+    direction: null,
+    onTrack: false,
+    message: null,
+  };
+
+  if (!targetWeight) {
+    // No target weight set — show deficit/surplus summary only
+    if (Math.abs(dailyDeficit) < 100) {
+      pace.message = "You're in maintenance. Calories are balanced.";
+      pace.onTrack = true;
+    } else if (dailyDeficit > 0) {
+      pace.message = `Avg deficit: ${Math.round(dailyDeficit)} kcal/day. Set a target weight to see your ETA.`;
+    } else {
+      pace.message = `Avg surplus: ${Math.round(Math.abs(dailyDeficit))} kcal/day. Set a target weight to see your ETA.`;
     }
-    if (val >= minVal) {
-      if (!frequencyMap[log.name]) frequencyMap[log.name] = 0;
-      frequencyMap[log.name] += 1;
-    }
-  });
-  const topFoods = Object.entries(frequencyMap)
-    .sort((a, b) => b[1] - a[1])
-    .slice(0, 3)
-    .map(([name]) => name);
-  if (topFoods.length > 0)
-    return `Based on your history, try: ${topFoods.join(", ")}.`;
-  return null;
+    return pace;
+  }
+
+  const kgToGo = latestWeight - targetWeight; // positive = need to lose
+  pace.direction = kgToGo > 0 ? "lose" : kgToGo < 0 ? "gain" : "reached";
+
+  if (pace.direction === "reached") {
+    pace.message = "🎯 Goal weight reached! Focus on maintenance.";
+    pace.onTrack = true;
+    return pace;
+  }
+
+  // Use actual weight trend rate if available, else estimate from deficit (7700 kcal ≈ 1 kg)
+  const effectiveWeeklyRate =
+    weeklyRateKg !== null
+      ? Math.abs(weeklyRateKg)
+      : Math.abs(dailyDeficit * 7) / 7700;
+
+  if (effectiveWeeklyRate < 0.05) {
+    pace.message = "Weight is stable. Adjust calories to make progress.";
+    pace.onTrack = false;
+    return pace;
+  }
+
+  pace.weeksToGoal = Math.round(Math.abs(kgToGo) / effectiveWeeklyRate);
+
+  // Is the direction of change matching the goal?
+  const movingCorrectly =
+    (pace.direction === "lose" && weeklyRateKg !== null && weeklyRateKg < 0) ||
+    (pace.direction === "gain" && weeklyRateKg !== null && weeklyRateKg > 0) ||
+    weeklyRateKg === null;
+
+  pace.onTrack = movingCorrectly;
+
+  return pace;
+};
+
+// ─── DAILY NUTRITION SCORE ────────────────────────────────────────────────────
+// 0-100 score from 4 pillars: calories (30pts), protein (30pts), hydration (20pts), consistency (20pts)
+const computeDayScore = (metrics, calendarData, selectedDate) => {
+  const { eaten, target, macros, targets, water } = metrics;
+  if (!target || target === 0) return null;
+
+  // 1. Calorie accuracy (30 pts) — full marks ±10%, linear drop off
+  const calRatio = eaten / target;
+  const calPts = Math.max(0, Math.round(30 * (1 - Math.min(1, Math.abs(1 - calRatio) * 3))));
+
+  // 2. Protein hit (30 pts)
+  const protRatio = targets.p > 0 ? macros.p / targets.p : 0;
+  const protPts = Math.min(30, Math.round(30 * protRatio));
+
+  // 3. Hydration (20 pts)
+  const hydRatio = water.target > 0 ? water.current / water.target : 0;
+  const hydPts = Math.min(20, Math.round(20 * hydRatio));
+
+  // 4. Consistency — how many of the last 7 days had any calories logged (20 pts)
+  const today = selectedDate || new Date().toISOString().slice(0, 10);
+  const last7 = calendarData.filter((d) => d.date <= today).slice(-7);
+  const loggedDays = last7.filter((d) => d.cals > 0).length;
+  const consPts = Math.round((loggedDays / 7) * 20);
+
+  const total = calPts + protPts + hydPts + consPts;
+
+  return {
+    total,
+    pillars: [
+      { label: "Calories", pts: calPts, max: 30, color: "#a855f7" },
+      { label: "Protein",  pts: protPts, max: 30, color: "#3b82f6" },
+      { label: "Hydration",pts: hydPts,  max: 20, color: "#06b6d4" },
+      { label: "Streak",   pts: consPts, max: 20, color: "#22c55e" },
+    ],
+    grade:
+      total >= 90 ? "S" :
+      total >= 75 ? "A" :
+      total >= 55 ? "B" :
+      total >= 35 ? "C" : "D",
+    gradeColor:
+      total >= 90 ? "#22c55e" :
+      total >= 75 ? "#3b82f6" :
+      total >= 55 ? "#f59e0b" :
+      total >= 35 ? "#f97316" : "#ef4444",
+  };
 };
 
 export default function UserDashboard() {
@@ -86,17 +204,12 @@ export default function UserDashboard() {
   });
 
   // CHART DATA
-  const [macroData, setMacroData] = useState([]);
   const [calendarData, setCalendarData] = useState([]);
 
   // TREND CHART STATE
   const [trendData, setTrendData] = useState([]);
   const [trendMetric, setTrendMetric] = useState("calories");
   const [trendRange, setTrendRange] = useState(7);
-
-  // ANALYSIS DATA
-  const [insights, setInsights] = useState([]);
-  const [culpritIds, setCulpritIds] = useState(new Set());
 
   // INTERACTIVE
   const [allLogs, setAllLogs] = useState([]);
@@ -105,6 +218,80 @@ export default function UserDashboard() {
 
   // MODALS
   const [showResearch, setShowResearch] = useState(false);
+
+  // AI BRIEFING
+  const [briefing, setBriefing] = useState(null);
+  const [briefingLoading, setBriefingLoading] = useState(false);
+
+  // SCORE CARD
+  const [scoreExpanded, setScoreExpanded] = useState(false);
+
+  // INLINE CHAT DRAWER
+  const [chatOpen, setChatOpen] = useState(false);
+  const [chatMessages, setChatMessages] = useState([]);
+  const [chatInput, setChatInput] = useState("");
+  const [chatLoading, setChatLoading] = useState(false);
+  const chatEndRef = useRef(null);
+
+  const fetchBriefing = async (session) => {
+    setBriefingLoading(true);
+    try {
+      const res = await fetch("/api/agent", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          message:
+            "Give me a 3-line daily briefing: my biggest nutrition win today, my biggest gap, and one specific action I should take right now. Be direct and use my actual data.",
+          userId: session.user.id,
+          accessToken: session.access_token,
+          history: [],
+        }),
+      });
+      const data = await res.json();
+      if (data.reply) setBriefing(data.reply);
+    } catch {
+      // silent fail — briefing is non-critical
+    } finally {
+      setBriefingLoading(false);
+    }
+  };
+
+  const sendChatMessage = async () => {
+    const text = chatInput.trim();
+    if (!text || chatLoading) return;
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session) return;
+
+    const userMsg = { role: "user", content: text };
+    const next = [...chatMessages, userMsg];
+    setChatMessages(next);
+    setChatInput("");
+    setChatLoading(true);
+
+    // Scroll to bottom
+    setTimeout(() => chatEndRef.current?.scrollIntoView({ behavior: "smooth" }), 50);
+
+    try {
+      const res = await fetch("/api/agent", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          message: text,
+          userId: session.user.id,
+          accessToken: session.access_token,
+          history: next.slice(-10).map((m) => ({ role: m.role, content: m.content })),
+        }),
+      });
+      const data = await res.json();
+      const reply = data.reply || data.error || "Something went wrong.";
+      setChatMessages((prev) => [...prev, { role: "model", content: reply }]);
+    } catch {
+      setChatMessages((prev) => [...prev, { role: "model", content: "Connection error. Try again." }]);
+    } finally {
+      setChatLoading(false);
+      setTimeout(() => chatEndRef.current?.scrollIntoView({ behavior: "smooth" }), 100);
+    }
+  };
 
   const init = async () => {
     const {
@@ -159,6 +346,8 @@ export default function UserDashboard() {
     );
     handleDateSelect(today, logData || [], calculatedTargets);
     setLoading(false);
+    // Fire briefing after main data is loaded — non-blocking
+    fetchBriefing(session);
   };
 
   useEffect(() => {
@@ -167,83 +356,6 @@ export default function UserDashboard() {
   }, []);
 
   // calculateTargets is imported from lib/nutrition — single source of truth
-
-  const generateInsights = (eaten, targets, macros, dailyLogs, historyLogs) => {
-    const suggestions = [];
-    const newCulprits = new Set();
-    const calDiff = eaten - targets.targetCals;
-    const proteinMissed = targets.targetMacros.p - macros.p;
-    const fiberMissed = targets.targetMacros.fib - macros.fib;
-    const fatDiff = macros.f - targets.targetMacros.f;
-    const carbDiff = macros.c - targets.targetMacros.c;
-
-    if (fatDiff > 5) {
-      const culprit = dailyLogs.reduce(
-        (prev, current) =>
-          (prev.fats || 0) > (current.fats || 0) ? prev : current,
-        { fats: 0, name: "Unknown" },
-      );
-      if (culprit.id) newCulprits.add(culprit.id);
-      suggestions.push({
-        type: "danger",
-        title: "High Fat Alert",
-        msg: `+${Math.round(fatDiff)}g over. Culprit: ${culprit.name}.`,
-        fix: "Cut oils/dressings.",
-      });
-    }
-    if (carbDiff > 20) {
-      const culprit = dailyLogs.reduce(
-        (prev, current) =>
-          (prev.carbs || 0) > (current.carbs || 0) ? prev : current,
-        { carbs: 0, name: "Unknown" },
-      );
-      if (culprit.id) newCulprits.add(culprit.id);
-      suggestions.push({
-        type: "warn",
-        title: "Carb Limit Exceeded",
-        msg: `+${Math.round(carbDiff)}g over. Culprit: ${culprit.name}.`,
-      });
-    }
-    if (proteinMissed > 15) {
-      const smartFix = getSmartRemedy("p", historyLogs);
-      suggestions.push({
-        type: "tip",
-        title: "Low Protein",
-        msg: `Need ${Math.round(proteinMissed)}g more.`,
-        fix: smartFix || "Try Whey or Chicken.",
-      });
-    }
-    if (fiberMissed > 10) {
-      const smartFix = getSmartRemedy("fib", historyLogs);
-      suggestions.push({
-        type: "tip",
-        title: "Low Fiber",
-        msg: "Digestion needs support.",
-        fix: smartFix || "Add apple or beans.",
-      });
-    }
-    if (calDiff > 500 && suggestions.length === 0) {
-      suggestions.push({
-        type: "danger",
-        title: "Overeating",
-        msg: `+${Math.round(calDiff)} kcal over limit.`,
-      });
-    } else if (calDiff < -500) {
-      suggestions.push({
-        type: "warn",
-        title: "Undereating",
-        msg: "Calorie intake is too low.",
-      });
-    }
-    if (suggestions.length === 0) {
-      suggestions.push({
-        type: "success",
-        title: "Perfect Execution",
-        msg: "Macros balanced!",
-      });
-    }
-    return { suggestions, newCulprits };
-  };
 
   const handleDateSelect = (dateStr, logsSource, preCalcTargets) => {
     const logsToFilter = logsSource || allLogs;
@@ -310,21 +422,6 @@ export default function UserDashboard() {
       targets: targets.targetMacros,
       water: { current: waterConsumed, target: targets.waterTarget },
     });
-    setMacroData([
-      { name: "Protein", value: macrosEaten.p, color: COLORS.pro },
-      { name: "Carbs", value: macrosEaten.c, color: COLORS.carb },
-      { name: "Fats", value: macrosEaten.f, color: COLORS.fat },
-      { name: "Fiber", value: macrosEaten.fib, color: COLORS.fib },
-    ]);
-    const analysis = generateInsights(
-      eatenCals,
-      targets,
-      macrosEaten,
-      dailyLogs,
-      logsToFilter,
-    );
-    setInsights(analysis.suggestions);
-    setCulpritIds(analysis.newCulprits);
   };
 
   const processCalendarData = (prof, logs, weightLogsData = [], goalHistory = []) => {
@@ -520,6 +617,14 @@ export default function UserDashboard() {
             grid-column: span 1;
           }
         }
+        @keyframes pulse {
+          0%, 100% { opacity: 0.3; transform: scale(0.8); }
+          50% { opacity: 1; transform: scale(1.2); }
+        }
+        @keyframes spin {
+          from { transform: rotate(0deg); }
+          to { transform: rotate(360deg); }
+        }
       `}</style>
 
       {/* RESEARCH MODAL */}
@@ -691,10 +796,12 @@ export default function UserDashboard() {
         </div>
 
         <div style={{ display: "flex", gap: 10 }}>
-          <Link
-            href="/agent"
+          <button
+            onClick={() => setChatOpen((v) => !v)}
             style={{
-              background: "linear-gradient(135deg, #3b82f6, #8b5cf6)",
+              background: chatOpen
+                ? "linear-gradient(135deg, #8b5cf6, #3b82f6)"
+                : "linear-gradient(135deg, #3b82f6, #8b5cf6)",
               border: "none",
               color: "#fff",
               cursor: "pointer",
@@ -706,11 +813,10 @@ export default function UserDashboard() {
               fontSize: "0.9rem",
               fontWeight: 700,
               boxShadow: "0 4px 15px rgba(59, 130, 246, 0.3)",
-              textDecoration: "none",
             }}
           >
-            <Bot size={18} />
-          </Link>
+            <Bot size={18} /> {chatOpen ? "Close" : "Ask AI"}
+          </button>
 
           <button
             onClick={() => setShowResearch(true)}
@@ -748,176 +854,296 @@ export default function UserDashboard() {
         </div>
       ) : (
         <>
-          {/* ROW 1: STATUS CARD */}
+          {/* ROW 1: DAILY SCORE CARD */}
+          {(() => {
+            const score = computeDayScore(metrics, calendarData, selectedDate);
+            const s = score || { total: 0, grade: "—", gradeColor: "#444", pillars: [] };
+            const R = 44;
+            const circ = 2 * Math.PI * R;
+            const dash = score ? (s.total / 100) * circ : 0;
+            const isToday = selectedDate === new Date().toISOString().slice(0, 10);
+
+            return (
+              <div
+                onClick={() => setScoreExpanded((v) => !v)}
+                style={{
+                  background: "var(--surface)",
+                  border: `1px solid ${s.gradeColor}44`,
+                  borderRadius: 20,
+                  padding: "20px 24px",
+                  marginBottom: 24,
+                  cursor: "pointer",
+                  position: "relative",
+                  overflow: "hidden",
+                  transition: "border-color 0.3s",
+                }}
+              >
+                {/* top accent line */}
+                <div style={{
+                  position: "absolute", top: 0, left: 0, width: "100%", height: 3,
+                  background: metrics.statusColor,
+                }} />
+
+                {/* Main row */}
+                <div style={{ display: "flex", alignItems: "center", gap: 20 }}>
+                  {/* Score ring */}
+                  <div style={{ position: "relative", flexShrink: 0, width: 100, height: 100 }}>
+                    <svg width="100" height="100" style={{ transform: "rotate(-90deg)" }}>
+                      <circle cx="50" cy="50" r={R} fill="none" stroke="#27272a" strokeWidth="10" />
+                      <circle cx="50" cy="50" r={R} fill="none"
+                        stroke={s.gradeColor} strokeWidth="10" strokeLinecap="round"
+                        strokeDasharray={`${dash} ${circ}`}
+                        style={{ transition: "stroke-dasharray 1s ease" }}
+                      />
+                    </svg>
+                    <div style={{
+                      position: "absolute", inset: 0,
+                      display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center",
+                    }}>
+                      <span style={{ fontSize: "1.8rem", fontWeight: 900, color: s.gradeColor, lineHeight: 1 }}>
+                        {s.grade}
+                      </span>
+                      <span style={{ fontSize: "0.65rem", color: "#555", fontWeight: 600 }}>{s.total}/100</span>
+                    </div>
+                  </div>
+
+                  {/* Status text */}
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontSize: "0.72rem", color: "#555", textTransform: "uppercase", letterSpacing: 1.5, fontWeight: 700, marginBottom: 4 }}>
+                      Daily Score · {isToday ? "Today" : selectedDate}
+                    </div>
+                    <div style={{ fontSize: "1.9rem", fontWeight: 800, color: metrics.statusColor, lineHeight: 1, marginBottom: 6 }}>
+                      {metrics.status}
+                    </div>
+                    <div style={{ fontSize: "0.95rem", color: "#ccc" }}>
+                      {metrics.eaten} <span style={{ color: "#555" }}>/ {metrics.target} kcal</span>
+                    </div>
+                  </div>
+
+                  {/* Expand chevron */}
+                  <div style={{ color: "#444", fontSize: "1.2rem", flexShrink: 0, transition: "transform 0.3s", transform: scoreExpanded ? "rotate(180deg)" : "rotate(0deg)" }}>
+                    ▾
+                  </div>
+                </div>
+
+                {/* Expandable pillar breakdown */}
+                {scoreExpanded && (
+                  <div style={{ marginTop: 20, paddingTop: 16, borderTop: "1px solid #222" }}>
+                    <div style={{ fontSize: "0.72rem", color: "#555", textTransform: "uppercase", letterSpacing: 1.5, fontWeight: 700, marginBottom: 12 }}>
+                      Score Breakdown
+                    </div>
+                    <div style={{ display: "grid", gap: 10 }}>
+                      {s.pillars.map((p) => (
+                        <div key={p.label}>
+                          <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4, fontSize: "0.82rem" }}>
+                            <span style={{ color: "#ccc", fontWeight: 600 }}>{p.label}</span>
+                            <span style={{ color: p.color, fontWeight: 700 }}>{p.pts}/{p.max} pts</span>
+                          </div>
+                          <div style={{ background: "#27272a", height: 6, borderRadius: 3, overflow: "hidden" }}>
+                            <div style={{
+                              height: "100%",
+                              width: `${(p.pts / p.max) * 100}%`,
+                              background: p.color,
+                              borderRadius: 3,
+                              transition: "width 0.8s ease",
+                            }} />
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                    <div style={{ marginTop: 12, fontSize: "0.75rem", color: "#444", textAlign: "right" }}>
+                      S ≥90 · A ≥75 · B ≥55 · C ≥35 · D &lt;35
+                    </div>
+                  </div>
+                )}
+              </div>
+            );
+          })()}
+
+          {/* AI DAILY BRIEFING CARD */}
           <div
             style={{
-              background: "var(--surface)",
-              border: "1px solid var(--border)",
+              background: "linear-gradient(135deg, rgba(59,130,246,0.08), rgba(139,92,246,0.08))",
+              border: "1px solid rgba(139,92,246,0.3)",
               borderRadius: 20,
-              padding: 30,
+              padding: "18px 24px",
               marginBottom: 24,
-              textAlign: "center",
+              display: "flex",
+              alignItems: "flex-start",
+              gap: 16,
               position: "relative",
               overflow: "hidden",
             }}
           >
-            <div
-              style={{
-                position: "absolute",
-                top: 0,
-                left: 0,
-                width: "100%",
-                height: 4,
-                background: metrics.statusColor,
-              }}
-            ></div>
-            <div
-              style={{
-                fontSize: "0.85rem",
-                color: "#888",
-                textTransform: "uppercase",
-                letterSpacing: 2,
-                fontWeight: 600,
-              }}
-            >
-              Energy Balance (
-              {selectedDate === new Date().toISOString().slice(0, 10)
-                ? "Today"
-                : selectedDate}
-              )
+            {/* glow accent */}
+            <div style={{
+              position: "absolute", top: 0, left: 0, right: 0, height: 2,
+              background: "linear-gradient(90deg, #3b82f6, #8b5cf6, #ec4899)",
+            }} />
+            <div style={{
+              background: "linear-gradient(135deg, #3b82f6, #8b5cf6)",
+              borderRadius: 12,
+              padding: 10,
+              flexShrink: 0,
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+            }}>
+              <Sparkles size={20} color="#fff" />
             </div>
-            <div
-              style={{
-                fontSize: "3rem",
-                fontWeight: 800,
-                color: metrics.statusColor,
-                margin: "10px 0",
-                lineHeight: 1,
-              }}
-            >
-              {metrics.status}
-            </div>
-            <div style={{ color: "#ccc", fontSize: "1.1rem" }}>
-              {metrics.eaten}{" "}
-              <span style={{ color: "#666" }}>/ {metrics.target} kcal</span>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 8 }}>
+                <span style={{ fontSize: "0.75rem", fontWeight: 700, color: "#8b5cf6", textTransform: "uppercase", letterSpacing: 1.5 }}>
+                  NutriCoach · Daily Briefing
+                </span>
+                <button
+                  onClick={() => {
+                    supabase.auth.getSession().then(({ data: { session } }) => {
+                      if (session) fetchBriefing(session);
+                    });
+                  }}
+                  style={{
+                    background: "none", border: "none", color: "#555", cursor: "pointer",
+                    padding: 4, display: "flex", alignItems: "center",
+                  }}
+                  title="Refresh briefing"
+                >
+                  <RefreshCw size={14} style={{ animation: briefingLoading ? "spin 1s linear infinite" : "none" }} />
+                </button>
+              </div>
+              {briefingLoading ? (
+                <div style={{ display: "flex", alignItems: "center", gap: 8, color: "#555" }}>
+                  <div style={{
+                    width: 6, height: 6, borderRadius: "50%", background: "#3b82f6",
+                    animation: "pulse 1s ease-in-out infinite",
+                  }} />
+                  <div style={{
+                    width: 6, height: 6, borderRadius: "50%", background: "#8b5cf6",
+                    animation: "pulse 1s ease-in-out 0.2s infinite",
+                  }} />
+                  <div style={{
+                    width: 6, height: 6, borderRadius: "50%", background: "#ec4899",
+                    animation: "pulse 1s ease-in-out 0.4s infinite",
+                  }} />
+                  <span style={{ fontSize: "0.85rem", color: "#555", marginLeft: 4 }}>Analysing your data...</span>
+                </div>
+              ) : briefing ? (
+                <p style={{
+                  margin: 0, fontSize: "0.9rem", color: "#ccc", lineHeight: 1.65,
+                  whiteSpace: "pre-wrap",
+                }}>
+                  {briefing}
+                </p>
+              ) : (
+                <p style={{ margin: 0, fontSize: "0.85rem", color: "#555" }}>
+                  Tap refresh to get your AI briefing.
+                </p>
+              )}
             </div>
           </div>
 
           {/* ROW 2: ANALYSIS & TRENDS */}
-          <div className="chart-grid-container">
-            {/* 1. SMART INSIGHTS CARD */}
-            <div
-              className="chart-card"
-              style={{
-                padding: 24,
-                display: "flex",
-                flexDirection: "column",
-                border: "1px solid #333",
-                borderRadius: 16,
-                background: "#1f1f22",
-              }}
-            >
-              <h3
-                style={{
-                  fontSize: "1.1rem",
-                  fontWeight: 700,
-                  marginBottom: 15,
-                  display: "flex",
-                  gap: 8,
-                }}
-              >
-                <Lightbulb size={18} color="#FFC107" /> Smart Analysis
-              </h3>
-              <div
-                style={{
-                  display: "grid",
-                  gap: 12,
-                  maxHeight: 300,
-                  overflowY: "auto",
-                }}
-              >
-                {insights.map((insight, i) => (
-                  <div
-                    key={i}
-                    style={{
-                      background:
-                        insight.type === "success"
-                          ? "rgba(34, 197, 94, 0.1)"
-                          : insight.type === "danger"
-                            ? "rgba(239, 68, 68, 0.1)"
-                            : "rgba(245, 158, 11, 0.1)",
-                      border: `1px solid ${
-                        insight.type === "success"
-                          ? "#22c55e"
-                          : insight.type === "danger"
-                            ? "#ef4444"
-                            : "#f59e0b"
-                      }`,
-                      padding: 12,
-                      borderRadius: 12,
-                    }}
-                  >
-                    <div
-                      style={{
-                        display: "flex",
-                        alignItems: "center",
-                        gap: 8,
-                        marginBottom: 6,
-                      }}
-                    >
-                      {insight.type === "success" && (
-                        <CheckCircle size={16} color="#22c55e" />
-                      )}
-                      {insight.type === "warn" && (
-                        <AlertTriangle size={16} color="#f59e0b" />
-                      )}
-                      {insight.type === "danger" && (
-                        <AlertCircle size={16} color="#ef4444" />
-                      )}
-                      {insight.type === "tip" && (
-                        <TrendingUp size={16} color="#3b82f6" />
-                      )}
-                      <span
-                        style={{
-                          fontWeight: 700,
-                          color: "#fff",
-                          fontSize: "0.9rem",
-                        }}
-                      >
-                        {insight.title}
-                      </span>
-                    </div>
-                    <p
-                      style={{
-                        fontSize: "0.85rem",
-                        color: "#ccc",
-                        margin: 0,
-                        lineHeight: 1.3,
-                      }}
-                    >
-                      {insight.msg}
-                    </p>
-                    {insight.fix && (
-                      <div
-                        style={{
-                          marginTop: 6,
-                          fontSize: "0.8rem",
-                          color: "#fff",
-                          background: "rgba(255,255,255,0.05)",
-                          padding: "4px 8px",
-                          borderRadius: 6,
-                          display: "inline-block",
-                        }}
-                      >
-                        💡 {insight.fix}
-                      </div>
-                    )}
-                  </div>
-                ))}
-              </div>
-            </div>
+          {/* GOAL PACE INDICATOR */}
+          {(() => {
+            const pace = computeGoalPace(trendData, profile);
+            if (!pace) return null;
 
-            {/* 2. TREND CHART */}
+            const isGood = pace.onTrack;
+            const accentColor = pace.direction === "reached"
+              ? "#22c55e"
+              : isGood ? "#3b82f6" : "#f59e0b";
+
+            // Progress toward goal weight
+            const startWeight = profile?.weight || pace.latestWeight;
+            const targetW = profile?.target_weight;
+            let progressPct = 0;
+            if (targetW && startWeight && startWeight !== targetW) {
+              const totalDelta = Math.abs(startWeight - targetW);
+              const doneDelta = Math.abs(pace.latestWeight - targetW);
+              progressPct = Math.min(100, Math.max(0, Math.round((1 - doneDelta / totalDelta) * 100)));
+            }
+
+            return (
+              <div style={{
+                background: "#1f1f22",
+                border: `1px solid ${accentColor}33`,
+                borderRadius: 20,
+                padding: "20px 24px",
+                marginBottom: 24,
+                display: "grid",
+                gridTemplateColumns: "1fr auto",
+                gap: 16,
+                alignItems: "center",
+              }}>
+                {/* Left side */}
+                <div>
+                  <div style={{ fontSize: "0.75rem", fontWeight: 700, color: accentColor, textTransform: "uppercase", letterSpacing: 1.5, marginBottom: 6 }}>
+                    🎯 Goal Pace
+                  </div>
+
+                  {pace.weeksToGoal !== null ? (
+                    <div style={{ marginBottom: 10 }}>
+                      <span style={{ fontSize: "1.6rem", fontWeight: 800, color: "#fff" }}>
+                        ~{pace.weeksToGoal}
+                      </span>
+                      <span style={{ fontSize: "1rem", color: "#888", marginLeft: 6 }}>weeks to goal weight</span>
+                      <div style={{ fontSize: "0.8rem", color: "#555", marginTop: 2 }}>
+                        {pace.latestWeight} kg → {pace.targetWeight} kg
+                        {pace.weeklyRateKg !== null && (
+                          <span style={{ marginLeft: 8, color: pace.onTrack ? "#3b82f6" : "#f59e0b" }}>
+                            ({pace.weeklyRateKg > 0 ? "+" : ""}{pace.weeklyRateKg.toFixed(2)} kg/wk actual)
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                  ) : (
+                    <p style={{ margin: "0 0 10px", fontSize: "0.9rem", color: "#ccc" }}>{pace.message}</p>
+                  )}
+
+                  {/* Progress bar toward goal */}
+                  {targetW && (
+                    <div>
+                      <div style={{ display: "flex", justifyContent: "space-between", fontSize: "0.72rem", color: "#555", marginBottom: 4 }}>
+                        <span>Start: {profile?.weight} kg</span>
+                        <span style={{ color: accentColor, fontWeight: 700 }}>{progressPct}% there</span>
+                        <span>Goal: {targetW} kg</span>
+                      </div>
+                      <div style={{ background: "#27272a", height: 8, borderRadius: 4, overflow: "hidden" }}>
+                        <div style={{
+                          height: "100%",
+                          width: `${progressPct}%`,
+                          background: `linear-gradient(90deg, ${accentColor}, ${accentColor}99)`,
+                          borderRadius: 4,
+                          transition: "width 1s ease",
+                        }} />
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                {/* Right side — deficit/surplus badge */}
+                <div style={{
+                  textAlign: "center",
+                  background: pace.dailyDeficit > 0 ? "rgba(34,197,94,0.08)" : "rgba(239,68,68,0.08)",
+                  border: `1px solid ${pace.dailyDeficit > 0 ? "#22c55e33" : "#ef444433"}`,
+                  borderRadius: 14,
+                  padding: "12px 18px",
+                  minWidth: 90,
+                }}>
+                  <div style={{ fontSize: "1.3rem", fontWeight: 800, color: pace.dailyDeficit > 0 ? "#22c55e" : "#ef4444" }}>
+                    {pace.dailyDeficit > 0 ? "-" : "+"}{Math.abs(pace.dailyDeficit)}
+                  </div>
+                  <div style={{ fontSize: "0.7rem", color: "#555", fontWeight: 600 }}>kcal/day avg</div>
+                  <div style={{ fontSize: "0.7rem", color: "#444", marginTop: 2 }}>
+                    {pace.dailyDeficit > 0 ? "deficit" : "surplus"}
+                  </div>
+                </div>
+              </div>
+            );
+          })()}
+
+          <div className="chart-grid-container">
+            {/* TREND CHART */}
             <div
               className="chart-card trend-card-span"
               style={{
@@ -1247,13 +1473,12 @@ export default function UserDashboard() {
               marginBottom: 20,
             }}
           >
-            {/* MACRO CHART */}
+            {/* MACRO PROGRESS RINGS */}
             <div
               className="chart-card"
               style={{
                 padding: 24,
                 flex: "1 1 300px",
-                height: 500,
                 display: "flex",
                 flexDirection: "column",
                 border: "1px solid #333",
@@ -1266,189 +1491,100 @@ export default function UserDashboard() {
                   display: "flex",
                   justifyContent: "space-between",
                   alignItems: "center",
-                  marginBottom: 20,
+                  marginBottom: 24,
                 }}
               >
-                <h3 style={{ fontSize: "1.1rem", fontWeight: 700 }}>
+                <h3 style={{ fontSize: "1.1rem", fontWeight: 700, margin: 0 }}>
                   Macro Targets
                 </h3>
-                <span style={{ fontSize: "0.7rem", color: "#666" }}>
-                  For {selectedDate}
+                <span style={{ fontSize: "0.7rem", color: "#555" }}>
+                  {selectedDate}
                 </span>
               </div>
-              <div style={{ flex: 1, width: "100%", minHeight: 0 }}>
-                <ResponsiveContainer>
-                  <PieChart key={JSON.stringify(macroData)}>
-                    <Pie
-                      data={macroData}
-                      innerRadius={60}
-                      outerRadius={80}
-                      paddingAngle={5}
-                      dataKey="value"
-                      stroke="none"
-                    >
-                      {macroData.map((entry, index) => (
-                        <Cell key={`cell-${index}`} fill={entry.color} />
-                      ))}
-                    </Pie>
-                    <Tooltip
-                      contentStyle={{
-                        background: "#000",
-                        border: "1px solid #333",
-                        borderRadius: 8,
-                      }}
-                      itemStyle={{ color: "#fff" }}
-                    />
-                  </PieChart>
-                </ResponsiveContainer>
+
+              {/* Rings grid */}
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 20 }}>
+                {[
+                  { label: "Protein", key: "p", target: metrics.targets.p, color: COLORS.pro, emoji: "💪" },
+                  { label: "Carbs",   key: "c", target: metrics.targets.c, color: COLORS.carb, emoji: "🌾" },
+                  { label: "Fats",    key: "f", target: metrics.targets.f, color: COLORS.fat,  emoji: "🥑" },
+                  { label: "Fiber",   key: "fib", target: metrics.targets.fib, color: COLORS.fib, emoji: "🥦" },
+                ].map(({ label, key, target, color, emoji }) => {
+                  const eaten = metrics.macros[key] || 0;
+                  const pct = target > 0 ? Math.min(eaten / target, 1.2) : 0;
+                  const over = eaten > target;
+                  const ringColor = over ? "#ef4444" : color;
+                  // SVG circle math
+                  const R = 42;
+                  const circ = 2 * Math.PI * R;
+                  const dash = Math.min(pct, 1) * circ;
+                  return (
+                    <div key={key} style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 10 }}>
+                      <div style={{ position: "relative", width: 100, height: 100 }}>
+                        <svg width="100" height="100" style={{ transform: "rotate(-90deg)" }}>
+                          {/* Track */}
+                          <circle cx="50" cy="50" r={R} fill="none" stroke="#27272a" strokeWidth="10" />
+                          {/* Progress */}
+                          <circle
+                            cx="50" cy="50" r={R}
+                            fill="none"
+                            stroke={ringColor}
+                            strokeWidth="10"
+                            strokeLinecap="round"
+                            strokeDasharray={`${dash} ${circ}`}
+                            style={{ transition: "stroke-dasharray 0.8s ease, stroke 0.3s ease" }}
+                          />
+                        </svg>
+                        {/* Centre text */}
+                        <div style={{
+                          position: "absolute", inset: 0,
+                          display: "flex", flexDirection: "column",
+                          alignItems: "center", justifyContent: "center",
+                        }}>
+                          <span style={{ fontSize: "1.1rem", fontWeight: 800, color: over ? "#ef4444" : "#fff", lineHeight: 1 }}>
+                            {eaten}
+                          </span>
+                          <span style={{ fontSize: "0.65rem", color: "#555", lineHeight: 1 }}>/{target}g</span>
+                        </div>
+                      </div>
+                      <div style={{ textAlign: "center" }}>
+                        <div style={{ fontSize: "0.8rem", fontWeight: 700, color: over ? "#ef4444" : "#ccc" }}>
+                          {emoji} {label}
+                        </div>
+                        <div style={{
+                          fontSize: "0.7rem",
+                          color: over ? "#ef4444" : pct >= 0.9 ? "#22c55e" : "#555",
+                          fontWeight: 600,
+                          marginTop: 2,
+                        }}>
+                          {over ? `+${Math.round(eaten - target)}g over` : `${Math.round(pct * 100)}%`}
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
               </div>
-              <div style={{ display: "grid", gap: 12, marginTop: 20 }}>
-                <div
-                  style={{
-                    display: "flex",
-                    justifyContent: "space-between",
-                    alignItems: "center",
-                    padding: "8px 0",
-                    borderBottom: "1px solid #222",
-                  }}
-                >
-                  <span
-                    style={{
-                      display: "flex",
-                      alignItems: "center",
-                      gap: 6,
-                      fontSize: "0.9rem",
-                    }}
-                  >
-                    {" "}
-                    <div
-                      style={{
-                        width: 8,
-                        height: 8,
-                        borderRadius: "50%",
-                        background: COLORS.pro,
-                      }}
-                    ></div>{" "}
-                    Protein{" "}
-                  </span>
-                  <span style={{ fontSize: "0.9rem", fontWeight: 600 }}>
-                    {" "}
-                    {Math.round(metrics.macros.p)}{" "}
-                    <span style={{ color: "#666", fontWeight: 400 }}>
-                      {" "}
-                      / {metrics.targets.p}g{" "}
-                    </span>{" "}
+
+              {/* Calorie bar at the bottom */}
+              <div style={{ marginTop: 24, paddingTop: 20, borderTop: "1px solid #222" }}>
+                <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 8, alignItems: "baseline" }}>
+                  <span style={{ fontSize: "0.85rem", color: "#888", fontWeight: 600 }}>🔥 Calories</span>
+                  <span style={{ fontSize: "0.85rem", fontWeight: 700, color: metrics.eaten > metrics.target ? "#ef4444" : "#fff" }}>
+                    {metrics.eaten} <span style={{ color: "#555", fontWeight: 400 }}>/ {metrics.target} kcal</span>
                   </span>
                 </div>
-                <div
-                  style={{
-                    display: "flex",
-                    justifyContent: "space-between",
-                    alignItems: "center",
-                    padding: "8px 0",
-                    borderTop: "1px solid #222",
-                  }}
-                >
-                  <span
-                    style={{
-                      display: "flex",
-                      alignItems: "center",
-                      gap: 6,
-                      fontSize: "0.9rem",
-                    }}
-                  >
-                    {" "}
-                    <div
-                      style={{
-                        width: 8,
-                        height: 8,
-                        borderRadius: "50%",
-                        background: COLORS.fib,
-                      }}
-                    ></div>{" "}
-                    Fiber{" "}
-                  </span>
-                  <span style={{ fontSize: "0.9rem", fontWeight: 600 }}>
-                    {" "}
-                    {Math.round(metrics.macros.fib)}{" "}
-                    <span style={{ color: "#666", fontWeight: 400 }}>
-                      {" "}
-                      / {metrics.targets.fib}g{" "}
-                    </span>{" "}
-                  </span>
-                </div>
-                <div
-                  style={{
-                    display: "flex",
-                    justifyContent: "space-between",
-                    alignItems: "center",
-                    padding: "8px 0",
-                    borderBottom: "1px solid #222",
-                  }}
-                >
-                  <span
-                    style={{
-                      display: "flex",
-                      alignItems: "center",
-                      gap: 6,
-                      fontSize: "0.9rem",
-                    }}
-                  >
-                    {" "}
-                    <div
-                      style={{
-                        width: 8,
-                        height: 8,
-                        borderRadius: "50%",
-                        background: COLORS.carb,
-                      }}
-                    ></div>{" "}
-                    Carbs{" "}
-                  </span>
-                  <span style={{ fontSize: "0.9rem", fontWeight: 600 }}>
-                    {" "}
-                    {Math.round(metrics.macros.c)}{" "}
-                    <span style={{ color: "#666", fontWeight: 400 }}>
-                      {" "}
-                      / {metrics.targets.c}g{" "}
-                    </span>{" "}
-                  </span>
-                </div>
-                <div
-                  style={{
-                    display: "flex",
-                    justifyContent: "space-between",
-                    alignItems: "center",
-                    padding: "8px 0",
-                  }}
-                >
-                  <span
-                    style={{
-                      display: "flex",
-                      alignItems: "center",
-                      gap: 6,
-                      fontSize: "0.9rem",
-                    }}
-                  >
-                    {" "}
-                    <div
-                      style={{
-                        width: 8,
-                        height: 8,
-                        borderRadius: "50%",
-                        background: COLORS.fat,
-                      }}
-                    ></div>{" "}
-                    Fats{" "}
-                  </span>
-                  <span style={{ fontSize: "0.9rem", fontWeight: 600 }}>
-                    {" "}
-                    {Math.round(metrics.macros.f)}{" "}
-                    <span style={{ color: "#666", fontWeight: 400 }}>
-                      {" "}
-                      / {metrics.targets.f}g{" "}
-                    </span>{" "}
-                  </span>
+                <div style={{ background: "#27272a", height: 10, borderRadius: 5, overflow: "hidden" }}>
+                  <div style={{
+                    height: "100%",
+                    width: `${Math.min(100, (metrics.eaten / metrics.target) * 100)}%`,
+                    background: metrics.eaten > metrics.target
+                      ? "#ef4444"
+                      : metrics.eaten / metrics.target > 0.9
+                        ? "#22c55e"
+                        : COLORS.cals,
+                    borderRadius: 5,
+                    transition: "width 0.8s ease",
+                  }} />
                 </div>
               </div>
             </div>
@@ -1507,7 +1643,6 @@ export default function UserDashboard() {
                     style={{ flex: 1, overflowY: "auto", paddingRight: 6 }}
                   >
                     {selectedLogs.map((log) => {
-                      const isCulprit = culpritIds.has(log.id);
                       return (
                         <div
                           key={log.id}
@@ -1517,12 +1652,8 @@ export default function UserDashboard() {
                             alignItems: "center",
                             padding: "14px 10px",
                             borderBottom: "1px solid #222",
-                            background: isCulprit
-                              ? "rgba(239, 68, 68, 0.1)"
-                              : "transparent",
-                            borderLeft: isCulprit
-                              ? "3px solid #ef4444"
-                              : "3px solid transparent",
+                            background: "transparent",
+                            borderLeft: "3px solid transparent",
                             borderRadius: 4,
                             marginBottom: 4,
                           }}
@@ -1531,7 +1662,7 @@ export default function UserDashboard() {
                             <div
                               style={{
                                 fontWeight: 600,
-                                color: isCulprit ? "#ef4444" : "#fff",
+                                color: "#fff",
                                 textTransform: "capitalize",
                                 fontSize: "1rem",
                               }}
@@ -1568,10 +1699,7 @@ export default function UserDashboard() {
                                 <span
                                   style={{
                                     color: COLORS.fat,
-                                    fontWeight:
-                                      isCulprit && log.fats > 10
-                                        ? "800"
-                                        : "400",
+                                    fontWeight: "400",
                                   }}
                                 >
                                   F: {log.fats}
@@ -1630,6 +1758,148 @@ export default function UserDashboard() {
             </div>
           </div>
         </>
+      )}
+
+      {/* ── INLINE CHAT DRAWER ─────────────────────────────────────────── */}
+      {chatOpen && (
+        <div style={{
+          position: "fixed",
+          bottom: 74, // above bottom nav
+          left: "50%",
+          transform: "translateX(-50%)",
+          width: "min(480px, calc(100vw - 24px))",
+          height: 420,
+          background: "#111113",
+          border: "1px solid #2a2a2e",
+          borderRadius: 20,
+          boxShadow: "0 -4px 40px rgba(0,0,0,0.6)",
+          display: "flex",
+          flexDirection: "column",
+          zIndex: 200,
+          overflow: "hidden",
+        }}>
+          {/* Header */}
+          <div style={{
+            display: "flex", alignItems: "center", justifyContent: "space-between",
+            padding: "12px 16px",
+            borderBottom: "1px solid #222",
+            background: "linear-gradient(135deg, rgba(59,130,246,0.1), rgba(139,92,246,0.1))",
+            flexShrink: 0,
+          }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+              <div style={{
+                background: "linear-gradient(135deg, #3b82f6, #8b5cf6)",
+                borderRadius: 8, padding: 6, display: "flex",
+              }}>
+                <Bot size={16} color="#fff" />
+              </div>
+              <div>
+                <div style={{ fontSize: "0.85rem", fontWeight: 700, color: "#fff" }}>NutriCoach</div>
+                <div style={{ fontSize: "0.65rem", color: "#555" }}>Live · uses your real data</div>
+              </div>
+            </div>
+            <button
+              onClick={() => setChatOpen(false)}
+              style={{ background: "none", border: "none", color: "#555", cursor: "pointer", padding: 4 }}
+            >
+              <X size={18} />
+            </button>
+          </div>
+
+          {/* Messages */}
+          <div style={{
+            flex: 1, overflowY: "auto", padding: "12px 14px",
+            display: "flex", flexDirection: "column", gap: 10,
+          }}
+            className="custom-scrollbar"
+          >
+            {chatMessages.length === 0 && (
+              <div style={{ textAlign: "center", marginTop: 40 }}>
+                <div style={{ fontSize: "1.8rem", marginBottom: 10 }}>🤖</div>
+                <div style={{ color: "#444", fontSize: "0.85rem" }}>Ask me anything about your nutrition</div>
+                <div style={{ display: "flex", flexWrap: "wrap", gap: 6, justifyContent: "center", marginTop: 14 }}>
+                  {["What should I eat now?", "How's my protein?", "Am I on track today?"].map((q) => (
+                    <button
+                      key={q}
+                      onClick={() => { setChatInput(q); }}
+                      style={{
+                        background: "#1f1f22", border: "1px solid #333",
+                        color: "#aaa", fontSize: "0.75rem", padding: "6px 10px",
+                        borderRadius: 12, cursor: "pointer",
+                      }}
+                    >{q}</button>
+                  ))}
+                </div>
+              </div>
+            )}
+            {chatMessages.map((msg, i) => (
+              <div key={i} style={{
+                display: "flex",
+                justifyContent: msg.role === "user" ? "flex-end" : "flex-start",
+              }}>
+                <div style={{
+                  maxWidth: "82%",
+                  background: msg.role === "user"
+                    ? "linear-gradient(135deg, #3b82f6, #8b5cf6)"
+                    : "#1f1f22",
+                  border: msg.role === "user" ? "none" : "1px solid #2a2a2e",
+                  color: "#fff",
+                  padding: "9px 13px",
+                  borderRadius: msg.role === "user" ? "16px 16px 4px 16px" : "16px 16px 16px 4px",
+                  fontSize: "0.85rem",
+                  lineHeight: 1.55,
+                  whiteSpace: "pre-wrap",
+                }}>
+                  {msg.content}
+                </div>
+              </div>
+            ))}
+            {chatLoading && (
+              <div style={{ display: "flex", gap: 5, padding: "4px 0" }}>
+                {[0, 0.15, 0.3].map((delay, i) => (
+                  <div key={i} style={{
+                    width: 7, height: 7, borderRadius: "50%", background: "#3b82f6",
+                    animation: `pulse 1s ease-in-out ${delay}s infinite`,
+                  }} />
+                ))}
+              </div>
+            )}
+            <div ref={chatEndRef} />
+          </div>
+
+          {/* Input */}
+          <div style={{
+            display: "flex", gap: 8, padding: "10px 12px",
+            borderTop: "1px solid #222", flexShrink: 0, background: "#111113",
+          }}>
+            <input
+              value={chatInput}
+              onChange={(e) => setChatInput(e.target.value)}
+              onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); sendChatMessage(); } }}
+              placeholder="Ask NutriCoach..."
+              style={{
+                flex: 1, background: "#1f1f22", border: "1px solid #2a2a2e",
+                borderRadius: 12, padding: "10px 14px", color: "#fff",
+                fontSize: "0.875rem", outline: "none",
+              }}
+            />
+            <button
+              onClick={sendChatMessage}
+              disabled={chatLoading || !chatInput.trim()}
+              style={{
+                background: chatLoading || !chatInput.trim()
+                  ? "#1f1f22"
+                  : "linear-gradient(135deg, #3b82f6, #8b5cf6)",
+                border: "1px solid #333", borderRadius: 12,
+                padding: "10px 16px", color: chatLoading || !chatInput.trim() ? "#444" : "#fff",
+                cursor: chatLoading || !chatInput.trim() ? "not-allowed" : "pointer",
+                fontWeight: 700, fontSize: "0.85rem", transition: "all 0.2s",
+              }}
+            >
+              {chatLoading ? "..." : "Send"}
+            </button>
+          </div>
+        </div>
       )}
     </div>
   );
