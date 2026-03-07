@@ -1176,7 +1176,14 @@ export default function Home() {
       }),
       { calories: 0, protein: 0, carbs: 0, fats: 0, fiber: 0, water: 0 },
     );
-    setTotals(t);
+    setTotals({
+      calories: Math.round(t.calories),
+      protein: Math.round(t.protein * 10) / 10,
+      carbs: Math.round(t.carbs * 10) / 10,
+      fats: Math.round(t.fats * 10) / 10,
+      fiber: Math.round(t.fiber * 10) / 10,
+      water: Math.round(t.water * 10) / 10,
+    });
   }, [logs]);
 
   const getDisplayItems = () => {

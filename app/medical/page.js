@@ -23,6 +23,8 @@ import {
   TrendingUp,
   TrendingDown,
   Minus,
+  Sparkles,
+  X,
 } from "lucide-react";
 
 // ─── STATUS BADGE ─────────────────────────────────────────────────────────────
@@ -73,7 +75,14 @@ function ReportCard({ report, onDelete }) {
             </div>
             <div style={{ fontSize: "0.75rem", color: "#52525b", display: "flex", alignItems: "center", gap: 4 }}>
               <Clock size={11} />
-              {new Date(report.created_at).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" })}
+              {report.report_date
+                ? new Date(report.report_date).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" })
+                : new Date(report.created_at).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" })}
+              {report.report_date && (
+                <span style={{ marginLeft: 4, fontSize: "0.68rem", color: "#3f3f46", fontStyle: "italic" }}>
+                  · report date
+                </span>
+              )}
             </div>
           </div>
           <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
@@ -249,27 +258,33 @@ export default function MedicalPage() {
   const [session, setSession] = useState(null);
   const [pageLoading, setPageLoading] = useState(true);
 
-  // Upload state
-  const [file, setFile] = useState(null);
+  // Upload state — now supports multiple files
+  const [files, setFiles] = useState([]); // [{ file, id }]
   const [dragOver, setDragOver] = useState(false);
   const [analyzing, setAnalyzing] = useState(false);
+  const [analyzeProgress, setAnalyzeProgress] = useState({ done: 0, total: 0 });
   const [uploadError, setUploadError] = useState("");
-  const [latestReport, setLatestReport] = useState(null);
+  const [latestReports, setLatestReports] = useState([]); // newly analysed
 
   // History
   const [reports, setReports] = useState([]);
   const [histLoading, setHistLoading] = useState(false);
   const [tab, setTab] = useState("upload");
 
+  // Summary modal
+  const [summaryOpen, setSummaryOpen] = useState(false);
+  const [summaryText, setSummaryText] = useState("");
+  const [summaryLoading, setSummaryLoading] = useState(false);
+
   const fileInputRef = useRef(null);
 
   // ── AUTH ──────────────────────────────────────────────────────────────────
   useEffect(() => {
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      if (!session) { router.push("/"); return; }
-      setSession(session);
+    supabase.auth.getSession().then(({ data: { session: sess } }) => {
+      if (!sess) { router.push("/"); return; }
+      setSession(sess);
       setPageLoading(false);
-      fetchHistory(session);
+      fetchHistory(sess);
     });
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [router]);
@@ -288,63 +303,67 @@ export default function MedicalPage() {
     setHistLoading(false);
   };
 
-  // ── FILE HANDLING ─────────────────────────────────────────────────────────
-  const handleFileSelect = (selected) => {
+  // ── FILE HANDLING (multiple) ───────────────────────────────────────────────
+  const addFiles = (incoming) => {
     setUploadError("");
-    setLatestReport(null);
-    if (!selected) return;
-    if (selected.type !== "application/pdf") {
-      setUploadError("Only PDF files are supported.");
-      return;
+    const valid = [];
+    const errors = [];
+    for (const f of Array.from(incoming)) {
+      if (f.type !== "application/pdf") { errors.push(`${f.name}: only PDFs supported`); continue; }
+      if (f.size > 10 * 1024 * 1024) { errors.push(`${f.name}: too large (max 10MB)`); continue; }
+      valid.push({ file: f, id: `${f.name}-${Date.now()}-${Math.random()}` });
     }
-    if (selected.size > 10 * 1024 * 1024) {
-      setUploadError("File too large. Maximum 10MB.");
-      return;
-    }
-    setFile(selected);
+    if (errors.length) setUploadError(errors.join(" · "));
+    setFiles((prev) => {
+      // deduplicate by name
+      const existingNames = new Set(prev.map((x) => x.file.name));
+      return [...prev, ...valid.filter((v) => !existingNames.has(v.file.name))];
+    });
   };
+
+  const removeFile = (id) => setFiles((prev) => prev.filter((f) => f.id !== id));
 
   const handleDrop = (e) => {
     e.preventDefault();
     setDragOver(false);
-    const dropped = e.dataTransfer.files[0];
-    if (dropped) handleFileSelect(dropped);
+    addFiles(e.dataTransfer.files);
   };
 
-  // ── ANALYSE ───────────────────────────────────────────────────────────────
-  const analyzeReport = async () => {
-    if (!file || analyzing) return;
+  // ── ANALYSE (sequential, one by one) ─────────────────────────────────────
+  const analyzeReports = async () => {
+    if (!files.length || analyzing) return;
     setAnalyzing(true);
     setUploadError("");
-    setLatestReport(null);
+    setLatestReports([]);
+    setAnalyzeProgress({ done: 0, total: files.length });
 
-    try {
-      const formData = new FormData();
-      formData.append("file", file);
-      formData.append("userId", session.user.id);
-      formData.append("accessToken", session.access_token);
+    const newReports = [];
+    for (let i = 0; i < files.length; i++) {
+      const { file } = files[i];
+      try {
+        const formData = new FormData();
+        formData.append("file", file);
+        formData.append("userId", session.user.id);
+        formData.append("accessToken", session.access_token);
 
-      const res = await fetch("/api/medical/analyze", {
-        method: "POST",
-        body: formData,
-      });
+        const res = await fetch("/api/medical/analyze", { method: "POST", body: formData });
+        const data = await res.json();
 
-      const data = await res.json();
-
-      if (!res.ok || data.error) {
-        setUploadError(data.error || "Analysis failed. Please try again.");
-        return;
+        if (data.error) {
+          setUploadError((prev) => prev ? `${prev} · ${file.name}: ${data.error}` : `${file.name}: ${data.error}`);
+        } else {
+          newReports.push(data.report);
+          setReports((prev) => [data.report, ...prev]);
+        }
+      } catch {
+        setUploadError((prev) => prev ? `${prev} · ${file.name}: network error` : `${file.name}: network error`);
       }
-
-      setLatestReport(data.report);
-      setReports((prev) => [data.report, ...prev]);
-      setFile(null);
-      if (data.warning) setUploadError(`⚠️ ${data.warning}`);
-    } catch {
-      setUploadError("Network error. Please check your connection.");
-    } finally {
-      setAnalyzing(false);
+      setAnalyzeProgress({ done: i + 1, total: files.length });
     }
+
+    setLatestReports(newReports);
+    setFiles([]);
+    setAnalyzing(false);
   };
 
   // ── DELETE ─────────────────────────────────────────────────────────────────
@@ -356,8 +375,58 @@ export default function MedicalPage() {
     });
     if (res.ok) {
       setReports((prev) => prev.filter((r) => r.id !== id));
-      if (latestReport?.id === id) setLatestReport(null);
+      setLatestReports((prev) => prev.filter((r) => r.id !== id));
     }
+  };
+
+  // ── SUMMARY (AI summary of all history reports) ───────────────────────────
+  const generateSummary = async () => {
+    if (!reports.length) return;
+    setSummaryOpen(true);
+    setSummaryLoading(true);
+    setSummaryText("");
+
+    try {
+      // Build a compact digest of all reports for the prompt
+      const digest = reports.map((r, i) => {
+        const dateLabel = r.report_date
+          ? new Date(r.report_date).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" })
+          : new Date(r.created_at).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" });
+        const abnormal = (r.flags || []).filter((f) => f.status !== "normal");
+        return `Report ${i + 1} — ${r.file_name} (${dateLabel}):
+Summary: ${r.summary || r.analysis?.slice(0, 200) || "N/A"}
+Abnormal markers: ${abnormal.length ? abnormal.map((f) => `${f.marker} ${f.value} (${f.status})`).join(", ") : "None"}`;
+      }).join("\n\n");
+
+      const prompt = `You are a clinical dietitian. Below are ${reports.length} medical reports uploaded by a patient.
+
+${digest}
+
+Write a comprehensive longitudinal health summary in plain English (250-350 words). Structure it as:
+1. **Overall Health Status** — general picture across all reports
+2. **Key Concerns** — the most important abnormal markers and what they mean together
+3. **Positive Findings** — what's improving or already normal
+4. **Top Dietary Actions** — 3-5 specific, actionable diet changes based on the combined findings, with Indian food examples
+5. **Follow-up Advice** — which markers need re-testing and when
+
+Be specific — mention actual values. Prefer practical Indian food-based advice. End with a brief disclaimer.`;
+
+      const res = await fetch("/api/agent", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          message: prompt,
+          userId: session.user.id,
+          accessToken: session.access_token,
+          history: [],
+        }),
+      });
+      const data = await res.json();
+      setSummaryText(data.reply || data.error || "Could not generate summary.");
+    } catch {
+      setSummaryText("Network error. Please try again.");
+    }
+    setSummaryLoading(false);
   };
 
   if (pageLoading) {
@@ -394,16 +463,29 @@ export default function MedicalPage() {
           <div style={{ fontWeight: 700, fontSize: "1rem" }}>Medical Reports</div>
           <div style={{ fontSize: "0.7rem", color: "#52525b" }}>AI analysis · Dietary recommendations</div>
         </div>
-        <div style={{ marginLeft: "auto", display: "flex", gap: 4, background: "var(--surface)", padding: 4, borderRadius: 10 }}>
-          {["upload", "history"].map((t) => (
-            <button key={t} onClick={() => setTab(t)} style={{
-              padding: "5px 12px", borderRadius: 7, border: "none",
-              background: tab === t ? "#10b981" : "transparent",
-              color: tab === t ? "#fff" : "#71717a",
-              fontSize: "0.75rem", fontWeight: 600, cursor: "pointer",
-              textTransform: "capitalize",
-            }}>{t === "history" ? `📋 ${reports.length}` : "⬆️ Upload"}</button>
-          ))}
+        <div style={{ marginLeft: "auto", display: "flex", gap: 6, alignItems: "center" }}>
+          <button
+            onClick={() => router.push("/medical/trends")}
+            style={{
+              display: "flex", alignItems: "center", gap: 5,
+              padding: "6px 12px", borderRadius: 8, border: "1px solid #6366f130",
+              background: "#6366f115", color: "#818cf8",
+              fontSize: "0.72rem", fontWeight: 700, cursor: "pointer",
+            }}
+          >
+            <Activity size={12} /> Trends
+          </button>
+          <div style={{ display: "flex", gap: 4, background: "var(--surface)", padding: 4, borderRadius: 10 }}>
+            {["upload", "history"].map((t) => (
+              <button key={t} onClick={() => setTab(t)} style={{
+                padding: "5px 12px", borderRadius: 7, border: "none",
+                background: tab === t ? "#10b981" : "transparent",
+                color: tab === t ? "#fff" : "#71717a",
+                fontSize: "0.75rem", fontWeight: 600, cursor: "pointer",
+                textTransform: "capitalize",
+              }}>{t === "history" ? `📋 ${reports.length}` : "⬆️ Upload"}</button>
+            ))}
+          </div>
         </div>
       </div>
 
@@ -416,13 +498,13 @@ export default function MedicalPage() {
               onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
               onDragLeave={() => setDragOver(false)}
               onDrop={handleDrop}
-              onClick={() => !file && fileInputRef.current?.click()}
+              onClick={() => !files.length && fileInputRef.current?.click()}
               style={{
-                border: `2px dashed ${dragOver ? "#10b981" : file ? "#6366f1" : "#27272a"}`,
-                borderRadius: 16, padding: "32px 20px",
+                border: `2px dashed ${dragOver ? "#10b981" : files.length ? "#6366f1" : "#27272a"}`,
+                borderRadius: 16, padding: "28px 20px",
                 display: "flex", flexDirection: "column", alignItems: "center", gap: 12,
-                textAlign: "center", cursor: file ? "default" : "pointer",
-                background: dragOver ? "#10b98108" : file ? "#6366f108" : "transparent",
+                textAlign: "center", cursor: files.length ? "default" : "pointer",
+                background: dragOver ? "#10b98108" : files.length ? "#6366f108" : "transparent",
                 transition: "all 0.2s",
               }}
             >
@@ -430,33 +512,17 @@ export default function MedicalPage() {
                 ref={fileInputRef}
                 type="file"
                 accept="application/pdf"
+                multiple
                 style={{ display: "none" }}
-                onChange={(e) => handleFileSelect(e.target.files?.[0] || null)}
+                onChange={(e) => addFiles(e.target.files)}
               />
-              {file ? (
-                <>
-                  <FileText size={36} color="#6366f1" />
-                  <div>
-                    <div style={{ fontWeight: 700, fontSize: "0.95rem" }}>{file.name}</div>
-                    <div style={{ fontSize: "0.78rem", color: "#71717a", marginTop: 4 }}>
-                      {(file.size / 1024).toFixed(0)} KB · PDF
-                    </div>
-                  </div>
-                  <button
-                    onClick={(e) => { e.stopPropagation(); setFile(null); }}
-                    style={{ fontSize: "0.75rem", color: "#ef4444", background: "none", border: "none", cursor: "pointer" }}
-                  >
-                    <XCircle size={14} style={{ verticalAlign: "middle", marginRight: 4 }} />
-                    Remove
-                  </button>
-                </>
-              ) : (
+              {files.length === 0 ? (
                 <>
                   <Upload size={36} color="#52525b" />
                   <div>
-                    <div style={{ fontWeight: 700, fontSize: "0.95rem" }}>Drop your medical report here</div>
+                    <div style={{ fontWeight: 700, fontSize: "0.95rem" }}>Drop your medical reports here</div>
                     <div style={{ fontSize: "0.8rem", color: "#52525b", marginTop: 4 }}>
-                      PDF only · Max 10MB · Blood tests, lipid panels, HbA1c, thyroid, etc.
+                      PDF only · Max 10MB each · Multiple files supported
                     </div>
                   </div>
                   <span style={{
@@ -465,35 +531,82 @@ export default function MedicalPage() {
                     fontSize: "0.8rem", color: "#a1a1aa",
                   }}>Browse files</span>
                 </>
+              ) : (
+                <>
+                  <div style={{ width: "100%", display: "flex", flexDirection: "column", gap: 8 }}>
+                    {files.map(({ file, id }) => (
+                      <div key={id} style={{
+                        display: "flex", alignItems: "center", gap: 10,
+                        padding: "9px 12px", borderRadius: 10,
+                        background: "var(--surface)", border: "1px solid #6366f130",
+                        textAlign: "left",
+                      }}>
+                        <FileText size={15} color="#6366f1" style={{ flexShrink: 0 }} />
+                        <div style={{ flex: 1, overflow: "hidden" }}>
+                          <div style={{ fontWeight: 600, fontSize: "0.82rem", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{file.name}</div>
+                          <div style={{ fontSize: "0.72rem", color: "#52525b" }}>{(file.size / 1024).toFixed(0)} KB</div>
+                        </div>
+                        <button
+                          onClick={(e) => { e.stopPropagation(); removeFile(id); }}
+                          style={{ background: "none", border: "none", color: "#52525b", cursor: "pointer", padding: 4 }}
+                        >
+                          <XCircle size={14} />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                  <button
+                    onClick={(e) => { e.stopPropagation(); fileInputRef.current?.click(); }}
+                    style={{
+                      fontSize: "0.78rem", color: "#818cf8", background: "none", border: "none",
+                      cursor: "pointer", display: "flex", alignItems: "center", gap: 4,
+                    }}
+                  >
+                    <Upload size={12} /> Add more files
+                  </button>
+                </>
               )}
             </div>
 
             {/* ── ANALYSE BUTTON ── */}
-            {file && (
+            {files.length > 0 && !analyzing && (
               <button
-                onClick={analyzeReport}
-                disabled={analyzing}
+                onClick={analyzeReports}
                 style={{
                   width: "100%", padding: "14px", borderRadius: 12, border: "none",
-                  background: analyzing ? "#27272a" : "#10b981",
-                  color: analyzing ? "#52525b" : "#fff",
-                  fontWeight: 700, fontSize: "0.95rem", cursor: analyzing ? "not-allowed" : "pointer",
+                  background: "#10b981", color: "#fff",
+                  fontWeight: 700, fontSize: "0.95rem", cursor: "pointer",
                   display: "flex", alignItems: "center", justifyContent: "center", gap: 8,
                 }}
               >
-                {analyzing ? (
-                  <><Loader2 size={16} className="animate-spin" /> Analysing report…</>
-                ) : (
-                  <><ShieldCheck size={16} /> Analyse with AI</>
-                )}
+                <ShieldCheck size={16} />
+                Analyse {files.length} Report{files.length > 1 ? "s" : ""} with AI
               </button>
             )}
 
-            {/* Analysing progress info */}
+            {/* Analysing progress */}
             {analyzing && (
-              <div style={{ textAlign: "center", padding: "20px 0", display: "flex", flexDirection: "column", alignItems: "center", gap: 8 }}>
-                <div style={{ fontSize: "0.82rem", color: "#71717a" }}>Reading your report and identifying dietary recommendations…</div>
-                <div style={{ fontSize: "0.75rem", color: "#52525b" }}>This takes ~10-15 seconds</div>
+              <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                <div style={{
+                  width: "100%", padding: "14px", borderRadius: 12, border: "none",
+                  background: "#27272a", color: "#52525b",
+                  fontWeight: 700, fontSize: "0.95rem",
+                  display: "flex", alignItems: "center", justifyContent: "center", gap: 8,
+                }}>
+                  <Loader2 size={16} className="animate-spin" />
+                  Analysing {analyzeProgress.done}/{analyzeProgress.total}…
+                </div>
+                {/* Progress bar */}
+                <div style={{ height: 4, background: "#27272a", borderRadius: 10, overflow: "hidden" }}>
+                  <div style={{
+                    height: "100%", background: "#10b981", borderRadius: 10,
+                    width: `${analyzeProgress.total ? (analyzeProgress.done / analyzeProgress.total) * 100 : 0}%`,
+                    transition: "width 0.4s",
+                  }} />
+                </div>
+                <div style={{ textAlign: "center", fontSize: "0.8rem", color: "#71717a" }}>
+                  Reading reports and identifying dietary recommendations…
+                </div>
               </div>
             )}
 
@@ -505,13 +618,15 @@ export default function MedicalPage() {
               </div>
             )}
 
-            {/* Latest result */}
-            {latestReport && !analyzing && (
-              <div>
-                <div style={{ fontSize: "0.78rem", color: "#10b981", marginBottom: 8, display: "flex", alignItems: "center", gap: 5 }}>
-                  <CheckCircle size={13} /> Analysis complete · Saved to history
+            {/* Latest results */}
+            {latestReports.length > 0 && !analyzing && (
+              <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                <div style={{ fontSize: "0.78rem", color: "#10b981", display: "flex", alignItems: "center", gap: 5 }}>
+                  <CheckCircle size={13} /> {latestReports.length} report{latestReports.length > 1 ? "s" : ""} analysed · Saved to history
                 </div>
-                <ReportCard report={latestReport} onDelete={deleteReport} />
+                {latestReports.map((r) => (
+                  <ReportCard key={r.id || r.file_name} report={r} onDelete={deleteReport} />
+                ))}
               </div>
             )}
           </>
@@ -519,11 +634,27 @@ export default function MedicalPage() {
 
         {tab === "history" && (
           <>
-            <div style={{ fontSize: "0.8rem", color: "#52525b", display: "flex", alignItems: "center", gap: 6 }}>
-              <FileText size={13} />
-              {reports.length === 0
-                ? "No reports yet — upload your first medical report."
-                : `${reports.length} report${reports.length > 1 ? "s" : ""} analysed`}
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+              <div style={{ fontSize: "0.8rem", color: "#52525b", display: "flex", alignItems: "center", gap: 6 }}>
+                <FileText size={13} />
+                {reports.length === 0
+                  ? "No reports yet — upload your first medical report."
+                  : `${reports.length} report${reports.length > 1 ? "s" : ""} analysed`}
+              </div>
+              {reports.length >= 1 && (
+                <button
+                  onClick={generateSummary}
+                  style={{
+                    display: "flex", alignItems: "center", gap: 6,
+                    padding: "7px 14px", borderRadius: 10, border: "none",
+                    background: "linear-gradient(135deg, #8b5cf6, #6366f1)",
+                    color: "#fff", fontWeight: 700, fontSize: "0.78rem", cursor: "pointer",
+                    boxShadow: "0 4px 14px #6366f125",
+                  }}
+                >
+                  <Sparkles size={13} /> AI Summary
+                </button>
+              )}
             </div>
 
             {histLoading && (
@@ -550,6 +681,76 @@ export default function MedicalPage() {
           AI analysis is for informational purposes only. Always consult a qualified physician or registered dietitian before making dietary changes based on medical reports.
         </div>
       </div>
+
+      {/* ── SUMMARY MODAL ── */}
+      {summaryOpen && (
+        <div
+          className="modal-overlay"
+          style={{ alignItems: "flex-end", paddingBottom: 62 }}
+          onClick={(e) => { if (e.target === e.currentTarget) setSummaryOpen(false); }}
+        >
+          <div style={{
+            background: "var(--surface)",
+            border: "1px solid var(--border)",
+            borderRadius: "20px 20px 0 0",
+            width: "100%", maxWidth: 480,
+            maxHeight: "80dvh",
+            display: "flex", flexDirection: "column",
+            boxShadow: "0 -10px 40px rgba(0,0,0,0.5)",
+            margin: "0 auto",
+          }}>
+            {/* Drag handle */}
+            <div style={{ display: "flex", justifyContent: "center", padding: "10px 0 4px" }}>
+              <div style={{ width: 36, height: 4, borderRadius: 2, background: "#333" }} />
+            </div>
+
+            {/* Header */}
+            <div style={{
+              display: "flex", justifyContent: "space-between", alignItems: "center",
+              padding: "4px 20px 12px", borderBottom: "1px solid var(--border)", flexShrink: 0,
+            }}>
+              <h3 style={{ margin: 0, fontSize: "1rem", display: "flex", alignItems: "center", gap: 8 }}>
+                <Sparkles size={16} color="#8b5cf6" /> Longitudinal Health Summary
+              </h3>
+              <button
+                onClick={() => setSummaryOpen(false)}
+                style={{ background: "none", border: "none", color: "#52525b", cursor: "pointer", padding: 4 }}
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            {/* Body */}
+            <div style={{ flex: 1, overflowY: "auto", padding: "16px 20px" }}>
+              {summaryLoading ? (
+                <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 12, padding: "40px 0" }}>
+                  <Loader2 size={28} color="#8b5cf6" className="animate-spin" />
+                  <div style={{ fontSize: "0.82rem", color: "#71717a" }}>
+                    Analysing {reports.length} reports for longitudinal patterns…
+                  </div>
+                </div>
+              ) : (
+                <div style={{
+                  fontSize: "0.85rem", lineHeight: 1.75, color: "#d4d4d8",
+                  whiteSpace: "pre-wrap",
+                }}>
+                  {summaryText}
+                </div>
+              )}
+            </div>
+
+            {/* Footer */}
+            {!summaryLoading && summaryText && (
+              <div style={{ padding: "12px 20px", borderTop: "1px solid var(--border)", flexShrink: 0 }}>
+                <div style={{ fontSize: "0.72rem", color: "#52525b", display: "flex", gap: 6, alignItems: "flex-start" }}>
+                  <Info size={12} style={{ marginTop: 1, flexShrink: 0 }} />
+                  AI-generated summary for informational purposes only. Not a substitute for professional medical advice.
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
 }

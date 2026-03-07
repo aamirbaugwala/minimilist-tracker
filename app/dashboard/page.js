@@ -250,11 +250,11 @@ export default function UserDashboard() {
     const dailyLogs = logsToFilter.filter((l) => l.date === dateStr);
     setSelectedDate(dateStr);
     setSelectedLogs(dailyLogs);
-    const eatenCals = dailyLogs.reduce(
+    const eatenCals = Math.round(dailyLogs.reduce(
       (sum, item) => sum + (item.calories || 0),
       0,
-    );
-    const macrosEaten = dailyLogs.reduce(
+    ));
+    const rawMacros = dailyLogs.reduce(
       (acc, item) => {
         let fib = item.fiber || 0;
         if (!fib && item.name !== "Water") {
@@ -270,6 +270,12 @@ export default function UserDashboard() {
       },
       { p: 0, c: 0, f: 0, fib: 0 },
     );
+    const macrosEaten = {
+      p: Math.round(rawMacros.p * 10) / 10,
+      c: Math.round(rawMacros.c * 10) / 10,
+      f: Math.round(rawMacros.f * 10) / 10,
+      fib: Math.round(rawMacros.fib * 10) / 10,
+    };
     const waterConsumed = dailyLogs
       .filter((i) => i.name === "Water")
       .reduce((acc, item) => acc + item.qty * 0.25, 0);
@@ -1612,10 +1618,10 @@ export default function UserDashboard() {
                   >
                     <span>Daily Total</span>
                     <span>
-                      {selectedLogs.reduce(
+                      {Math.round(selectedLogs.reduce(
                         (sum, item) => sum + (item.calories || 0),
                         0,
-                      )}{" "}
+                      ))}{" "}
                       kcal
                     </span>
                   </div>

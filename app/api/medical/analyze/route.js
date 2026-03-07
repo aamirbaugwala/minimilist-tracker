@@ -65,19 +65,23 @@ export async function POST(req) {
     // ── Fetch ALL historical reports for longitudinal context ─────────────
     const { data: pastReports } = await db
       .from("medical_reports")
-      .select("file_name, created_at, flags, analysis")
+      .select("file_name, report_date, created_at, flags, analysis")
       .eq("user_id", userId)
-      .order("created_at", { ascending: false });
+      .order("report_date", { ascending: false, nullsFirst: false });
 
     const hasHistory = pastReports && pastReports.length > 0;
 
     const historicalContext = hasHistory
       ? `\n\nHISTORICAL REPORTS (most recent first — use these to identify trends):\n${
-          pastReports.map((r, i) => `
-Report ${i + 1} — ${r.file_name} (${new Date(r.created_at).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" })}):
+          pastReports.map((r, i) => {
+            const dateLabel = r.report_date
+              ? new Date(r.report_date).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" })
+              : new Date(r.created_at).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" });
+            return `
+Report ${i + 1} — ${r.file_name} (${dateLabel}):
 Markers: ${JSON.stringify(r.flags)}
-Summary: ${r.analysis?.slice(0, 300)}…`
-          ).join("\n")
+Summary: ${r.analysis?.slice(0, 300)}…`;
+          }).join("\n")
         }`
       : "";
 
@@ -92,6 +96,7 @@ Analyse the report carefully and return ONLY a valid JSON object — no markdown
 
 JSON schema (follow exactly):
 {
+  "report_date": "ISO date string (YYYY-MM-DD) of the date the report was ISSUED or COLLECTED, as stated in the document itself. Look for fields like 'Report Date', 'Collection Date', 'Date of Test', 'Received Date', 'Sample Date'. If multiple dates exist, prefer the collection/sample date. If no date is found in the document, return null.",
   "summary": "2-3 sentence plain-English summary of key findings",
   "flags": [
     {
@@ -132,6 +137,7 @@ Rules:
 - "trends" array: only populate if historical report data was provided above. Compare the same markers across reports. If no history exists, return "trends": [].
 - include_foods and exclude_foods must be grounded in the actual findings — not generic advice.
 - Prefer common Indian foods where applicable.
+- CRITICAL: "report_date" must come from text inside the document, not today's date.
 - If the document is NOT a medical report, return: { "error": "This does not appear to be a medical report." }`;
 
     const result = await model.generateContent([
@@ -172,6 +178,7 @@ Rules:
       .insert({
         user_id: userId,
         file_name: file.name || "report.pdf",
+        report_date: parsed.report_date || null,
         analysis: parsed.analysis || "",
         include_foods: parsed.include_foods || [],
         exclude_foods: parsed.exclude_foods || [],
@@ -185,7 +192,7 @@ Rules:
       console.error("DB error saving report:", dbError);
       // Still return the analysis — don't lose the work
       return NextResponse.json({
-        report: { ...parsed, id: null, file_name: file.name, created_at: new Date().toISOString() },
+        report: { ...parsed, id: null, file_name: file.name, report_date: parsed.report_date || null, created_at: new Date().toISOString() },
         saved: false,
         warning: "Analysis complete but could not be saved to history.",
       });

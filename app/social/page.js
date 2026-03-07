@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import { FLATTENED_DB } from "../food-data";
 import { calculateTargets, capPct } from "../lib/nutrition";
@@ -18,7 +18,6 @@ import {
   Utensils,
   Loader2,
   Leaf,
-  Info,
   HelpCircle,
 } from "lucide-react";
 import { supabase } from "../supabase";
@@ -41,10 +40,6 @@ export default function SocialPage() {
   const [squadStats, setSquadStats] = useState(null);
   const [historicalStats, setHistoricalStats] = useState(null); // NEW: Historical comparison
   const [showSquadModal, setShowSquadModal] = useState(false); // NEW: Modal for squad info
-
-  useEffect(() => {
-    fetchSocialData();
-  }, []);
 
   const handleViewLogs = async (friend) => {
     setSelectedFriend(friend);
@@ -342,7 +337,7 @@ export default function SocialPage() {
 
   // calculateTargets is imported from lib/nutrition — single source of truth
 
-  const fetchSocialData = async () => {
+  const fetchSocialData = useCallback(async () => {
     setLoading(true);
     const {
       data: { session },
@@ -370,7 +365,7 @@ export default function SocialPage() {
         .eq("user_id", uid)
         .eq("date", new Date().toISOString().slice(0, 10));
 
-      const stats = logs?.reduce(
+      const rawStats = logs?.reduce(
         (acc, item) => {
           let currentFib = item.fiber || 0;
           if (!currentFib && item.name !== "Water") {
@@ -391,10 +386,16 @@ export default function SocialPage() {
         },
         { cals: 0, p: 0, c: 0, f: 0, fib: 0, water: 0 },
       ) || { cals: 0, p: 0, c: 0, f: 0, fib: 0, water: 0 };
+      const stats = {
+        cals: Math.round(rawStats.cals),
+        p: Math.round(rawStats.p * 10) / 10,
+        c: Math.round(rawStats.c * 10) / 10,
+        f: Math.round(rawStats.f * 10) / 10,
+        fib: Math.round(rawStats.fib * 10) / 10,
+        water: Math.round(rawStats.water * 10) / 10,
+      };
 
       const targets = calculateTargets(profile);
-
-      // --- SCORING LOGIC ---
       const baseScore = Math.round(
         (capPct(stats.cals, targets.cals) +
           capPct(stats.p, targets.p) +
@@ -594,7 +595,12 @@ export default function SocialPage() {
     }
 
     setLoading(false);
-  };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  useEffect(() => {
+    fetchSocialData();
+  }, [fetchSocialData]);
 
   const handleInteract = (e, id, type) => {
     e.stopPropagation();

@@ -21,10 +21,10 @@ export async function GET(req) {
     const db = getSupabaseForUser(accessToken);
     const { data, error } = await db
       .from("medical_reports")
-      .select("id, file_name, analysis, include_foods, exclude_foods, flags, created_at")
+      .select("id, file_name, report_date, analysis, include_foods, exclude_foods, flags, trends, created_at")
       .eq("user_id", userId)
-      .order("created_at", { ascending: false })
-      .limit(20);
+      .order("report_date", { ascending: false, nullsFirst: false })
+      .limit(50);
 
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });
     return NextResponse.json({ reports: data || [] });
