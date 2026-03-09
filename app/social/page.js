@@ -539,6 +539,9 @@ export default function SocialPage() {
                             <span style={{ fontSize: "0.6rem", background: "rgba(59,130,246,0.1)", color: "#3b82f6", padding: "1px 4px", borderRadius: 4, fontWeight: 600 }}>P {log.protein}g</span>
                             <span style={{ fontSize: "0.6rem", background: "rgba(245,158,11,0.1)", color: "#f59e0b", padding: "1px 4px", borderRadius: 4, fontWeight: 600 }}>C {log.carbs}g</span>
                             <span style={{ fontSize: "0.6rem", background: "rgba(239,68,68,0.1)", color: "#ef4444", padding: "1px 4px", borderRadius: 4, fontWeight: 600 }}>F {log.fats}g</span>
+                            {log.fiber > 0 && (
+                              <span style={{ fontSize: "0.6rem", background: "rgba(16,185,129,0.1)", color: "#10b981", padding: "1px 4px", borderRadius: 4, fontWeight: 600 }}>Fib {log.fiber}g</span>
+                            )}
                           </div>
                         )}
                       </div>
@@ -547,7 +550,7 @@ export default function SocialPage() {
                           {isWater ? `${log.qty * 0.25}L` : log.calories}
                         </div>
                         {!isWater && pct > 0 && (
-                          <div style={{ fontSize: "0.58rem", color: "#2a2a2a", background: "#1e1e26", borderRadius: 4, padding: "1px 3px", marginTop: 2 }}>{pct}%</div>
+                          <div style={{ fontSize: "0.58rem", color: "#aaa", background: "rgba(255,255,255,0.07)", borderRadius: 4, padding: "1px 3px", marginTop: 2 }}>{pct}%</div>
                         )}
                       </div>
                     </div>
