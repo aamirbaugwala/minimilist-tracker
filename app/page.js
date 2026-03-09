@@ -3295,6 +3295,11 @@ export default function Home() {
                           <span style={{ fontSize: "0.65rem", background: "rgba(239,68,68,0.12)", color: "#ef4444", padding: "1px 5px", borderRadius: 4, fontWeight: 600 }}>
                             F {log.fats}g
                           </span>
+                          {log.fiber > 0 && (
+                            <span style={{ fontSize: "0.65rem", background: "rgba(16,185,129,0.12)", color: "#10b981", padding: "1px 5px", borderRadius: 4, fontWeight: 600 }}>
+                              Fib {log.fiber}g
+                            </span>
+                          )}
                         </div>
                       )}
                       {isWater && (
