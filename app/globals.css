@@ -338,3 +338,6 @@ body {
 }
 @keyframes bounceIn { from { transform: translate(-50%, 100%); opacity: 0; } to { transform: translate(-50%, 0); opacity: 1; } }
 @keyframes fabBounce { 0% { transform: scale(0.5) translateY(20px); opacity: 0; } 70% { transform: scale(1.08) translateY(-4px); opacity: 1; } 100% { transform: scale(1) translateY(0); opacity: 1; } }
+
+/* NutriCoach streaming cursor */
+@keyframes nutricoach-blink { 0%, 100% { opacity: 1; } 50% { opacity: 0; } }

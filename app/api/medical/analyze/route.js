@@ -24,6 +24,7 @@
 import { GoogleGenerativeAI } from "@google/generative-ai";
 import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
+import { cacheInvalidate } from "../../../lib/agentCache";
 
 function getSupabaseForUser(accessToken) {
   return createClient(
@@ -197,6 +198,9 @@ Rules:
         warning: "Analysis complete but could not be saved to history.",
       });
     }
+
+    // New report saved — bust the medical context cache so agent fetches fresh data
+    cacheInvalidate(userId, "get_medical_context");
 
     return NextResponse.json({
       report: { ...parsed, ...saved },

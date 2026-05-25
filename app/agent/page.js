@@ -57,7 +57,7 @@ const STARTERS = [
 ];
 
 // ─── MARKDOWN-LIKE RENDERER (bold, bullets) ───────────────────────────────────
-function RenderMessage({ text }) {
+function RenderMessage({ text, streaming }) {
   const lines = text.split("\n");
   return (
     <div style={{ lineHeight: 1.65 }}>
@@ -94,6 +94,20 @@ function RenderMessage({ text }) {
 
         return <div key={i}>{parts}</div>;
       })}
+      {/* Blinking block cursor shown while streaming */}
+      {streaming && (
+        <span
+          style={{
+            display: "inline-block",
+            width: 2,
+            height: "1em",
+            background: "#3b82f6",
+            marginLeft: 1,
+            verticalAlign: "text-bottom",
+            animation: "nutricoach-blink 1s step-end infinite",
+          }}
+        />
+      )}
     </div>
   );
 }
@@ -151,7 +165,6 @@ export default function AgentPage() {
   const [reportLoading, setReportLoading] = useState(false);
   const bottomRef = useRef(null);
   const inputRef = useRef(null);
-  const STORAGE_KEY = "nutricoach_history";
 
   // ── COPY MESSAGE ───────────────────────────────────────────────────────────
   const copyMessage = (text, index) => {
@@ -221,18 +234,33 @@ export default function AgentPage() {
 
   // ── AUTH + LOAD HISTORY ────────────────────────────────────────────────────
   useEffect(() => {
-    supabase.auth.getSession().then(({ data: { session } }) => {
+    supabase.auth.getSession().then(async ({ data: { session } }) => {
       if (!session) {
         router.push("/");
         return;
       }
       setSession(session);
 
-      // Load chat history from localStorage (keyed to user)
+      // Load chat history from server (source of truth — not localStorage)
       try {
-        const stored = localStorage.getItem(`${STORAGE_KEY}_${session.user.id}`);
-        if (stored) setMessages(JSON.parse(stored));
-      } catch {}
+        const params = new URLSearchParams({
+          userId:      session.user.id,
+          accessToken: session.access_token,
+        });
+        const res = await fetch(`/api/agent/history?${params}`);
+        if (res.ok) {
+          const data = await res.json();
+          if (Array.isArray(data.messages) && data.messages.length > 0) {
+            setMessages(data.messages.map((m) => ({
+              role:      m.role,
+              content:   m.content,
+              toolsUsed: m.tools_used || [],
+            })));
+          }
+        }
+      } catch {
+        // Non-critical — user just starts with empty chat
+      }
 
       setPageLoading(false);
     });
@@ -244,22 +272,24 @@ export default function AgentPage() {
   }, [messages, loading]);
 
   // ── PERSIST HISTORY ────────────────────────────────────────────────────────
-  useEffect(() => {
-    if (!session || messages.length === 0) return;
-    try {
-      // Only store last 40 messages to stay within localStorage limits
-      const toStore = messages.slice(-40);
-      localStorage.setItem(
-        `${STORAGE_KEY}_${session.user.id}`,
-        JSON.stringify(toStore)
-      );
-    } catch {}
-  }, [messages, session]);
+  // History is now saved server-side in Supabase by the API route.
+  // localStorage is no longer used — this effect is intentionally removed.
 
-  const clearHistory = () => {
+  const clearHistory = async () => {
     if (!confirm("Clear all conversation history?")) return;
+    try {
+      await fetch("/api/agent/history", {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          userId:      session.user.id,
+          accessToken: session.access_token,
+        }),
+      });
+    } catch {
+      // Best-effort — clear UI regardless
+    }
     setMessages([]);
-    if (session) localStorage.removeItem(`${STORAGE_KEY}_${session.user.id}`);
   };
 
   // ── SEND MESSAGE ───────────────────────────────────────────────────────────
@@ -269,50 +299,95 @@ export default function AgentPage() {
     setInput("");
     setError("");
 
-    const userMsg = { role: "user", content: userText };
-    const updatedMessages = [...messages, userMsg];
-    setMessages(updatedMessages);
+    // Add user bubble + empty model placeholder immediately
+    setMessages((prev) => [
+      ...prev,
+      { role: "user",  content: userText },
+      { role: "model", content: "", toolsUsed: [], streaming: true },
+    ]);
     setLoading(true);
-
-    // Build history in the format the API expects
-    // Exclude the last user message (it's the current one being sent)
-    const historyForAPI = updatedMessages.slice(0, -1).map((m) => ({
-      role: m.role,
-      content: m.content,
-    }));
 
     try {
       const res = await fetch("/api/agent", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          message: userText,
-          history: historyForAPI,
-          userId: session.user.id,
+          message:     userText,
+          userId:      session.user.id,
           accessToken: session.access_token,
         }),
       });
 
-      const data = await res.json();
-
-      if (!res.ok || data.error) {
+      // Validation / rate-limit errors come back as plain JSON (non-ok status)
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
         setError(data.error || "Something went wrong. Please try again.");
-        // Remove the user message on failure
-        setMessages(messages);
+        setMessages((prev) => prev.slice(0, -2)); // remove both placeholder + user msg
         return;
       }
 
-      setMessages((prev) => [
-        ...prev,
-        {
-          role: "model",
-          content: data.reply,
-          toolsUsed: data.toolsUsed || [],
-        },
-      ]);
+      // ── Read the SSE stream ──────────────────────────────────────────────
+      const reader  = res.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer    = "";
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split("\n\n");
+        buffer = lines.pop() ?? "";   // keep any incomplete trailing chunk
+
+        for (const line of lines) {
+          if (!line.startsWith("data: ")) continue;
+          try {
+            const event = JSON.parse(line.slice(6));
+
+            if (event.type === "tool") {
+              // Append tool badge to the streaming placeholder
+              setMessages((prev) => {
+                const arr  = [...prev];
+                const last = { ...arr[arr.length - 1] };
+                last.toolsUsed = [...(last.toolsUsed || []), event.name];
+                arr[arr.length - 1] = last;
+                return arr;
+              });
+
+            } else if (event.type === "chunk") {
+              // Append text chunk — triggers re-render with updated content
+              setMessages((prev) => {
+                const arr  = [...prev];
+                const last = { ...arr[arr.length - 1] };
+                last.content = (last.content || "") + event.text;
+                arr[arr.length - 1] = last;
+                return arr;
+              });
+
+            } else if (event.type === "done") {
+              // Mark streaming finished — removes cursor, shows copy button
+              setMessages((prev) => {
+                const arr  = [...prev];
+                const last = { ...arr[arr.length - 1] };
+                last.streaming = false;
+                arr[arr.length - 1] = last;
+                return arr;
+              });
+
+            } else if (event.type === "error") {
+              setError(event.message || "Something went wrong. Please try again.");
+              setMessages((prev) => prev.slice(0, -2));
+              return;
+            }
+          } catch {
+            // Malformed SSE line — skip silently
+          }
+        }
+      }
+
     } catch {
       setError("Network error. Please check your connection.");
-      setMessages(messages);
+      setMessages((prev) => prev.slice(0, -2));
     } finally {
       setLoading(false);
       setTimeout(() => inputRef.current?.focus(), 100);
@@ -676,12 +751,18 @@ export default function AgentPage() {
 
                   {isUser ? (
                     <span>{msg.content}</span>
+                  ) : msg.streaming && !msg.content ? (
+                    // Tool-calling phase: no text yet — show inline thinking state
+                    <div style={{ display: "flex", alignItems: "center", gap: 8, color: "#666", fontSize: "0.85rem" }}>
+                      <Loader2 size={14} className="animate-spin" color="#3b82f6" />
+                      <span>{msg.toolsUsed?.length > 0 ? "Processing…" : "Thinking…"}</span>
+                    </div>
                   ) : (
-                    <RenderMessage text={msg.content} />
+                    <RenderMessage text={msg.content} streaming={msg.streaming} />
                   )}
 
-                  {/* Copy button for AI messages */}
-                  {!isUser && (
+                  {/* Copy button — hidden while streaming */}
+                  {!isUser && !msg.streaming && (
                     <div style={{ marginTop: 8, display: "flex", justifyContent: "flex-end" }}>
                       <button
                         onClick={() => copyMessage(msg.content, i)}
@@ -711,8 +792,9 @@ export default function AgentPage() {
           );
         })}
 
-        {/* Typing indicator */}
-        {loading && (
+        {/* Typing indicator — only shown while loading but before the
+            streaming placeholder has been added to messages */}
+        {loading && !messages.some((m) => m.streaming) && (
           <div style={{ display: "flex", alignItems: "flex-end", gap: 8 }}>
             <div
               style={{
