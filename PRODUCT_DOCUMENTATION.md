@@ -1,6 +1,6 @@
 # NutriTrack — Product & Engineering Documentation
 
-> **Purpose:** A single document to understand every feature, every AI component, and every production optimisation made to this product. Read this to remember everything.
+> **Purpose:** A single document to understand every feature, every AI component, and every production optimisation made to this product. Read this to remember everything. Kept up to date after every engineering session.
 
 ---
 
@@ -12,9 +12,11 @@
 4. [AI Architecture — Full Breakdown](#4-ai-architecture--full-breakdown)
 5. [AI Agent — Deep Dive](#5-ai-agent--deep-dive)
 6. [Production Optimisations](#6-production-optimisations)
-7. [File Map](#7-file-map)
-8. [Environment Variables](#8-environment-variables)
-9. [Supabase Tables Reference](#9-supabase-tables-reference)
+7. [Architecture Decisions & Tradeoffs](#7-architecture-decisions--tradeoffs)
+8. [Cost Analysis & Token Economics](#8-cost-analysis--token-economics)
+9. [File Map](#9-file-map)
+10. [Environment Variables](#10-environment-variables)
+11. [Supabase Tables Reference](#11-supabase-tables-reference)
 
 ---
 
@@ -45,8 +47,8 @@ Clinical admin side (for doctors/dietitians):
 | **Language** | JavaScript (JSX) |
 | **Styling** | Inline styles + Tailwind CSS v4 |
 | **Database** | Supabase (PostgreSQL + Auth + RLS) |
-| **AI Model** | Google Gemini 2.0 Flash (`@google/generative-ai`) |
-| **Deployment** | Vercel |
+| **AI Model** | Google `gemini-3-flash-preview` (`@google/generative-ai`) |
+| **Deployment** | Vercel / Cloudflare (opennextjs-cloudflare) |
 | **Supabase proxy** | Cloudflare Worker (routes around ISP blocks in India) |
 | **Charts** | Recharts |
 | **Icons** | Lucide React |
@@ -94,9 +96,21 @@ Clinical admin side (for doctors/dietitians):
 ### `/social` — Social / Community
 - Social feed feature (in development)
 
-### `/dashboard` — Detailed Dashboard
-- Extended analytics view
-- Calls the agent for quick AI analysis
+### `/dashboard` — Performance Dashboard
+- **Daily Score Card** — 0–100 score with grade (S/A/B/C/D) computed from 4 pillars:
+  - Calorie accuracy (30 pts): ±10% of target = full marks, linearly drops off
+  - Protein hit (30 pts): ratio of eaten vs target protein
+  - Hydration (20 pts): ratio of water consumed vs target
+  - Streak/Consistency (20 pts): how many of last 7 days had any logs
+  - Expandable breakdown showing per-pillar score bars
+- **NutriCoach Daily Briefing** — calls the AI agent on page load with a fixed 3-line briefing prompt; auto-streams and assembles the chunked response
+- **Goal Pace Indicator** — uses linear regression over last 14 weight logs to predict weeks-to-goal; falls back to calorie deficit estimate (7700 kcal ≈ 1 kg) if <2 weight points
+- **History Trends chart** — line chart over 7D / 30D for calories, weight, protein, carbs, fats, fibre with goal reference line
+- **30-Day Consistency heatmap** — clickable calendar grid; clicking a day loads that day's logs
+- **Hydration tracker** — current vs target water with animated progress bar
+- **Macro Targets card** — per-macro progress bars for the selected date
+- **Intake log** — scrollable list of everything eaten on the selected date
+- **Inline AI Chat drawer** — floating chat panel (fixed bottom) without leaving the dashboard
 
 ### `/admin` — Clinical Admin Panel (role-gated)
 - Patient list with search
@@ -376,7 +390,215 @@ X-Accel-Buffering: no   ← disables Nginx buffering on Vercel edge
 
 ---
 
-## 7. File Map
+### ✅ Opt-7 — Streaming Response Parser (Dashboard Fix)
+**File:** `app/dashboard/page.js` (`fetchBriefing`)
+
+**Problem:** The dashboard `fetchBriefing` function used `await res.json()` — expecting a single complete JSON object. But the `/api/agent` route returns a **Server-Sent Events stream** (chunked). The raw chunk objects (`{"type":"chunk","text":"1."}`, `{"type":"tool",...}` etc.) were being rendered directly in the UI as plaintext, visible to users.
+
+**Fix:** `fetchBriefing` was rewritten to:
+1. Get a `ReadableStream` reader from `res.body`
+2. Decode each chunk with `TextDecoder`
+3. Split by newline, try to parse each line as JSON
+4. **Only extract** lines where `obj.type === "chunk"` and concatenate their `obj.text` fields
+5. Ignore `tool`, `done`, `error` events — those are internal agent signals, not display content
+6. Call `setBriefing(reply)` only after the full stream is consumed
+
+**Key lesson:** Any UI that consumes a streaming API must parse the SSE protocol explicitly — `res.json()` only works for one-shot responses.
+
+---
+
+### ✅ Opt-8 — Gemini Context Caching (Cost Reduction)
+**File:** `app/api/agent/route.js`
+
+**Problem:** Every agent request re-sent the full system prompt (~850 tokens) + all 13 tool schemas (~1,800 tokens) to Gemini, billed at full input token price. These are **identical on every request** — pure waste.
+
+**Gemini `gemini-3-flash-preview` pricing:**
+- Input: $0.50 / 1M tokens
+- Output: $3.00 / 1M tokens
+- **Cached input: $0.05 / 1M tokens** (90% cheaper)
+
+**Fix:** Implemented `getOrCreateCachedModel(apiKey)` — a module-level async function:
+
+```
+First request in a serverless instance:
+  → GoogleAICacheManager.create({ systemInstruction, tools, ttlSeconds: 3600 })
+  → genAI.getGenerativeModelFromCachedContent(cache)
+  → stores model + expiry in module-level vars
+
+Requests 2–N (within 55 min):
+  → returns the same model from memory (no API call)
+  → cached tokens billed at $0.05/1M instead of $0.50/1M
+
+After 55 min:
+  → deletes old cache, creates a new one automatically
+
+If cache creation fails (e.g. token count below 4,096 minimum):
+  → silently falls back to a plain model (no downtime)
+  → logs { event: "gemini_cache_fallback", reason: "..." }
+```
+
+**Cache state (module-level, lives for lifetime of serverless instance):**
+```js
+let _cachedModel   = null;   // the model bound to cached content
+let _cacheExpireAt = 0;      // epoch ms when cache becomes stale
+let _cacheName     = null;   // Gemini resource name (for deletion)
+```
+
+**Updated observability log includes:**
+```json
+{
+  "cachedTokens": 2650,
+  "cacheHitRate": "50%",
+  "estimatedCostUsd": 0.000207   // accounts for 90% discount on cached tokens
+}
+```
+
+**Important:** Requires a **GA model version** (e.g. `gemini-2.0-flash-001`) for the cache; preview model strings may not support it. The fallback path handles this transparently.
+
+---
+
+## 7. Architecture Decisions & Tradeoffs
+
+This section documents the "why" behind key design choices — useful for technical interviews.
+
+---
+
+### Why Next.js API routes instead of a separate backend?
+
+**Current:** All backend logic lives in `app/api/` as Next.js route handlers.
+
+**Pros:**
+- Zero extra deployment infrastructure — one `vercel deploy` ships everything
+- Shared TypeScript types between frontend and API (if migrating to TS)
+- Same environment variables across frontend and backend
+- Fast to iterate — one repo, one build
+
+**Cons (and why we're aware of them):**
+- Serverless cold starts can delay the first agent response
+- Module-level caches (like `agentCache.js` and `_cachedModel`) reset on cold starts — cache misses are expected after scale-to-zero
+- Hard to test API routes without booting Next.js
+- Can't independently scale the AI-heavy backend from the lightweight frontend
+
+**Future path:** Migrate `app/api/agent/` to a **FastAPI (Python) backend** for better LangGraph/LangChain support, independent scaling, and richer observability.
+
+---
+
+### Why stream the agent response (SSE) instead of waiting for the full reply?
+
+**Perceived latency vs actual latency:**
+- Actual latency for a 2-tool agent call: ~3–5 seconds
+- Without streaming: user sees spinner for 3–5 seconds, then text appears
+- With streaming: user sees tool badges at ~300ms, first word at ~1.5s, text builds live
+
+**Implementation tradeoff:** SSE adds parsing complexity on the client (the bug we fixed in Opt-7 is a direct consequence). But the UX improvement is significant enough that it's worth it at any scale.
+
+---
+
+### Why store chat history in Supabase instead of client-side?
+
+Three reasons:
+1. **Security:** Client-sent history could be manipulated (inject fake `model` messages to gaslight the AI)
+2. **Cross-device sync:** User opens app on phone and continues conversation started on desktop
+3. **Prompt injection via history:** A user could craft a `model` message in localStorage containing injection patterns. Server-side loading + `sanitizeHistoryContent()` scrubs these before they reach Gemini
+
+---
+
+### Why use an in-memory cache (`agentCache.js`) for tool results?
+
+The two most expensive tools — `get_user_profile` and `get_medical_context` — return data that almost never changes mid-session:
+- A user's height/weight/goal doesn't change between chat messages
+- Medical reports only update when a new PDF is uploaded
+
+Hitting Supabase + sending potentially 2,000+ tokens of medical report data to Gemini on every single message is wasteful. The TTL cache eliminates these repeated fetches.
+
+**Why it's safe on serverless:** Vercel reuses warm container instances. The cache is keyed `userId:toolName` — no user's data bleeds into another's cache entry.
+
+---
+
+### LangChain / LangGraph — Why not yet?
+
+We evaluated this thoroughly. Summary:
+
+| What we hand-rolled | LangGraph equivalent |
+|---|---|
+| `while (functionCalls)` loop in route.js | `create_react_agent` handles it |
+| `if tool === "X" { ... }` dispatch | `@tool` decorated functions |
+| History size management | `trim_messages` + `MemorySaver` |
+| SSE streaming assembly | `agent.astream()` native output |
+| System prompt string | `ChatPromptTemplate` |
+
+**Estimated savings from migration:** ~800 lines of hand-rolled agent code → ~50 lines.
+
+**Why not done yet:** LangGraph Python is the production-grade version. Migrating to it requires:
+1. Splitting the backend into a separate FastAPI service
+2. Moving all tools to Python
+3. Updating the frontend to point to new URLs
+
+This is planned as the next major architectural step.
+
+---
+
+### Model choice — `gemini-3-flash-preview`
+
+| Model | Input price | Output price | Notes |
+|---|---|---|---|
+| `gemini-3-flash-preview` | $0.50/1M | $3.00/1M | Current — best quality |
+| `gemini-2.5-flash` | $0.30/1M | $2.50/1M | 40% cheaper, similar quality |
+| `gemini-2.5-flash-lite` | $0.10/1M | $0.40/1M | 80% cheaper, good for simple queries |
+| `gemini-2.0-flash` | $0.10/1M | $0.40/1M | **Deprecated as of June 1 2026** |
+
+**Current bill:** ~₹106/month at ~342 requests/month (11/day)
+**With cache:** ~₹67/month (Opt-8)
+**With model routing to flash-lite for simple queries:** ~₹25–35/month
+
+---
+
+## 8. Cost Analysis & Token Economics
+
+### Token breakdown per agent request
+
+| Component | Tokens | % of input |
+|---|---|---|
+| System prompt | ~850 | 16% |
+| 13 tool schemas | ~1,800 | 34% ← largest single waste |
+| Chat history (20 msgs) | ~2,000 | 38% |
+| User message | ~80 | 1.5% |
+| Tool call results | ~600 | 11% |
+| **Total input** | **~5,330** | |
+| Output (reply) | ~200 | — |
+
+### Cost per request — before and after optimisations
+
+| State | Input cost | Output cost | Total | Monthly (342 req) |
+|---|---|---|---|---|
+| **Before Opt-8 (no cache)** | $0.002665 | $0.000600 | $0.003265 | $1.117 = **₹106** |
+| **After Opt-8 (with cache)** | $0.001473 | $0.000600 | $0.002073 | $0.709 = **₹67** |
+| **+ Trim history to 8 msgs** | $0.001223 | $0.000600 | $0.001823 | $0.624 = **₹59** |
+| **+ Dynamic tool selection** | $0.000773 | $0.000600 | $0.001373 | $0.470 = **₹45** |
+
+### How the ₹106 bill was reverse-engineered
+
+```
+₹106 ÷ ₹95/dollar = $1.116 total spend
+$1.116 ÷ $0.003265 per request = ~342 requests in May
+342 ÷ 31 days = ~11 requests/day
+
+This includes:
+- User chat messages
+- Auto-fired fetchBriefing() on every dashboard page load
+  (this was the silent cost — each page open = 1 full agent call)
+```
+
+### Biggest levers to reduce cost (in order of impact)
+
+1. **Add a 30-min cooldown to `fetchBriefing`** — prevents silent agent calls on every dashboard open (estimated ₹15-20/month saving)
+2. **Trim history from 20 → 8 messages** — 1 line change, saves ~1,200 tokens per request
+3. **Dynamic tool selection** — route simple queries ("what's my streak?") to send only 3-4 relevant tools instead of all 13
+4. **Model routing** — use `gemini-2.5-flash-lite` for simple/fast queries, `gemini-3-flash-preview` only for complex analysis
+
+---
+
+## 9. File Map
 
 ```
 app/
@@ -437,7 +659,7 @@ app/
 
 ---
 
-## 8. Environment Variables
+## 10. Environment Variables
 
 | Variable | Where used | Required |
 |---|---|---|
@@ -450,7 +672,7 @@ app/
 
 ---
 
-## 9. Supabase Tables Reference
+## 11. Supabase Tables Reference
 
 | Table | Purpose | RLS |
 |---|---|---|
@@ -467,4 +689,4 @@ app/
 
 ---
 
-*Last updated: May 2026. Generated after completing all production optimisations.*
+*Last updated: June 2026 — after streaming parser fix, Gemini context caching, cost analysis, and architecture review session.*
