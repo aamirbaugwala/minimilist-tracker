@@ -26,6 +26,8 @@ import {
   Target,
   UtensilsCrossed,
   MessageSquare,
+  HeartPulse,
+  SaveAll,
 } from "lucide-react";
 import {
   ResponsiveContainer,
@@ -58,8 +60,10 @@ const TOOL_META = {
   get_user_profile:     { label: "Loading Your Profile",  icon: User,           color: "#6366f1" },
   log_food_item:        { label: "Logging Food",          icon: PenLine,        color: "#f97316" },
   get_streak:           { label: "Checking Streak",       icon: Flame,          color: "#ef4444" },
-  update_goal:          { label: "Updating Your Goal",    icon: Target,         color: "#22c55e" },
-  generate_meal_plan:   { label: "Building Meal Plan",    icon: UtensilsCrossed, color: "#06b6d4" },
+  update_goal:          { label: "Updating Your Goal",   icon: Target,          color: "#22c55e" },
+  generate_meal_plan:   { label: "Building Meal Plan",   icon: UtensilsCrossed, color: "#06b6d4" },
+  get_medical_context:  { label: "Reading Medical Data", icon: HeartPulse,      color: "#f43f5e" },
+  save_food_to_database:{ label: "Saving Food",          icon: SaveAll,         color: "#84cc16" },
 };
 
 // ─── CLEAN, ELEGANT MARKDOWN RENDERER ─────────────────────────────────────────
@@ -116,10 +120,15 @@ function RenderMessage({ text, streaming }) {
 // ─── TOOL ACTIVITY BADGE ──────────────────────────────────────────────────────
 function ToolBadges({ tools }) {
   if (!tools || tools.length === 0) return null;
-  const unique = [...new Set(tools)];
+
+  const counts = tools.reduce((acc, t) => {
+    acc[t] = (acc[t] || 0) + 1;
+    return acc;
+  }, {});
+
   return (
     <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 8 }}>
-      {unique.map((tool) => {
+      {Object.entries(counts).map(([tool, count]) => {
         const meta = TOOL_META[tool];
         if (!meta) return null;
         const Icon = meta.icon;
@@ -141,6 +150,17 @@ function ToolBadges({ tools }) {
           >
             <Icon size={11} />
             {meta.label}
+            {count > 1 && (
+              <span style={{
+                background: `${meta.color}33`,
+                borderRadius: 10,
+                padding: "0px 5px",
+                fontSize: "0.65rem",
+                fontWeight: 700,
+              }}>
+                ×{count}
+              </span>
+            )}
           </div>
         );
       })}
@@ -309,6 +329,7 @@ export default function UserDashboard() {
   const [showResearch, setShowResearch] = useState(false);
   const [briefing, setBriefing] = useState(null);
   const [briefingLoading, setBriefingLoading] = useState(false);
+  const [briefingTools, setBriefingTools] = useState([]);
   const [scoreExpanded, setScoreExpanded] = useState(false);
   
   // Chat drawer state
@@ -320,7 +341,8 @@ export default function UserDashboard() {
 
   const fetchBriefing = async (session) => {
     setBriefingLoading(true);
-    setBriefing(""); 
+    setBriefing("");
+    setBriefingTools([]);
     try {
       const res = await fetch("/api/agent", {
         method: "POST",
@@ -356,7 +378,9 @@ export default function UserDashboard() {
           if (!line.startsWith("data: ")) continue;
           try {
             const event = JSON.parse(line.slice(6));
-            if (event.type === "chunk") {
+            if (event.type === "tool") {
+              setBriefingTools((prev) => [...prev, event.name]);
+            } else if (event.type === "chunk") {
               accumulatedText += event.text;
               setBriefing(accumulatedText);
             }
@@ -517,7 +541,6 @@ export default function UserDashboard() {
     );
     handleDateSelect(today, logData || [], calculatedTargets);
     setLoading(false);
-    fetchBriefing(session);
   };
 
   useEffect(() => {
@@ -1143,7 +1166,7 @@ export default function UserDashboard() {
                   <MessageSquare size={18} />
                 </div>
                 <span style={{ fontSize: "0.85rem", fontWeight: 700, color: "#a1a1aa", textTransform: "uppercase", letterSpacing: 1.2 }}>
-                  Coach's Note
+                  Coach&apos;s Note
                 </span>
               </div>
               <button
@@ -1166,6 +1189,9 @@ export default function UserDashboard() {
               borderLeft: "2px solid #3b82f6",
               paddingLeft: 16,
             }}>
+              {briefingTools.length > 0 && !briefingLoading && (
+                <ToolBadges tools={briefingTools} />
+              )}
               {briefingLoading && !briefing ? (
                 <div style={{ display: "flex", alignItems: "center", gap: 8, color: "#555", height: 26 }}>
                   <div style={{

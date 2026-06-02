@@ -19,6 +19,16 @@ import {
   ChevronLeft,
   Swords,
   Users,
+  Bot,
+  Zap,
+  Scale,
+  Database,
+  TrendingUp,
+  PenLine,
+  Target,
+  UtensilsCrossed,
+  HeartPulse,
+  SaveAll,
 } from "lucide-react";
 import { supabase } from "../supabase";
 
@@ -61,6 +71,78 @@ function StatTile({ label, value, max, unit, color }) {
   );
 }
 
+// ─── TOOL BADGE METADATA ──────────────────────────────────────────────────────
+const TOOL_META = {
+  get_todays_logs:      { label: "Read Today's Logs",    icon: Utensils,        color: "#3b82f6" },
+  get_logs_for_days:    { label: "Fetching History",     icon: TrendingUp,      color: "#8b5cf6" },
+  get_macro_gap:        { label: "Calculating Gap",      icon: Zap,             color: "#f59e0b" },
+  search_food_database: { label: "Searching Foods",      icon: Database,        color: "#10b981" },
+  get_weight_trend:     { label: "Reading Weight Data",  icon: Scale,           color: "#ec4899" },
+  get_user_profile:     { label: "Loading Your Profile", icon: Users,           color: "#6366f1" },
+  log_food_item:        { label: "Logging Food",         icon: PenLine,         color: "#f97316" },
+  get_streak:           { label: "Checking Streak",      icon: Flame,           color: "#ef4444" },
+  update_goal:          { label: "Updating Your Goal",   icon: Target,          color: "#22c55e" },
+  generate_meal_plan:   { label: "Building Meal Plan",   icon: UtensilsCrossed, color: "#06b6d4" },
+  get_medical_context:  { label: "Reading Medical Data", icon: HeartPulse,      color: "#f43f5e" },
+  save_food_to_database:{ label: "Saving Food",          icon: SaveAll,         color: "#84cc16" },
+};
+
+// ─── TOOL BADGES ──────────────────────────────────────────────────────────────
+function ToolBadges({ tools }) {
+  if (!tools || tools.length === 0) return null;
+  const counts = tools.reduce((acc, t) => { acc[t] = (acc[t] || 0) + 1; return acc; }, {});
+  return (
+    <div style={{ display: "flex", flexWrap: "wrap", gap: 5, marginBottom: 8 }}>
+      {Object.entries(counts).map(([tool, count]) => {
+        const meta = TOOL_META[tool];
+        if (!meta) return null;
+        const Icon = meta.icon;
+        return (
+          <div key={tool} style={{
+            display: "inline-flex", alignItems: "center", gap: 4,
+            fontSize: "0.68rem", color: meta.color,
+            background: `${meta.color}18`, border: `1px solid ${meta.color}40`,
+            padding: "2px 7px", borderRadius: 20, fontWeight: 600,
+          }}>
+            <Icon size={10} />
+            {meta.label}
+            {count > 1 && (
+              <span style={{ background: `${meta.color}33`, borderRadius: 10, padding: "0px 4px", fontSize: "0.6rem", fontWeight: 700 }}>
+                ×{count}
+              </span>
+            )}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+// ─── INLINE MARKDOWN RENDERER ─────────────────────────────────────────────────
+function RenderText({ text, streaming }) {
+  if (!text) return null;
+  return (
+    <div style={{ lineHeight: 1.65 }}>
+      {text.split("\n").map((line, i) => {
+        if (line.trim() === "") return <div key={i} style={{ height: 6 }} />;
+        const parts = line.split(/(\*\*[^*]+\*\*)/g).map((p, j) =>
+          p.startsWith("**") && p.endsWith("**")
+            ? <strong key={j} style={{ color: "#fff" }}>{p.slice(2, -2)}</strong>
+            : p
+        );
+        return <div key={i} style={{ color: "#d4d4d8", fontSize: "0.9rem" }}>{parts}</div>;
+      })}
+      {streaming && (
+        <span style={{
+          display: "inline-block", width: 2, height: "1em",
+          background: "#a5b4fc", marginLeft: 1, verticalAlign: "text-bottom",
+          animation: "blink 1s step-end infinite",
+        }} />
+      )}
+    </div>
+  );
+}
+
 export default function SocialPage() {
   const router = useRouter();
   const [loading, setLoading] = useState(true);
@@ -79,6 +161,77 @@ export default function SocialPage() {
   const [squadStats, setSquadStats] = useState(null);
   const [historicalStats, setHistoricalStats] = useState(null);
   const [showSquadModal, setShowSquadModal] = useState(false);
+
+  // ── AI Squad Coach state ──────────────────────────────────────────────────
+  const [squadBriefing, setSquadBriefing] = useState(null);
+  const [squadBriefingLoading, setSquadBriefingLoading] = useState(false);
+  const [squadBriefingTools, setSquadBriefingTools] = useState([]);
+
+  const fetchSquadBriefing = async () => {
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session || squadBriefingLoading) return;
+
+    setSquadBriefingLoading(true);
+    setSquadBriefing("");
+    setSquadBriefingTools([]);
+
+    // Build a rich prompt from the live friends data
+    const squadSummary = friends.map((f, i) =>
+      `${i + 1}. ${f.name.replace(" (You)", f.isMe ? " (me)" : "")}: score=${f.score}, ` +
+      `cals=${f.stats.cals}/${f.targets.cals}, protein=${f.stats.p}/${f.targets.p}g, ` +
+      `water=${f.stats.water}/${f.targets.water}L, status="${f.statusLabel}"`
+    ).join("\n");
+
+    const message =
+      `You are a competitive squad nutrition coach. Here is my squad's live performance today:\n\n${squadSummary}\n\n` +
+      `Give me a punchy 2-3 sentence squad analysis: who is winning and why, what is the squad's biggest collective gap right now, ` +
+      `and one specific competitive challenge everyone can act on before end of day. ` +
+      `Be energetic and motivating. Use bold for names and key numbers. No bullet points.`;
+
+    try {
+      const res = await fetch("/api/agent", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          message,
+          userId: session.user.id,
+          accessToken: session.access_token,
+          history: [],
+        }),
+      });
+
+      if (!res.ok) throw new Error("Stream failed");
+
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = "";
+      let accumulated = "";
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split("\n\n");
+        buffer = lines.pop() ?? "";
+        for (const line of lines) {
+          if (!line.startsWith("data: ")) continue;
+          try {
+            const event = JSON.parse(line.slice(6));
+            if (event.type === "tool") {
+              setSquadBriefingTools((prev) => [...prev, event.name]);
+            } else if (event.type === "chunk") {
+              accumulated += event.text;
+              setSquadBriefing(accumulated);
+            }
+          } catch { /* skip malformed */ }
+        }
+      }
+    } catch {
+      setSquadBriefing("Could not load squad analysis. Try again.");
+    } finally {
+      setSquadBriefingLoading(false);
+    }
+  };
 
   // ── View a friend's logs ───────────────────────────────────────────────────
   const handleViewLogs = async (friend) => {
@@ -233,31 +386,84 @@ export default function SocialPage() {
     setRequests(requestList);
 
     if (top2.length === 2) {
-      const last30Days = Array.from({ length: 30 }, (_, i) => {
-        const d = new Date();
-        d.setDate(d.getDate() - i - 1);
-        return d.toISOString().slice(0, 10);
-      });
+      // Fetch full all-time history — no date filter, high limit to bypass Supabase's 1000-row default
       const { data: historyLogs } = await supabase
         .from("food_logs")
         .select("user_id, date, calories, protein, carbs, fats, fiber, name, qty")
         .in("user_id", top2.map((u) => u.id))
-        .in("date", last30Days);
+        .order("date", { ascending: true })
+        .limit(50000);
 
-      const wins = { [top2[0].id]: 0, [top2[1].id]: 0 };
-      last30Days.forEach((date) => {
-        const dayLogs = historyLogs?.filter((l) => l.date === date) || [];
-        const dayScores = top2.map((user) => {
-          const userLogs = dayLogs.filter((l) => l.user_id === user.id);
-          if (!userLogs.length) return { id: user.id, score: 0 };
-          const s = userLogs.reduce((acc, item) => ({ cals: acc.cals + (item.calories || 0) }), { cals: 0 });
-          const diff = Math.abs(s.cals - user.targets.cals);
-          return { id: user.id, score: Math.max(0, 100 - (diff / user.targets.cals) * 100) };
+      // Group logs by date
+      const dateSet = new Set((historyLogs || []).map((l) => l.date));
+      const allDates = [...dateSet];
+
+      const wins           = { [top2[0].id]: 0, [top2[1].id]: 0 };
+      const lifetimePoints = { [top2[0].id]: 0, [top2[1].id]: 0 };
+      const loggedDays     = { [top2[0].id]: 0, [top2[1].id]: 0 };
+
+      // Full scoring formula — mirrors getUserData above (same bonuses/penalties, capped at 135)
+      const calcDayScore = (userLogs, targets) => {
+        if (!userLogs.length) return 0;
+        const s = userLogs.reduce((acc, item) => {
+          let fib = item.fiber || 0;
+          if (!fib && item.name !== "Water") {
+            const dbItem = FLATTENED_DB[item.name?.toLowerCase()];
+            if (dbItem?.fiber) fib = Math.round(dbItem.fiber * item.qty);
+          }
+          return {
+            cals:  acc.cals  + (item.calories || 0),
+            p:     acc.p     + (item.protein  || 0),
+            c:     acc.c     + (item.carbs    || 0),
+            f:     acc.f     + (item.fats     || 0),
+            fib:   acc.fib   + fib,
+            water: item.name === "Water" ? acc.water + item.qty * 0.25 : acc.water,
+          };
+        }, { cals: 0, p: 0, c: 0, f: 0, fib: 0, water: 0 });
+
+        const capPctLocal = (v, t) => t > 0 ? Math.min(100, (v / t) * 100) : 0;
+        const baseScore = Math.round(
+          (capPctLocal(s.cals, targets.cals) + capPctLocal(s.p, targets.p) +
+           capPctLocal(s.c,    targets.c)    + capPctLocal(s.f, targets.f) +
+           capPctLocal(s.fib,  targets.fib)  + capPctLocal(s.water, targets.water)) / 6
+        );
+
+        let bonus = 0;
+        if (s.p     >= targets.p     * 0.9) bonus += 15;
+        if (s.fib   >= targets.fib   * 0.9) bonus += 10;
+        if (s.water >= targets.water * 0.9) bonus += 10;
+
+        let penalty = 0;
+        if (s.cals > targets.cals) penalty += Math.floor(((s.cals - targets.cals) / targets.cals) * 10) * 5;
+        if (s.f    > targets.f)    penalty += Math.floor(((s.f    - targets.f)    / targets.f)    * 10) * 5;
+        if (s.c    > targets.c)    penalty += Math.floor(((s.c    - targets.c)    / targets.c)    * 10) * 3;
+
+        return Math.max(0, baseScore + bonus - penalty);
+      };
+
+      allDates.forEach((date) => {
+        const dayLogs = historyLogs.filter((l) => l.date === date);
+        const dayScores = top2.map((user) => ({
+          id:    user.id,
+          score: calcDayScore(dayLogs.filter((l) => l.user_id === user.id), user.targets),
+        }));
+        // Tally win (only if at least one user logged)
+        const anyLogged = dayScores.some((d) => d.score > 0);
+        if (anyLogged) {
+          if (dayScores[0].score > dayScores[1].score) wins[dayScores[0].id]++;
+          else if (dayScores[1].score > dayScores[0].score) wins[dayScores[1].id]++;
+        }
+        // Accumulate lifetime points (only add if user actually logged that day)
+        dayScores.forEach(({ id, score }) => {
+          const userLogged = dayLogs.some((l) => l.user_id === id);
+          if (userLogged) {
+            lifetimePoints[id] += score;
+            loggedDays[id]++;
+          }
         });
-        if (dayScores[0].score > dayScores[1].score) wins[dayScores[0].id]++;
-        else if (dayScores[1].score > dayScores[0].score) wins[dayScores[1].id]++;
       });
-      setHistoricalStats({ u1: top2[0].id, u2: top2[1].id, wins });
+
+      setHistoricalStats({ u1: top2[0].id, u2: top2[1].id, wins, lifetimePoints, loggedDays, totalDays: allDates.length });
     }
 
     setLoading(false);
@@ -373,7 +579,7 @@ export default function SocialPage() {
               onClick={() => setShowSquadModal(true)}
               style={{ background: "rgba(99,102,241,0.25)", border: "1px solid #6366f155", color: "#a5b4fc", borderRadius: 8, padding: "3px 10px", fontSize: "0.7rem", fontWeight: 700, cursor: "pointer" }}
             >
-              30-Day Faceoff ⚔️
+              All-Time Faceoff ⚔️
             </button>
           )}
         </div>
@@ -400,7 +606,7 @@ export default function SocialPage() {
     );
   };
 
-  // ── 30-day faceoff modal ──────────────────────────────────────────────────
+  // ── All-time faceoff modal ────────────────────────────────────────────────
   const FaceoffModal = () => {
     if (!showSquadModal || !historicalStats || friends.length < 2) return null;
     const u1 = friends.find((f) => f.id === historicalStats.u1);
@@ -408,36 +614,119 @@ export default function SocialPage() {
     if (!u1 || !u2) return null;
     const w1 = historicalStats.wins[u1.id];
     const w2 = historicalStats.wins[u2.id];
-    const total = w1 + w2 || 1;
-    const winner = w1 > w2 ? u1 : w2 > w1 ? u2 : null;
+    const lp1 = historicalStats.lifetimePoints?.[u1.id] ?? 0;
+    const lp2 = historicalStats.lifetimePoints?.[u2.id] ?? 0;
+    const ld1 = historicalStats.loggedDays?.[u1.id] ?? 0;
+    const ld2 = historicalStats.loggedDays?.[u2.id] ?? 0;
+    const avg1 = ld1 > 0 ? Math.round(lp1 / ld1) : 0;
+    const avg2 = ld2 > 0 ? Math.round(lp2 / ld2) : 0;
+    const totalW = w1 + w2 || 1;
+    const totalLP = lp1 + lp2 || 1;
+    const winLeader = w1 > w2 ? u1 : w2 > w1 ? u2 : null;
+    const ptLeader  = lp1 > lp2 ? u1 : lp2 > lp1 ? u2 : null;
+    const totalDays = historicalStats.totalDays ?? 0;
+
     return (
       <div className="modal-overlay" style={{ zIndex: 9999 }}>
         <div className="modal-content">
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 24 }}>
+          {/* Header */}
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
             <h3 style={{ margin: 0, display: "flex", alignItems: "center", gap: 8, color: "#e0e7ff", fontSize: "1rem" }}>
-              <Swords size={17} color="#f59e0b" /> 30-Day Head-to-Head
+              <Swords size={17} color="#f59e0b" /> All-Time Head-to-Head
             </h3>
             <button onClick={() => setShowSquadModal(false)} style={{ background: "none", border: "none", color: "#555", cursor: "pointer" }}>
               <X size={20} />
             </button>
           </div>
-          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-around", marginBottom: 20 }}>
-            {[{ user: u1, wins: w1 }, { user: u2, wins: w2 }].map(({ user, wins }, i) => (
-              <div key={user.id} style={{ textAlign: "center" }}>
-                <Avatar name={user.name} size={52} color={user.barColor} />
-                <div style={{ marginTop: 8, fontWeight: 700, color: "#fff", fontSize: "0.85rem" }}>{user.name.replace(" (You)", "")}</div>
-                <div style={{ fontSize: "2.2rem", fontWeight: 900, color: user.barColor, lineHeight: 1, marginTop: 6 }}>{wins}</div>
-                <div style={{ fontSize: "0.65rem", color: "#444" }}>wins</div>
-                {i === 0 && <div style={{ position: "absolute", left: "50%", transform: "translateX(-50%)", fontSize: "0.8rem", fontWeight: 700, color: "#333", marginTop: -60 }}>VS</div>}
+          {totalDays > 0 && (
+            <div style={{ fontSize: "0.68rem", color: "#333", marginBottom: 18 }}>
+              Across <strong style={{ color: "#555" }}>{totalDays}</strong> tracked days
+            </div>
+          )}
+
+          {/* Player cards */}
+          <div style={{ display: "flex", alignItems: "stretch", justifyContent: "space-around", gap: 10, marginBottom: 20 }}>
+            {[{ user: u1, wins: w1, pts: lp1, avg: avg1, days: ld1 }, { user: u2, wins: w2, pts: lp2, avg: avg2, days: ld2 }].map(({ user, wins, pts, avg, days }) => (
+              <div key={user.id} style={{
+                flex: 1, textAlign: "center",
+                background: `linear-gradient(160deg, ${user.barColor}18, ${user.barColor}08)`,
+                border: `1.5px solid ${user.barColor}55`,
+                borderRadius: 16, padding: "16px 10px",
+                boxShadow: `0 0 20px ${user.barColor}12`,
+              }}>
+                <Avatar name={user.name} size={50} color={user.barColor} />
+                <div style={{ marginTop: 9, fontWeight: 800, color: "#fff", fontSize: "0.88rem" }}>
+                  {user.name.replace(" (You)", "")}
+                </div>
+                <div style={{ fontSize: "0.62rem", color: `${user.barColor}aa`, marginTop: 3, fontWeight: 600 }}>
+                  {days} days logged
+                </div>
+
+                {/* Wins */}
+                <div style={{
+                  marginTop: 12,
+                  background: "rgba(0,0,0,0.25)",
+                  borderRadius: 10, padding: "8px 6px",
+                }}>
+                  <div style={{ fontSize: "2.2rem", fontWeight: 900, color: user.barColor, lineHeight: 1 }}>{wins}</div>
+                  <div style={{ fontSize: "0.62rem", color: "#888", marginTop: 3, textTransform: "uppercase", letterSpacing: 0.8 }}>daily wins</div>
+                </div>
+
+                {/* Avg daily score */}
+                <div style={{
+                  marginTop: 8,
+                  background: `${user.barColor}22`,
+                  border: `1px solid ${user.barColor}44`,
+                  borderRadius: 10, padding: "9px 6px",
+                }}>
+                  <div style={{ lineHeight: 1 }}>
+                    <span style={{ fontSize: "1.5rem", fontWeight: 900, color: user.barColor }}>{avg}</span>
+                    <span style={{ fontSize: "0.7rem", fontWeight: 600, color: `${user.barColor}88` }}>/135</span>
+                  </div>
+                  <div style={{ fontSize: "0.62rem", color: "#999", marginTop: 3, textTransform: "uppercase", letterSpacing: 0.8 }}>avg daily score</div>
+                  <div style={{ fontSize: "0.65rem", color: `${user.barColor}bb`, marginTop: 4, fontWeight: 700 }}>
+                    {pts.toLocaleString()} <span style={{ fontWeight: 400, color: "#555" }}>total pts</span>
+                  </div>
+                </div>
               </div>
             ))}
           </div>
-          <div style={{ height: 8, borderRadius: 99, overflow: "hidden", display: "flex", marginBottom: 12, background: "rgba(255,255,255,0.05)" }}>
-            <div style={{ width: `${(w1 / total) * 100}%`, background: u1.barColor, transition: "width 0.6s ease" }} />
-            <div style={{ width: `${(w2 / total) * 100}%`, background: u2.barColor }} />
+
+          {/* Wins bar */}
+          <div style={{ marginBottom: 10 }}>
+            <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 5 }}>
+              <span style={{ fontSize: "0.62rem", color: "#666", textTransform: "uppercase", letterSpacing: 1 }}>Daily wins</span>
+              <span style={{ fontSize: "0.62rem", color: "#555" }}>{w1} vs {w2}</span>
+            </div>
+            <div style={{ height: 8, borderRadius: 99, overflow: "hidden", display: "flex", background: "rgba(255,255,255,0.06)" }}>
+              <div style={{ width: `${(w1 / totalW) * 100}%`, background: u1.barColor, transition: "width 0.8s ease", boxShadow: `0 0 8px ${u1.barColor}66` }} />
+              <div style={{ width: `${(w2 / totalW) * 100}%`, background: u2.barColor, boxShadow: `0 0 8px ${u2.barColor}66` }} />
+            </div>
           </div>
-          <div style={{ textAlign: "center", fontSize: "0.88rem", color: "#aaa", fontWeight: 600 }}>
-            {winner ? `${winner.name.replace(" (You)", "")} holds the crown 👑` : "Too close to call 🤝"}
+
+          {/* Lifetime points bar */}
+          <div style={{ marginBottom: 18 }}>
+            <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 5 }}>
+              <span style={{ fontSize: "0.62rem", color: "#666", textTransform: "uppercase", letterSpacing: 1 }}>Lifetime points</span>
+              <span style={{ fontSize: "0.62rem", color: "#555" }}>{lp1.toLocaleString()} vs {lp2.toLocaleString()}</span>
+            </div>
+            <div style={{ height: 8, borderRadius: 99, overflow: "hidden", display: "flex", background: "rgba(255,255,255,0.06)" }}>
+              <div style={{ width: `${(lp1 / totalLP) * 100}%`, background: u1.barColor, transition: "width 0.8s ease", boxShadow: `0 0 8px ${u1.barColor}66` }} />
+              <div style={{ width: `${(lp2 / totalLP) * 100}%`, background: u2.barColor, boxShadow: `0 0 8px ${u2.barColor}66` }} />
+            </div>
+          </div>
+
+          {/* Crown verdict */}
+          <div style={{
+            textAlign: "center", fontSize: "0.88rem", color: "#e4e4e7", fontWeight: 700,
+            background: "rgba(255,255,255,0.04)", borderRadius: 10, padding: "10px 14px",
+            border: "1px solid rgba(255,255,255,0.07)",
+          }}>
+            {ptLeader
+              ? `${ptLeader.name.replace(" (You)", "")} leads in lifetime points 👑`
+              : winLeader
+                ? `${winLeader.name.replace(" (You)", "")} holds the most wins 👑`
+                : "Completely even — too close to call 🤝"}
           </div>
         </div>
       </div>
@@ -738,6 +1027,72 @@ export default function SocialPage() {
             ) : (
               <>
                 <SquadBanner />
+
+                {/* ── AI SQUAD COACH CARD ── */}
+                <div style={{
+                  background: "linear-gradient(135deg,#0d1b2e,#1a1333)",
+                  border: "1px solid #4338ca55",
+                  borderRadius: 18,
+                  padding: "16px 18px",
+                  marginBottom: 18,
+                }}>
+                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 12 }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 9 }}>
+                      <div style={{ background: "rgba(165,180,252,0.12)", padding: 8, borderRadius: 10 }}>
+                        <Bot size={16} color="#a5b4fc" />
+                      </div>
+                      <div>
+                        <div style={{ fontWeight: 700, fontSize: "0.85rem", color: "#e0e7ff" }}>AI Squad Coach</div>
+                        <div style={{ fontSize: "0.68rem", color: "#4338ca" }}>Live squad analysis</div>
+                      </div>
+                    </div>
+                    <button
+                      onClick={fetchSquadBriefing}
+                      disabled={squadBriefingLoading || friends.length === 0}
+                      style={{
+                        background: squadBriefing ? "rgba(99,102,241,0.15)" : "linear-gradient(135deg,#4338ca,#6366f1)",
+                        border: "1px solid #4338ca66",
+                        color: squadBriefing ? "#a5b4fc" : "#fff",
+                        borderRadius: 10,
+                        padding: "6px 13px",
+                        fontSize: "0.75rem",
+                        fontWeight: 700,
+                        cursor: squadBriefingLoading || friends.length === 0 ? "not-allowed" : "pointer",
+                        display: "flex",
+                        alignItems: "center",
+                        gap: 5,
+                        opacity: friends.length === 0 ? 0.4 : 1,
+                      }}
+                    >
+                      {squadBriefingLoading
+                        ? <><Loader2 size={12} className="animate-spin" /> Analysing…</>
+                        : squadBriefing
+                          ? <><RefreshCw size={12} /> Refresh</>
+                          : <><Zap size={12} /> Analyse Squad</>}
+                    </button>
+                  </div>
+
+                  <div style={{ borderLeft: "2px solid #4338ca", paddingLeft: 14 }}>
+                    {squadBriefingTools.length > 0 && !squadBriefingLoading && (
+                      <ToolBadges tools={squadBriefingTools} />
+                    )}
+                    {squadBriefingLoading && !squadBriefing ? (
+                      <div style={{ display: "flex", alignItems: "center", gap: 7, color: "#555" }}>
+                        {["#4338ca","#6366f1","#a5b4fc"].map((c, i) => (
+                          <div key={c} style={{ width: 6, height: 6, borderRadius: "50%", background: c, animation: `pulse 1s ease-in-out ${i * 0.2}s infinite` }} />
+                        ))}
+                        <span style={{ fontSize: "0.82rem", color: "#555", marginLeft: 4 }}>Reading squad data…</span>
+                      </div>
+                    ) : squadBriefing ? (
+                      <RenderText text={squadBriefing} streaming={squadBriefingLoading} />
+                    ) : (
+                      <p style={{ margin: 0, fontSize: "0.88rem", color: "#2a2a3a", lineHeight: 1.5 }}>
+                        Tap <strong style={{ color: "#4338ca" }}>Analyse Squad</strong> to get a live AI breakdown of your squad&apos;s performance and a competitive challenge.
+                      </p>
+                    )}
+                  </div>
+                </div>
+
                 <Podium top3={friends.slice(0, 3)} />
 
                 <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>

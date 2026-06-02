@@ -26,20 +26,24 @@ import {
   MicOff,
   UtensilsCrossed,
   BarChart2,
+  HeartPulse,
+  SaveAll,
 } from "lucide-react";
 
 // ─── TOOL BADGE METADATA ──────────────────────────────────────────────────────
 const TOOL_META = {
-  get_todays_logs:      { label: "Read Today's Logs",    icon: Utensils,       color: "#3b82f6" },
-  get_logs_for_days:    { label: "Fetching History",      icon: TrendingUp,     color: "#8b5cf6" },
-  get_macro_gap:        { label: "Calculating Gap",       icon: Zap,            color: "#f59e0b" },
-  search_food_database: { label: "Searching Foods",       icon: Database,       color: "#10b981" },
-  get_weight_trend:     { label: "Reading Weight Data",   icon: Scale,          color: "#ec4899" },
-  get_user_profile:     { label: "Loading Your Profile",  icon: User,           color: "#6366f1" },
-  log_food_item:        { label: "Logging Food",          icon: PenLine,        color: "#f97316" },
-  get_streak:           { label: "Checking Streak",       icon: Flame,          color: "#ef4444" },
-  update_goal:          { label: "Updating Your Goal",    icon: Target,         color: "#22c55e" },
-  generate_meal_plan:   { label: "Building Meal Plan",    icon: UtensilsCrossed, color: "#06b6d4" },
+  get_todays_logs:      { label: "Read Today's Logs",    icon: Utensils,        color: "#3b82f6" },
+  get_logs_for_days:    { label: "Fetching History",     icon: TrendingUp,      color: "#8b5cf6" },
+  get_macro_gap:        { label: "Calculating Gap",      icon: Zap,             color: "#f59e0b" },
+  search_food_database: { label: "Searching Foods",      icon: Database,        color: "#10b981" },
+  get_weight_trend:     { label: "Reading Weight Data",  icon: Scale,           color: "#ec4899" },
+  get_user_profile:     { label: "Loading Your Profile", icon: User,            color: "#6366f1" },
+  log_food_item:        { label: "Logging Food",         icon: PenLine,         color: "#f97316" },
+  get_streak:           { label: "Checking Streak",      icon: Flame,           color: "#ef4444" },
+  update_goal:          { label: "Updating Your Goal",   icon: Target,          color: "#22c55e" },
+  generate_meal_plan:   { label: "Building Meal Plan",   icon: UtensilsCrossed, color: "#06b6d4" },
+  get_medical_context:  { label: "Reading Medical Data", icon: HeartPulse,      color: "#f43f5e" },
+  save_food_to_database:{ label: "Saving Food",          icon: SaveAll,         color: "#84cc16" },
 };
 
 // ─── SUGGESTED STARTER PROMPTS ────────────────────────────────────────────────
@@ -115,10 +119,16 @@ function RenderMessage({ text, streaming }) {
 // ─── TOOL ACTIVITY BADGE ──────────────────────────────────────────────────────
 function ToolBadges({ tools }) {
   if (!tools || tools.length === 0) return null;
-  const unique = [...new Set(tools)];
+
+  // Count how many times each tool was called (e.g. save_food_to_database x3)
+  const counts = tools.reduce((acc, t) => {
+    acc[t] = (acc[t] || 0) + 1;
+    return acc;
+  }, {});
+
   return (
     <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 8 }}>
-      {unique.map((tool) => {
+      {Object.entries(counts).map(([tool, count]) => {
         const meta = TOOL_META[tool];
         if (!meta) return null;
         const Icon = meta.icon;
@@ -140,6 +150,17 @@ function ToolBadges({ tools }) {
           >
             <Icon size={11} />
             {meta.label}
+            {count > 1 && (
+              <span style={{
+                background: `${meta.color}33`,
+                borderRadius: 10,
+                padding: "0px 5px",
+                fontSize: "0.65rem",
+                fontWeight: 700,
+              }}>
+                ×{count}
+              </span>
+            )}
           </div>
         );
       })}

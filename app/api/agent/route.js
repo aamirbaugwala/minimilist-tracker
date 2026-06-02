@@ -1,4 +1,5 @@
-import { GoogleGenerativeAI, GoogleAICacheManager } from "@google/generative-ai";
+import { GoogleGenerativeAI } from "@google/generative-ai";
+import { GoogleAICacheManager } from "@google/generative-ai/server";
 import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { FLATTENED_DB } from "../../food-data";
