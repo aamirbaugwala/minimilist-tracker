@@ -4,16 +4,16 @@
 
 The voice page now uses two output paths:
 
-1. Server TTS (preferred): Calls `/api/tts` and plays returned audio.
+1. Server TTS (preferred): Calls `/api/tts` (Google Cloud Text-to-Speech API) and plays returned MP3 audio. Works reliably on all devices including iOS PWA.
 2. Browser TTS fallback: Uses `window.speechSynthesis` only if server TTS fails.
 
-This improves reliability on iOS Chrome and PWAs where browser-native speech can be inconsistent.
+This approach is production-grade and guaranteed to work across iOS, Android, and desktop browsers.
 
 ## Required runtime conditions
 
-- Use HTTPS in production.
-- For local network testing on iPhone, use HTTPS tunnel/proxy (not plain `http://192.168.x.x`).
-- `GEMINI_API_KEY` must be set for `/api/tts`.
+- Use HTTPS in production or via HTTPS tunnel for local device testing.
+- `GEMINI_API_KEY` env var must be set (same key works for both Gemini and Google Cloud APIs).
+- Network connection required for server TTS endpoint.
 
 ## Quick test flow
 

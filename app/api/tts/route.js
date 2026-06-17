@@ -4,34 +4,34 @@ const MAX_TEXT_CHARS = 1600;
 
 export async function POST(req) {
   try {
+    // 1. Safe body parsing
     const body = await req.json().catch(() => ({}));
     const rawText = typeof body?.text === "string" ? body.text : "";
-    const voiceName = typeof body?.voiceName === "string" && body.voiceName.trim()
-      ? body.voiceName.trim()
-      : "Kore";
 
+    // Normalize spacing and enforce character limit
     const text = rawText.replace(/\s+/g, " ").trim().slice(0, MAX_TEXT_CHARS);
     if (!text) {
-      return NextResponse.json({ error: "text is required" }, { status: 400 });
+      return NextResponse.json({ error: "Text is required" }, { status: 400 });
     }
 
-    const apiKey = process.env.GEMINI_API_KEY;
+    // FIX: Must be a Google Cloud Platform API Key, NOT a Gemini/AI Studio key
+    const apiKey = process.env.GOOGLE_CLOUD_API_KEY;
     if (!apiKey) {
-      return NextResponse.json({ error: "GEMINI_API_KEY is missing" }, { status: 500 });
+      return NextResponse.json({ error: "GOOGLE_CLOUD_API_KEY is missing" }, { status: 500 });
     }
 
-    const model = process.env.GEMINI_TTS_MODEL || "gemini-2.5-flash-preview-tts";
-    const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${encodeURIComponent(apiKey)}`;
+    const endpoint = `https://texttospeech.googleapis.com/v1/text:synthesize?key=${encodeURIComponent(apiKey)}`;
 
     const payload = {
-      contents: [{ parts: [{ text }] }],
-      generationConfig: {
-        responseModalities: ["AUDIO"],
-        speechConfig: {
-          voiceConfig: {
-            prebuiltVoiceConfig: { voiceName },
-          },
-        },
+      input: { text },
+      voice: {
+        languageCode: "en-IN",
+        name: "en-IN-Neural2-B", 
+      },
+      audioConfig: {
+        audioEncoding: "MP3", 
+        pitch: 0,
+        speakingRate: 1,
       },
     };
 
@@ -41,33 +41,37 @@ export async function POST(req) {
       body: JSON.stringify(payload),
     });
 
-    const ttsData = await ttsResponse.json().catch(() => ({}));
+    // 2. Safe error payload tracking
+    let ttsData;
+    try {
+      ttsData = await ttsResponse.json();
+    } catch {
+      ttsData = null;
+    }
+
     if (!ttsResponse.ok) {
-      console.error("[tts] Gemini TTS error", ttsData?.error || ttsData);
+      console.error("[tts] Google Cloud TTS error status:", ttsResponse.status, ttsData);
       return NextResponse.json({
-        error: "Gemini TTS failed",
+        error: "Google Cloud TTS failed",
         detail: ttsData?.error?.message || `HTTP ${ttsResponse.status}`,
       }, { status: 502 });
     }
 
-    const parts = ttsData?.candidates?.[0]?.content?.parts || [];
-    const audioPart = parts.find((p) => p?.inlineData?.data);
-    const audioBase64 = audioPart?.inlineData?.data;
-    const mimeType = audioPart?.inlineData?.mimeType || "audio/wav";
-
+    const audioBase64 = ttsData?.audioContent;
     if (!audioBase64) {
-      console.error("[tts] Missing audio in Gemini response", ttsData);
+      console.error("[tts] Missing audioContent in response", ttsData);
       return NextResponse.json({
-        error: "No audio returned from Gemini TTS",
+        error: "No audio returned from TTS",
       }, { status: 502 });
     }
 
+    // 3. Return payload to frontend
     return NextResponse.json({
       audioBase64,
-      mimeType,
-      voiceName,
-      model,
+      mimeType: "audio/mpeg",
+      voiceName: "en-IN-Neural2-B",
     });
+
   } catch (err) {
     console.error("[tts] route error", err?.message || err);
     return NextResponse.json({
