@@ -212,27 +212,49 @@ export default function VoicePage() {
     // Try to get voices; wait up to 1s if they're loading (Brave workaround).
     const voices = await new Promise((resolve) => {
       const existing = synth.getVoices();
-      if (existing.length) return resolve(existing);
+      if (existing.length) {
+        console.log("[voice] Voices already loaded:", existing.length);
+        return resolve(existing);
+      }
       
       let resolved = false;
+      // iOS may take longer to load voices - increase timeout to 2s
       const timeoutId = setTimeout(() => {
         resolved = true;
-        resolve(synth.getVoices()); // return whatever we have (possibly empty)
-      }, 1000);
+        const voicesFinal = synth.getVoices();
+        console.log("[voice] Timeout reached. Voices available:", voicesFinal.length);
+        resolve(voicesFinal);
+      }, 2000);
       
       synth.onvoiceschanged = () => {
         if (!resolved) {
           resolved = true;
           clearTimeout(timeoutId);
-          resolve(synth.getVoices());
+          const voicesLoaded = synth.getVoices();
+          console.log("[voice] onvoiceschanged fired. Voices available:", voicesLoaded.length);
+          if (voicesLoaded.length > 0) {
+            voicesLoaded.forEach((v, i) => console.log(`  [${i}] ${v.name} (${v.lang})`));
+          }
+          resolve(voicesLoaded);
         }
       };
     });
 
-    // If no voices available (Brave / PWA limitation), warn and try anyway.
+    // If no voices available (iOS/Brave limitation), show helpful error
     if (!voices.length) {
-      console.warn("[voice] No system voices available. TTS may not work. Browser: " + navigator.userAgent.slice(0, 80));
-      setError("No speech voices found. On Brave, enable Microphone & Audio in settings.");
+      const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent);
+      const isBrave = /Brave/.test(navigator.userAgent);
+      
+      console.error("[voice] No voices found! User agent:", navigator.userAgent.slice(0, 100));
+      
+      if (isIOS) {
+        setError("iOS issue: No voices loaded. Try: 1) Reload the app, 2) Check volume isn't muted, 3) Reinstall PWA. Voice may work in Safari app instead.");
+      } else if (isBrave) {
+        setError("Brave disabled TTS. Try Firefox or Chrome for voice chat.");
+      } else {
+        setError("TTS unavailable. Check browser voice settings or try a different browser.");
+      }
+      return; // Don't try to speak without voices
     }
 
     const preferredVoice = voices.length > 0
@@ -241,6 +263,7 @@ export default function VoicePage() {
          || voices[0])
       : null;
 
+    console.log("[voice] Selected voice:", preferredVoice?.name, "(" + preferredVoice?.lang + ")");
     setVS(S.SPEAKING);
 
     let idx = 0;
