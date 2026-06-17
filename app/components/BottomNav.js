@@ -70,8 +70,8 @@ export default function BottomNav() {
     return () => clearTimeout(timer);
   }, [pathname]);
 
-  // Hide when not authenticated
-  if (!hasSession) return null;
+  // Hide when not authenticated or on the fullscreen voice page
+  if (!hasSession || pathname === "/voice") return null;
 
   const moreRoutes = ["/recipes", "/medical"];
   const isMoreActive = moreRoutes.includes(pathname);

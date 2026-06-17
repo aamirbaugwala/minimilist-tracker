@@ -28,6 +28,11 @@ import {
   BarChart2,
   HeartPulse,
   SaveAll,
+  Globe,
+  ImageIcon,
+  Volume2,
+  VolumeX,
+  X,
 } from "lucide-react";
 
 // ─── TOOL BADGE METADATA ──────────────────────────────────────────────────────
@@ -44,6 +49,7 @@ const TOOL_META = {
   generate_meal_plan:   { label: "Building Meal Plan",   icon: UtensilsCrossed, color: "#06b6d4" },
   get_medical_context:  { label: "Reading Medical Data", icon: HeartPulse,      color: "#f43f5e" },
   save_food_to_database:{ label: "Saving Food",          icon: SaveAll,         color: "#84cc16" },
+  search_web:           { label: "Searching Web",        icon: Globe,           color: "#a78bfa" },
 };
 
 // ─── SUGGESTED STARTER PROMPTS ────────────────────────────────────────────────
@@ -181,6 +187,22 @@ export default function AgentPage() {
   // ── Voice input state ──────────────────────────────────────────────────────
   const [isListening, setIsListening] = useState(false);
   const recognitionRef = useRef(null);
+  // ── Image attachment state ─────────────────────────────────────────────────
+  const [selectedImage, setSelectedImage] = useState(null); // { base64, mimeType, preview }
+  const imageInputRef = useRef(null);
+  // ── TTS (voice output) state ───────────────────────────────────────────────
+  const [ttsEnabled, setTtsEnabled] = useState(false);
+  const [speaking, setSpeaking] = useState(false);
+  // ── Voice conversation mode ────────────────────────────────────────────────
+  const [isVoiceMode, setIsVoiceMode] = useState(false);
+  // Refs — always-current values safe to read inside async/event callbacks
+  const isVoiceModeRef       = useRef(false);
+  const loadingRef           = useRef(false);
+  const ttsEnabledRef        = useRef(false);
+  const ttsSentenceBufferRef = useRef(""); // accumulates partial text for streaming TTS
+  const ttsQueueCountRef     = useRef(0);  // counts utterances still queued/playing
+  // Always-current ref to sendMessage — prevents stale closure in voice callbacks
+  const sendMessageRef       = useRef(null);
   // ── Weekly report state ────────────────────────────────────────────────────
   const [weeklyReport, setWeeklyReport] = useState(null); // { insight, score, weekStart }
   const [reportLoading, setReportLoading] = useState(false);
@@ -224,6 +246,128 @@ export default function AgentPage() {
     recognitionRef.current = recognition;
     recognition.start();
     setIsListening(true);
+  };
+
+  // ── IMAGE PICK ─────────────────────────────────────────────────────────────
+  const handleImagePick = (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    // Max 4 MB
+    if (file.size > 4 * 1024 * 1024) {
+      setError("Image must be under 4 MB.");
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      const dataUrl = ev.target.result;               // "data:image/jpeg;base64,…"
+      const [header, base64] = dataUrl.split(",");    // split off the header
+      const mimeType = header.replace("data:", "").replace(";base64", "");
+      setSelectedImage({ base64, mimeType, preview: dataUrl });
+    };
+    reader.readAsDataURL(file);
+    // Reset the input so the same file can be picked again
+    e.target.value = "";
+  };
+
+  // ── STREAMING TTS — queues utterances sentence-by-sentence as text arrives ─
+  // Called repeatedly during streaming; Web Speech API queues them in order.
+  const speakChunk = (text) => {
+    if (!ttsEnabledRef.current || !("speechSynthesis" in window)) return;
+    const cleaned = text
+      .replace(/\*\*([^*]+)\*\*/g, "$1")
+      .replace(/[•\-]\s/g, "")
+      .replace(/#{1,6}\s/g, "")
+      .trim();
+    if (!cleaned) return;
+
+    const utterance = new SpeechSynthesisUtterance(cleaned);
+    utterance.lang = "en-IN";
+    utterance.rate = 1.1;
+    utterance.pitch = 1.0;
+    utterance.volume = 1.0;
+    ttsQueueCountRef.current += 1;
+
+    utterance.onstart = () => setSpeaking(true);
+    utterance.onend = () => {
+      ttsQueueCountRef.current = Math.max(0, ttsQueueCountRef.current - 1);
+      if (ttsQueueCountRef.current === 0) {
+        setSpeaking(false);
+        // Voice conversation loop: restart listening after all speech finishes
+        if (isVoiceModeRef.current && !loadingRef.current) {
+          setTimeout(() => startListeningForVoiceMode(), 700);
+        }
+      }
+    };
+    utterance.onerror = () => {
+      ttsQueueCountRef.current = Math.max(0, ttsQueueCountRef.current - 1);
+      if (ttsQueueCountRef.current === 0) setSpeaking(false);
+    };
+    window.speechSynthesis.speak(utterance);
+  };
+
+  const stopSpeaking = () => {
+    window.speechSynthesis?.cancel();
+    ttsQueueCountRef.current = 0;
+    setSpeaking(false);
+  };
+
+  // ── VOICE CONVERSATION LOOP ────────────────────────────────────────────────
+  // Listens → auto-submits transcript → TTS plays response → listens again.
+  // Uses refs so callbacks always see the latest state without stale closures.
+  const startListeningForVoiceMode = () => {
+    if (!isVoiceModeRef.current || loadingRef.current || ttsQueueCountRef.current > 0) return;
+    if (!("webkitSpeechRecognition" in window) && !("SpeechRecognition" in window)) {
+      setError("Voice input not supported in this browser. Try Chrome.");
+      return;
+    }
+    const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+    const recognition = new SR();
+    recognition.lang = "en-IN";
+    recognition.continuous = false;
+    recognition.interimResults = false;
+
+    let gotResult = false;
+
+    recognition.onresult = (event) => {
+      gotResult = true;
+      const transcript = event.results[0][0].transcript.trim();
+      setIsListening(false);
+      if (transcript) sendMessageRef.current?.(transcript);
+    };
+
+    recognition.onerror = (e) => {
+      // "no-speech" is a normal timeout — don't show an error or flash the UI
+      if (e.error !== "no-speech") {
+        console.warn("Speech recognition error:", e.error);
+        if (e.error === "not-allowed") {
+          setError("Microphone access denied. Check browser permissions.");
+          isVoiceModeRef.current = false;
+          setIsVoiceMode(false);
+          setIsListening(false);
+        }
+      }
+      gotResult = true; // treat as "handled" so onend doesn't double-fire
+      setIsListening(false);
+    };
+
+    recognition.onend = () => {
+      // If we're restarting due to no-speech timeout, keep isListening=true
+      // so the button label doesn't flicker between "Listening" and "Live"
+      if (!gotResult && isVoiceModeRef.current && !loadingRef.current && ttsQueueCountRef.current === 0) {
+        // Restart immediately — do NOT toggle isListening to avoid visual flicker
+        setTimeout(() => startListeningForVoiceMode(), 300);
+      } else if (gotResult) {
+        setIsListening(false);
+      }
+    };
+
+    recognitionRef.current = recognition;
+    try {
+      recognition.start();
+      setIsListening(true);
+    } catch (e) {
+      console.warn("Could not start recognition:", e.message);
+    }
   };
 
   // ── WEEKLY REPORT ──────────────────────────────────────────────────────────
@@ -316,26 +460,36 @@ export default function AgentPage() {
   // ── SEND MESSAGE ───────────────────────────────────────────────────────────
   const sendMessage = async (text) => {
     const userText = (text || input).trim();
-    if (!userText || loading) return;
+    // Use loadingRef.current (not state) so voice callbacks always read the live value
+    if ((!userText && !selectedImage) || loadingRef.current) return;
+    const imageToSend = selectedImage;
     setInput("");
+    setSelectedImage(null);
     setError("");
 
     // Add user bubble + empty model placeholder immediately
     setMessages((prev) => [
       ...prev,
-      { role: "user",  content: userText },
+      { role: "user",  content: userText, imagePreview: imageToSend?.preview || null },
       { role: "model", content: "", toolsUsed: [], streaming: true },
     ]);
     setLoading(true);
+    loadingRef.current = true;
+    // Reset TTS streaming state for this new message turn
+    ttsSentenceBufferRef.current = "";
+    ttsQueueCountRef.current = 0;
+    window.speechSynthesis?.cancel();
 
     try {
       const res = await fetch("/api/agent", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          message:     userText,
+          message:     userText || "What food is in this image? Analyze the nutrition.",
           userId:      session.user.id,
           accessToken: session.access_token,
+          imageBase64:  imageToSend?.base64  || null,
+          imageMimeType: imageToSend?.mimeType || null,
         }),
       });
 
@@ -385,6 +539,22 @@ export default function AgentPage() {
                 return arr;
               });
 
+              // ── Streaming TTS: speak each sentence as it arrives ──────
+              if (ttsEnabledRef.current) {
+                ttsSentenceBufferRef.current += event.text;
+                // Extract all complete sentences (end with . ! ? or newline)
+                const sentenceRegex = /[^.!?\n]*[.!?\n]+/g;
+                let match;
+                let lastIdx = 0;
+                while ((match = sentenceRegex.exec(ttsSentenceBufferRef.current)) !== null) {
+                  const sentence = match[0].trim();
+                  if (sentence.length > 3) speakChunk(sentence);
+                  lastIdx = sentenceRegex.lastIndex;
+                }
+                // Keep remainder (incomplete sentence) in the buffer
+                ttsSentenceBufferRef.current = ttsSentenceBufferRef.current.slice(lastIdx);
+              }
+
             } else if (event.type === "done") {
               // Mark streaming finished — removes cursor, shows copy button
               setMessages((prev) => {
@@ -394,6 +564,15 @@ export default function AgentPage() {
                 arr[arr.length - 1] = last;
                 return arr;
               });
+              // Flush any sentence fragment still in the TTS buffer
+              if (ttsEnabledRef.current && ttsSentenceBufferRef.current.trim()) {
+                speakChunk(ttsSentenceBufferRef.current.trim());
+                ttsSentenceBufferRef.current = "";
+              }
+              // Voice mode with TTS disabled: still restart listening after response
+              if (isVoiceModeRef.current && !ttsEnabledRef.current) {
+                setTimeout(() => startListeningForVoiceMode(), 500);
+              }
 
             } else if (event.type === "error") {
               setError(event.message || "Something went wrong. Please try again.");
@@ -411,9 +590,16 @@ export default function AgentPage() {
       setMessages((prev) => prev.slice(0, -2));
     } finally {
       setLoading(false);
-      setTimeout(() => inputRef.current?.focus(), 100);
+      loadingRef.current = false;
+      // In voice mode, focus stays on voice — don't steal focus to textarea
+      if (!isVoiceModeRef.current) {
+        setTimeout(() => inputRef.current?.focus(), 100);
+      }
     }
   };
+
+  // Keep ref current on every render so voice recognition callbacks never use a stale closure
+  sendMessageRef.current = sendMessage;
 
   const handleKeyDown = (e) => {
     if (e.key === "Enter" && !e.shiftKey) {
@@ -445,6 +631,7 @@ export default function AgentPage() {
         fontFamily: "system-ui, -apple-system, sans-serif",
         maxWidth: 720,
         margin: "0 auto",
+        width: "100%",
       }}
     >
       {/* ── HEADER ── */}
@@ -502,8 +689,54 @@ export default function AgentPage() {
           </div>
         </div>
 
-        {/* Right side actions: Weekly Report + Clear */}
+        {/* Right side actions: TTS + Weekly Report + Clear */}
         <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+          {/* Full voice page link */}
+          <button
+            onClick={() => router.push("/voice")}
+            title="Open full voice conversation mode"
+            style={{
+              background: "linear-gradient(135deg,#3b82f620,#8b5cf620)",
+              border: "1px solid #8b5cf644",
+              color: "#a78bfa",
+              cursor: "pointer",
+              padding: "6px 10px",
+              borderRadius: 8,
+              display: "flex",
+              alignItems: "center",
+              gap: 5,
+              fontSize: "0.72rem",
+              fontWeight: 600,
+            }}
+          >
+            <Mic size={13} /> Voice
+          </button>
+          {/* TTS toggle (manual) */}
+          {!isVoiceMode && (
+            <button
+              onClick={() => {
+                if (speaking) stopSpeaking();
+                const next = !ttsEnabled;
+                ttsEnabledRef.current = next;
+                setTtsEnabled(next);
+              }}
+              title={ttsEnabled ? "Voice output ON — click to disable" : "Enable voice output"}
+              style={{
+                background: ttsEnabled ? "rgba(139,92,246,0.12)" : "transparent",
+                border: `1px solid ${ttsEnabled ? "#8b5cf6" : "#333"}`,
+                color: ttsEnabled ? "#8b5cf6" : "#555",
+                cursor: "pointer",
+                padding: "6px 8px",
+                borderRadius: 8,
+                display: "flex",
+                alignItems: "center",
+                gap: 4,
+                fontSize: "0.72rem",
+              }}
+            >
+              {ttsEnabled ? <Volume2 size={13} /> : <VolumeX size={13} />}
+            </button>
+          )}
           <button
             onClick={fetchWeeklyReport}
             disabled={reportLoading}
@@ -771,7 +1004,17 @@ export default function AgentPage() {
                   )}
 
                   {isUser ? (
-                    <span>{msg.content}</span>
+                    <span>
+                      {msg.imagePreview && (
+                        // eslint-disable-next-line @next/next/no-img-element
+                        <img
+                          src={msg.imagePreview}
+                          alt="Attached"
+                          style={{ display: "block", maxWidth: "100%", maxHeight: 200, borderRadius: 10, marginBottom: msg.content ? 8 : 0, objectFit: "cover" }}
+                        />
+                      )}
+                      {msg.content}
+                    </span>
                   ) : msg.streaming && !msg.content ? (
                     // Tool-calling phase: no text yet — show inline thinking state
                     <div style={{ display: "flex", alignItems: "center", gap: 8, color: "#666", fontSize: "0.85rem" }}>
@@ -880,7 +1123,24 @@ export default function AgentPage() {
           flexShrink: 0,
         }}
       >
+        {/* Image preview strip */}
+        {selectedImage && (
+          <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
+            <div style={{ position: "relative", flexShrink: 0 }}>
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img src={selectedImage.preview} alt="Preview" style={{ width: 56, height: 56, borderRadius: 10, objectFit: "cover", border: "1px solid #333" }} />
+              <button
+                onClick={() => setSelectedImage(null)}
+                style={{ position: "absolute", top: -6, right: -6, background: "#ef4444", border: "none", borderRadius: "50%", width: 18, height: 18, display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", padding: 0 }}
+              >
+                <X size={10} color="#fff" />
+              </button>
+            </div>
+            <span style={{ fontSize: "0.72rem", color: "#666" }}>Image attached — ask me anything about it</span>
+          </div>
+        )}
         <div
+          className="agent-input-bar"
           style={{
             display: "flex",
             gap: 10,
@@ -901,7 +1161,7 @@ export default function AgentPage() {
               e.target.style.height = Math.min(e.target.scrollHeight, 120) + "px";
             }}
             onKeyDown={handleKeyDown}
-            placeholder="Ask your coach anything…"
+            placeholder={selectedImage ? "Ask about this image…" : "Ask your coach anything…"}
             rows={1}
             style={{
               flex: 1,
@@ -918,14 +1178,23 @@ export default function AgentPage() {
               fontFamily: "inherit",
             }}
           />
-          {/* Voice input button */}
+          {/* Hidden image file input */}
+          <input
+            ref={imageInputRef}
+            type="file"
+            accept="image/*"
+            capture="environment"
+            onChange={handleImagePick}
+            style={{ display: "none" }}
+          />
+          {/* Image attach button */}
           <button
-            onClick={toggleVoice}
-            title={isListening ? "Stop listening" : "Voice input"}
+            onClick={() => imageInputRef.current?.click()}
+            title="Attach image"
             style={{
-              background: isListening ? "#ef444420" : "transparent",
-              border: `1px solid ${isListening ? "#ef4444" : "#333"}`,
-              color: isListening ? "#ef4444" : "#555",
+              background: selectedImage ? "#3b82f620" : "transparent",
+              border: `1px solid ${selectedImage ? "#3b82f6" : "#333"}`,
+              color: selectedImage ? "#3b82f6" : "#555",
               cursor: "pointer",
               padding: 9,
               borderRadius: 10,
@@ -936,18 +1205,40 @@ export default function AgentPage() {
               transition: "all 0.2s",
             }}
           >
-            {isListening ? <MicOff size={16} /> : <Mic size={16} />}
+            <ImageIcon size={16} />
           </button>
+          {/* Voice input button — hidden in voice mode (status bar handles it) */}
+          {!isVoiceMode && (
+            <button
+              onClick={toggleVoice}
+              title={isListening ? "Stop listening" : "Voice input"}
+              style={{
+                background: isListening ? "#ef444420" : "transparent",
+                border: `1px solid ${isListening ? "#ef4444" : "#333"}`,
+                color: isListening ? "#ef4444" : "#555",
+                cursor: "pointer",
+                padding: 9,
+                borderRadius: 10,
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                flexShrink: 0,
+                transition: "all 0.2s",
+              }}
+            >
+              {isListening ? <MicOff size={16} /> : <Mic size={16} />}
+            </button>
+          )}
           <button
             onClick={() => sendMessage()}
-            disabled={!input.trim() || loading}
+            disabled={(!input.trim() && !selectedImage) || loading}
             style={{
-              background: input.trim() && !loading
+              background: (input.trim() || selectedImage) && !loading
                 ? "linear-gradient(135deg, #3b82f6, #8b5cf6)"
                 : "#27272a",
               border: "none",
-              color: input.trim() && !loading ? "#fff" : "#444",
-              cursor: input.trim() && !loading ? "pointer" : "not-allowed",
+              color: (input.trim() || selectedImage) && !loading ? "#fff" : "#444",
+              cursor: (input.trim() || selectedImage) && !loading ? "pointer" : "not-allowed",
               padding: 10,
               borderRadius: 10,
               display: "flex",
@@ -973,7 +1264,7 @@ export default function AgentPage() {
           }}
         >
           <div style={{ fontSize: "0.7rem", color: "#444" }}>
-            Agent reads your live data · Powered by Gemini Function Calling
+            Agent reads your live data · Image · Web Search · Voice · Powered by Gemini
           </div>
           <div
             style={{

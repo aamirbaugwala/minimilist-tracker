@@ -108,9 +108,17 @@ Tool rules:
 - "Change my goal to X" / "Switch to bulking" / "I want to lose weight" / "I want a slight cut" / "Set calories to N" / "I want to lose fat and build muscle" → ALWAYS call get_user_profile first, then call update_goal. For presets use goal='lose'/'gain'/'maintain'/'recomp'. For nuanced requests ('slight cut', 'aggressive deficit', 'gentle bulk') set goal='custom' with explicit calorie_adjustment and protein_priority values. Confirm the change and explain the new targets.
 - User mentions any health condition, blood marker, symptom, or medication → call get_medical_context to check their report history before responding.
 - User asks about their health, blood test, medical reports, diet restrictions, or what foods are good/bad for them → call get_medical_context.
+- "Search for…" / "Latest news on…" / "Current price of…" / any question requiring real-time or recent information → call search_web first, then answer using the results.
 - Call multiple tools in one turn when needed
 - NEVER log food without the user explicitly asking you to
 - NEVER change the goal without the user explicitly asking you to
+
+Image analysis rules (when the user sends a food photo):
+- Identify all visible food items and estimate portion sizes
+- Call search_food_database for each identified item to get accurate macros
+- For items not found in the database, call save_food_to_database with your best estimated macros
+- Summarise total estimated calories and macros for the meal
+- Ask if they want to log it — NEVER log without explicit confirmation
 
 Medical context rules (get_medical_context):
 - When medical context is available, ALWAYS cross-reference meal plans and food suggestions against mustInclude and mustAvoid lists.
@@ -320,6 +328,17 @@ const tools = [
         name: "get_medical_context",
         description: "Fetches the user's medical report history from their uploaded blood tests and health reports. Returns all reports with their flagged markers (e.g. high HbA1c, low Vitamin D), dietary recommendations (foods to include/avoid), and longitudinal trends across reports. Call this when: the user asks about their health conditions, blood work, or medical diet advice; you are generating a meal plan and want to personalise it to their medical profile; or the user mentions any health condition, marker, or medication.",
         parameters: { type: "OBJECT", properties: {}, required: [] },
+      },
+      {
+        name: "search_web",
+        description: "Searches the web for real-time information. Use this when the user asks about recent news, current prices, or information that may not be in your training data — such as the latest nutrition research, restaurant menus, supplement prices, or current events related to health. Returns the top search results with titles and snippets.",
+        parameters: {
+          type: "OBJECT",
+          properties: {
+            query: { type: "STRING", description: "The search query. Be specific and concise (e.g. 'calorie content of Swiggy butter chicken 2024' or 'latest research on intermittent fasting 2025')." },
+          },
+          required: ["query"],
+        },
       },
     ],
   },
@@ -836,6 +855,58 @@ async function executeTool(toolName, args, userId, db) {
     return medicalResult;
   }
 
+  // ── Web search ────────────────────────────────────────────────────────────
+  if (toolName === "search_web") {
+    const query = (args.query || "").trim().slice(0, 400);
+    if (!query) return { error: "No search query provided." };
+
+    // Use Serper.dev if API key available; fall back to DuckDuckGo instant answers
+    if (process.env.SERPER_API_KEY) {
+      try {
+        const res = await fetch("https://google.serper.dev/search", {
+          method: "POST",
+          headers: {
+            "X-API-KEY": process.env.SERPER_API_KEY,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({ q: query, num: 5, gl: "in" }),
+          signal: AbortSignal.timeout(8000),
+        });
+        const data = await res.json();
+        const results = (data.organic || []).slice(0, 5).map((r) => ({
+          title:   r.title,
+          url:     r.link,
+          snippet: r.snippet,
+        }));
+        const answerBox = data.answerBox?.answer || data.answerBox?.snippet || null;
+        return { query, source: "Google", answerBox, results };
+      } catch (err) {
+        // Fall through to DuckDuckGo backup
+        console.warn("[search_web] Serper failed:", err.message);
+      }
+    }
+
+    // Free fallback: DuckDuckGo instant-answer API (no key needed)
+    try {
+      const ddUrl = `https://api.duckduckgo.com/?q=${encodeURIComponent(query)}&format=json&no_redirect=1&no_html=1&skip_disambig=1`;
+      const res = await fetch(ddUrl, { signal: AbortSignal.timeout(6000) });
+      const data = await res.json();
+      const topics = (data.RelatedTopics || [])
+        .slice(0, 5)
+        .map((t) => (t.Text ? { title: t.Text.slice(0, 80), snippet: t.Text } : null))
+        .filter(Boolean);
+      return {
+        query,
+        source: "DuckDuckGo",
+        answerBox: data.Answer || data.AbstractText || null,
+        results: topics,
+        note: "Limited results — add SERPER_API_KEY env var for full Google Search.",
+      };
+    } catch (err) {
+      return { error: `Search failed: ${err.message}. Try rephrasing or use your training knowledge.` };
+    }
+  }
+
   return { error: `Unknown tool: ${toolName}` };
 }
 
@@ -845,12 +916,18 @@ export async function POST(req) {
   if (!apiKey) return NextResponse.json({ error: "API Key missing" }, { status: 500 });
 
   const body = await req.json();
-  const { userId, accessToken } = body;
+  const { userId, accessToken, skipHistory, voiceMode } = body;
+  const clientHistory = Array.isArray(body.history) ? body.history : [];
   const message = sanitizeMessage(body.message);
+  // Image attachment — validated server-side
+  const imageBase64    = typeof body.imageBase64    === "string" ? body.imageBase64    : null;
+  const imageMimeType  = typeof body.imageMimeType  === "string" ? body.imageMimeType  : null;
+  const ALLOWED_IMAGE_TYPES = ["image/jpeg", "image/png", "image/webp", "image/gif", "image/heic"];
+  const imageValid = imageBase64 && imageMimeType && ALLOWED_IMAGE_TYPES.includes(imageMimeType);
 
   if (!userId || !accessToken)
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  if (!message)
+  if (!message && !imageValid)
     return NextResponse.json({ error: "Message cannot be empty." }, { status: 400 });
   if (message.length > 1000)
     return NextResponse.json({ error: "Message too long. Max 1000 characters." }, { status: 400 });
@@ -884,40 +961,104 @@ export async function POST(req) {
         controller.enqueue(enc.encode(`data: ${JSON.stringify(data)}\n\n`));
 
       try {
-        const model = await getOrCreateCachedModel(apiKey);
+        // For multimodal (image) requests, bypass the cached model — Gemini's
+        // cached-content API restricts inlineData in user turns and returns 503.
+        // Use a direct model instance with a known vision-capable model instead.
+        const model = imageValid
+          ? new GoogleGenerativeAI(apiKey).getGenerativeModel({
+              model: "gemini-3-flash-preview",
+              tools,
+              systemInstruction: SYSTEM_PROMPT,
+            })
+          : await getOrCreateCachedModel(apiKey);
 
-        // ── Load history from DB ─────────────────────────────────────────
-        const { data: historyRows } = await db
-          .from("chat_sessions")
-          .select("role, content, created_at")
-          .eq("user_id", userId)
-          .order("created_at", { ascending: false })
-          .limit(20);
+        // ── Build conversation history for Gemini ───────────────────────
+        let geminiHistory = [];
 
-        // Reverse to chronological order, then sanitise:
-        // - Drop any leading model messages (Gemini requires history to start with user)
-        // - Ensure strict alternating user/model pairs (drop orphaned tail if needed)
-        const chronological = (historyRows || []).reverse();
-        const firstUserIdx  = chronological.findIndex((m) => m.role === "user");
-        const sanitised     = firstUserIdx > 0
-          ? chronological.slice(firstUserIdx)   // trim any orphaned model rows at the start
-          : chronological;
+        if (skipHistory) {
+          // skipHistory=true: caller is a widget (dashboard briefing/chat, social
+          // squad briefing) — do NOT read from or write to chat_sessions so those
+          // one-shot queries never pollute the agent page history.
+          // Client may supply its own in-memory history (dashboard inline chat).
+          const raw = clientHistory
+            .filter((m) => m.role === "user" || m.role === "model")
+            .map((m) => ({
+              role: m.role === "model" ? "model" : "user",
+              parts: [{ text: sanitizeHistoryContent(m.content || "") }],
+            }));
+          const fi = raw.findIndex((m) => m.role === "user");
+          const sl = fi > 0 ? raw.slice(fi) : raw;
+          geminiHistory = sl.length % 2 !== 0 ? sl.slice(0, -1) : sl;
+        } else {
+          // skipHistory=false (default): load from DB — this is the agent page path.
+          const { data: historyRows } = await db
+            .from("chat_sessions")
+            .select("role, content, created_at")
+            .eq("user_id", userId)
+            .order("created_at", { ascending: false })
+            .limit(20);
 
-        // Keep only complete user+model pairs — drop an unpaired tail user message
-        const paired = sanitised.length % 2 !== 0
-          ? sanitised.slice(0, -1)
-          : sanitised;
+          // Belt-and-suspenders: filter out widget-sourced user messages that
+          // were saved before the skipHistory fix was deployed. Their orphaned
+          // model-response partners (if any) become leading model rows that the
+          // firstUserIdx trim below will discard automatically.
+          const WIDGET_PREFIXES = [
+            "you are my personal expert nutritionist",
+            "you are a competitive squad nutrition coach",
+            "you are a clinical dietitian",
+            "build me a meal plan for the rest of the day based on my macro gap. be specific",
+          ];
+          const decontaminated = (historyRows || []).filter(
+            (row) =>
+              row.role !== "user" ||
+              !WIDGET_PREFIXES.some((p) => (row.content || "").toLowerCase().startsWith(p))
+          );
 
-        const geminiHistory = paired.map((msg) => ({
-          role: msg.role === "model" ? "model" : "user",
-          // sanitizeHistoryContent scrubs injection patterns from replayed history
-          parts: [{ text: sanitizeHistoryContent(msg.content || "") }],
-        }));
+          // Reverse to chronological order, then sanitise:
+          // - Drop any leading model messages (Gemini requires history to start with user)
+          // - Ensure strict alternating user/model pairs
+          const chronological = decontaminated.reverse();
+          const firstUserIdx  = chronological.findIndex((m) => m.role === "user");
+          const sanitised     = firstUserIdx > 0
+            ? chronological.slice(firstUserIdx)
+            : chronological;
+
+          // Keep only complete user+model pairs — drop an unpaired tail user message
+          const paired = sanitised.length % 2 !== 0
+            ? sanitised.slice(0, -1)
+            : sanitised;
+
+          geminiHistory = paired.map((msg) => ({
+            role: msg.role === "model" ? "model" : "user",
+            parts: [{ text: sanitizeHistoryContent(msg.content || "") }],
+          }));
+        }
 
         const chat = model.startChat({ history: geminiHistory });
 
+        // ── Build the message — multipart when an image is attached ──────
+        const userMessageParts = [];
+        if (imageValid) {
+          userMessageParts.push({ inlineData: { data: imageBase64, mimeType: imageMimeType } });
+        }
+        if (message) {
+          // In voice mode, prepend a brief spoken-word instruction so the model
+          // keeps its answer short, plain, and easy to listen to.
+          const voicePrefix = voiceMode
+            ? "[Voice reply: max 2-3 sentences, no markdown, no bullet points, conversational spoken English. Be concise.]\n"
+            : "";
+          userMessageParts.push({ text: voicePrefix + message });
+        } else {
+          // Image-only: default prompt so the agent understands what to do
+          userMessageParts.push({ text: "What food is shown in this image? Identify each item, estimate portion sizes, and look up the nutritional information for each. If the user would like to log this food, ask for confirmation first." });
+        }
+
         // ── Agentic loop — emit tool events in real-time ─────────────────
-        let response = await chat.sendMessage(message);
+        // Always send as parts array so inlineData + text coexist correctly.
+        const msgPayload = userMessageParts.length === 1
+          ? userMessageParts[0].text  // plain text — send as string (compat with cached model)
+          : userMessageParts;         // multipart (image + text) — send as array
+        let response = await chat.sendMessage(msgPayload);
         let candidate = response.response;
         const toolCallLog = [];
         const MAX_TOOL_ROUNDS = 5;
@@ -990,16 +1131,19 @@ export async function POST(req) {
           if (token.trim()) await new Promise((r) => setTimeout(r, 18));
         }
 
-        // ── Persist to DB after streaming completes (fire-and-forget) ────
-        // Use explicit timestamps with +1ms gap so ORDER BY created_at always
-        // sorts user BEFORE model — same-timestamp rows have undefined order in Postgres.
-        const turnTs = new Date();
-        db.from("chat_sessions").insert([
-          { user_id: userId, role: "user",  content: message,   tools_used: [],                                      created_at: new Date(turnTs.getTime()).toISOString() },
-          { user_id: userId, role: "model", content: replyText, tools_used: toolCallLog.map((t) => t.tool), created_at: new Date(turnTs.getTime() + 1).toISOString() },
-        ]).then(({ error: saveErr }) => {
+        // ── Persist to DB — only for the real agent page (skipHistory=false) ──
+        // Awaited (not fire-and-forget) so messages are guaranteed to be saved
+        // before the response closes. skipHistory=true callers (dashboard, social)
+        // must never write to chat_sessions — their messages would pollute the
+        // agent page history.
+        if (!skipHistory) {
+          const turnTs = new Date();
+          const { error: saveErr } = await db.from("chat_sessions").insert([
+            { user_id: userId, role: "user",  content: message,   tools_used: [],                                      created_at: new Date(turnTs.getTime()).toISOString() },
+            { user_id: userId, role: "model", content: replyText, tools_used: toolCallLog.map((t) => t.tool), created_at: new Date(turnTs.getTime() + 1).toISOString() },
+          ]);
           if (saveErr) console.error("[chat history] save error:", saveErr.message);
-        });
+        }
 
         emit({ type: "done", toolsUsed: toolCallLog.map((t) => t.tool) });
 

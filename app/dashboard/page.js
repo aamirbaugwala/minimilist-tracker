@@ -353,7 +353,7 @@ export default function UserDashboard() {
             "You are my personal expert nutritionist. Give me a brief, conversational 2-3 sentence daily briefing based on today's data. Acknowledge a win, gently point out a gap, and suggest a specific, realistic food action for my next meal. Do not use lists, bullet points, or strict formatting—write it as a natural, encouraging paragraph. Use bold text to highlight key numbers or specific food items.",
           userId: session.user.id,
           accessToken: session.access_token,
-          history: [],
+          skipHistory: true,  // one-shot widget — must not pollute agent page history
         }),
       });
 
@@ -422,6 +422,7 @@ export default function UserDashboard() {
           message: text,
           userId: session.user.id,
           accessToken: session.access_token,
+          skipHistory: true,  // dashboard inline chat — uses its own in-memory state, must not write to chat_sessions
           history: nextHistory.slice(-10).map((m) => ({ role: m.role, content: m.content })),
         }),
       });

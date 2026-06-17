@@ -52,7 +52,7 @@ body {
   justify-content: space-between;
   align-items: center;
 }
-.brand-title { font-size: 1.5rem; font-weight: 800; letter-spacing: -0.5px; background: linear-gradient(to right, #fff, #a1a1aa); -webkit-background-clip: text; color: transparent; }
+.brand-title { font-size: 1.5rem; font-weight: 800; letter-spacing: -0.5px; background: linear-gradient(to right, #fff, #a1a1aa); background-clip: text; -webkit-background-clip: text; color: transparent; }
 .date-badge { font-size: 0.85rem; color: var(--text-secondary); background: var(--surface); padding: 6px 12px; border-radius: 100px; border: 1px solid var(--border); }
 
 /* --- BENTO GRID STATS --- */
@@ -341,3 +341,63 @@ body {
 
 /* NutriCoach streaming cursor */
 @keyframes nutricoach-blink { 0%, 100% { opacity: 1; } 50% { opacity: 0; } }
+
+/* ────────────────────────────────────────────────────────────
+   RESPONSIVE MOBILE FIXES
+   ─────────────────────────────────────────────────────────── */
+
+/* Ensure nothing overflows the viewport on any screen */
+html, body { max-width: 100vw; overflow-x: hidden; }
+
+/* Bottom nav height reference — used to offset page content */
+:root { --nav-height: calc(62px + env(safe-area-inset-bottom, 0px)); }
+
+/* Pages that use paddingBottom: 100 need to account for nav + safe area */
+@media (max-width: 390px) {
+  .app-wrapper { padding: 1rem; gap: 1.4rem; }
+
+  /* Bento grid: 3-col is too tight on 320–360px phones */
+  .bento-grid { grid-template-columns: 1fr 1fr; }
+  .stat-card-main { grid-column: span 2; }
+
+  /* Slightly reduce big numbers so they don't overflow */
+  .cal-info .big-number { font-size: 2.4rem; }
+
+  /* Food grid — 2 columns minimum instead of auto-fill with 110px min */
+  .food-grid { grid-template-columns: repeat(2, 1fr) !important; }
+}
+
+/* Touch targets: every interactive element should be at least 44×44 */
+button, a, [role="button"] { min-height: 36px; }
+
+/* Prevent iOS font-size inflation on inputs */
+input, textarea, select { font-size: 16px !important; }
+
+/* Modal on very small phones: slightly reduce padding */
+@media (max-width: 360px) {
+  .modal-content { padding: 16px 14px 28px; }
+}
+
+/* Agent page input bar: make sure it doesn't get crushed */
+@media (max-width: 360px) {
+  .agent-input-bar { gap: 6px !important; padding: 6px 6px 6px 12px !important; }
+}
+
+/* Social page faceoff player cards on narrow screens */
+@media (max-width: 380px) {
+  .faceoff-player-card { padding: 12px 6px !important; }
+  .faceoff-big-number  { font-size: 1.8rem !important; }
+}
+
+/* Dashboard grid: always 1 col on phone */
+@media (max-width: 500px) {
+  .dashboard-grid { grid-template-columns: 1fr !important; }
+  .chart-card.full-width { grid-column: span 1 !important; }
+}
+
+/* Scrollable category row — ensure it scrolls on iOS without momentum issues */
+.category-scroll-row { -webkit-overflow-scrolling: touch; scroll-snap-type: x proximity; }
+.category-scroll-row .suggestion-chip { scroll-snap-align: start; }
+
+/* Prevent the bottom nav from overlapping page content on very short screens */
+.page-scroll-container { padding-bottom: var(--nav-height) !important; }

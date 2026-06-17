@@ -418,11 +418,44 @@ Be specific — mention actual values. Prefer practical Indian food-based advice
           message: prompt,
           userId: session.user.id,
           accessToken: session.access_token,
-          history: [],
+          skipHistory: true,  // one-shot summary widget — must not pollute agent page history
         }),
       });
-      const data = await res.json();
-      setSummaryText(data.reply || data.error || "Could not generate summary.");
+
+      if (!res.ok) {
+        const errData = await res.json().catch(() => ({}));
+        setSummaryText(errData.error || "Could not generate summary.");
+        return;
+      }
+
+      setSummaryLoading(false); // show text area — stream will fill it in
+
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = "";
+      let accumulated = "";
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split("\n\n");
+        buffer = lines.pop() ?? "";
+
+        for (const line of lines) {
+          if (!line.startsWith("data: ")) continue;
+          try {
+            const event = JSON.parse(line.slice(6));
+            if (event.type === "chunk") {
+              accumulated += event.text;
+              setSummaryText(accumulated);
+            } else if (event.type === "error") {
+              setSummaryText(event.message || "Could not generate summary.");
+            }
+          } catch { /* skip malformed SSE line */ }
+        }
+      }
     } catch {
       setSummaryText("Network error. Please try again.");
     }

@@ -166,6 +166,83 @@ export default function SocialPage() {
   const [squadBriefing, setSquadBriefing] = useState(null);
   const [squadBriefingLoading, setSquadBriefingLoading] = useState(false);
   const [squadBriefingTools, setSquadBriefingTools] = useState([]);
+  // ── Faceoff refresh state ─────────────────────────────────────────────────
+  const [faceoffLoading, setFaceoffLoading] = useState(false);
+
+  // ── Refresh just the lifetime faceoff data ────────────────────────────────
+  const refreshFaceoff = async () => {
+    if (faceoffLoading) return;
+    setFaceoffLoading(true);
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) return;
+
+      // Re-derive top2 from the current friends list (most recent sort order)
+      const allUsers = friends.map((f) => f);
+      if (allUsers.length < 2) return;
+      const top2 = allUsers.slice(0, 2);
+
+      const { data: historyLogs } = await supabase
+        .from("food_logs")
+        .select("user_id, date, calories, protein, carbs, fats, fiber, name, qty")
+        .in("user_id", top2.map((u) => u.id))
+        .order("date", { ascending: true })
+        .limit(50000);
+
+      const dateSet = new Set((historyLogs || []).map((l) => l.date));
+      const allDates = [...dateSet];
+
+      const wins           = { [top2[0].id]: 0, [top2[1].id]: 0 };
+      const lifetimePoints = { [top2[0].id]: 0, [top2[1].id]: 0 };
+      const loggedDays     = { [top2[0].id]: 0, [top2[1].id]: 0 };
+
+      const calcDayScore = (userLogs, targets) => {
+        if (!userLogs.length) return 0;
+        const s = userLogs.reduce((acc, item) => {
+          let fib = item.fiber || 0;
+          if (!fib && item.name !== "Water") {
+            const dbItem = FLATTENED_DB[item.name?.toLowerCase()];
+            if (dbItem?.fiber) fib = Math.round(dbItem.fiber * item.qty);
+          }
+          return { cals: acc.cals + (item.calories || 0), p: acc.p + (item.protein || 0), c: acc.c + (item.carbs || 0), f: acc.f + (item.fats || 0), fib: acc.fib + fib, water: item.name === "Water" ? acc.water + item.qty * 0.25 : acc.water };
+        }, { cals: 0, p: 0, c: 0, f: 0, fib: 0, water: 0 });
+        const capPctLocal = (v, t) => t > 0 ? Math.min(100, (v / t) * 100) : 0;
+        const baseScore = Math.round((capPctLocal(s.cals, targets.cals) + capPctLocal(s.p, targets.p) + capPctLocal(s.c, targets.c) + capPctLocal(s.f, targets.f) + capPctLocal(s.fib, targets.fib) + capPctLocal(s.water, targets.water)) / 6);
+        let bonus = 0;
+        if (s.p >= targets.p * 0.9) bonus += 15;
+        if (s.fib >= targets.fib * 0.9) bonus += 10;
+        if (s.water >= targets.water * 0.9) bonus += 10;
+        let penalty = 0;
+        if (s.cals > targets.cals) penalty += Math.floor(((s.cals - targets.cals) / targets.cals) * 10) * 5;
+        if (s.f > targets.f) penalty += Math.floor(((s.f - targets.f) / targets.f) * 10) * 5;
+        if (s.c > targets.c) penalty += Math.floor(((s.c - targets.c) / targets.c) * 10) * 3;
+        return Math.max(0, baseScore + bonus - penalty);
+      };
+
+      allDates.forEach((date) => {
+        const dayLogs = historyLogs.filter((l) => l.date === date);
+        const dayScores = top2.map((user) => ({ id: user.id, score: calcDayScore(dayLogs.filter((l) => l.user_id === user.id), user.targets) }));
+        const anyLogged = dayScores.some((d) => d.score > 0);
+        if (anyLogged) {
+          if (dayScores[0].score > dayScores[1].score) wins[dayScores[0].id]++;
+          else if (dayScores[1].score > dayScores[0].score) wins[dayScores[1].id]++;
+        }
+        dayScores.forEach(({ id, score }) => {
+          const userLogged = dayLogs.some((l) => l.user_id === id);
+          if (userLogged) { lifetimePoints[id] += score; loggedDays[id]++; }
+        });
+      });
+
+      setHistoricalStats({ u1: top2[0].id, u2: top2[1].id, wins, lifetimePoints, loggedDays, totalDays: allDates.length });
+    } finally {
+      setFaceoffLoading(false);
+    }
+  };
+
+  const openFaceoff = async () => {
+    setShowSquadModal(true);
+    await refreshFaceoff();
+  };
 
   const fetchSquadBriefing = async () => {
     const { data: { session } } = await supabase.auth.getSession();
@@ -196,7 +273,7 @@ export default function SocialPage() {
           message,
           userId: session.user.id,
           accessToken: session.access_token,
-          history: [],
+          skipHistory: true,  // one-shot widget — must not pollute agent page history
         }),
       });
 
@@ -576,7 +653,7 @@ export default function SocialPage() {
           </div>
           {historicalStats && (
             <button
-              onClick={() => setShowSquadModal(true)}
+              onClick={openFaceoff}
               style={{ background: "rgba(99,102,241,0.25)", border: "1px solid #6366f155", color: "#a5b4fc", borderRadius: 8, padding: "3px 10px", fontSize: "0.7rem", fontWeight: 700, cursor: "pointer" }}
             >
               All-Time Faceoff ⚔️
@@ -634,10 +711,26 @@ export default function SocialPage() {
             <h3 style={{ margin: 0, display: "flex", alignItems: "center", gap: 8, color: "#e0e7ff", fontSize: "1rem" }}>
               <Swords size={17} color="#f59e0b" /> All-Time Head-to-Head
             </h3>
-            <button onClick={() => setShowSquadModal(false)} style={{ background: "none", border: "none", color: "#555", cursor: "pointer" }}>
-              <X size={20} />
-            </button>
+            <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+              <button
+                onClick={refreshFaceoff}
+                disabled={faceoffLoading}
+                title="Refresh with latest data"
+                style={{ background: "none", border: "none", color: faceoffLoading ? "#3b82f6" : "#555", cursor: faceoffLoading ? "wait" : "pointer", display: "flex", alignItems: "center", padding: 4 }}
+              >
+                <RefreshCw size={14} className={faceoffLoading ? "animate-spin" : ""} />
+              </button>
+              <button onClick={() => setShowSquadModal(false)} style={{ background: "none", border: "none", color: "#555", cursor: "pointer" }}>
+                <X size={20} />
+              </button>
+            </div>
           </div>
+          {faceoffLoading && (
+            <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 8, padding: "5px 8px", background: "rgba(59,130,246,0.08)", borderRadius: 8 }}>
+              <Loader2 size={11} className="animate-spin" color="#3b82f6" />
+              <span style={{ fontSize: "0.68rem", color: "#3b82f6" }}>Fetching latest data…</span>
+            </div>
+          )}
           {totalDays > 0 && (
             <div style={{ fontSize: "0.68rem", color: "#333", marginBottom: 18 }}>
               Across <strong style={{ color: "#555" }}>{totalDays}</strong> tracked days

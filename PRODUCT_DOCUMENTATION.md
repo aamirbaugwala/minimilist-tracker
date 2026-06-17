@@ -453,7 +453,7 @@ let _cacheName     = null;   // Gemini resource name (for deletion)
 }
 ```
 
-**Important:** Requires a **GA model version** (e.g. `gemini-2.0-flash-001`) for the cache; preview model strings may not support it. The fallback path handles this transparently.
+**Important:** Requires a **GA model version** (e.g. `gemini-3-flash-preview-001`) for the cache; preview model strings may not support it. The fallback path handles this transparently.
 
 ---
 
@@ -545,7 +545,7 @@ This is planned as the next major architectural step.
 | `gemini-3-flash-preview` | $0.50/1M | $3.00/1M | Current — best quality |
 | `gemini-2.5-flash` | $0.30/1M | $2.50/1M | 40% cheaper, similar quality |
 | `gemini-2.5-flash-lite` | $0.10/1M | $0.40/1M | 80% cheaper, good for simple queries |
-| `gemini-2.0-flash` | $0.10/1M | $0.40/1M | **Deprecated as of June 1 2026** |
+| `gemini-3-flash-preview` | $0.10/1M | $0.40/1M | **Deprecated as of June 1 2026** |
 
 **Current bill:** ~₹106/month at ~342 requests/month (11/day)
 **With cache:** ~₹67/month (Opt-8)

@@ -334,22 +334,51 @@ export default function Home() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           message: "Build me a meal plan for the rest of the day based on my macro gap. Be specific with Indian food options and serving sizes. For every food you mention that is not already in the internal database, call save_food_to_database with your best estimated macros.",
-          history: [],
           userId: session.user.id,
           accessToken: session.access_token,
+          skipHistory: true,
         }),
       });
-      const data = await res.json();
-      if (!res.ok || data.error) {
+
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
         setAiMealPlan({ text: "⚠️ " + (data.error || "Could not generate plan. Try again."), toolsUsed: [] });
-      } else {
-        setAiMealPlan({ text: data.reply, toolsUsed: data.toolsUsed || [] });
-        // Refresh custom foods so newly saved items appear as loggable chips
-        const { data: freshCustom } = await supabase
-          .from("custom_foods")
-          .select("*")
-          .eq("user_id", session.user.id);
-        if (freshCustom) setCustomFoods(freshCustom);
+        return;
+      }
+
+      // Read SSE stream
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = "";
+      let accumulated = "";
+      const toolsUsed = [];
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split("\n\n");
+        buffer = lines.pop() ?? "";
+
+        for (const line of lines) {
+          if (!line.startsWith("data: ")) continue;
+          try {
+            const event = JSON.parse(line.slice(6));
+            if (event.type === "tool") {
+              toolsUsed.push(event.name);
+            } else if (event.type === "chunk") {
+              accumulated += event.text;
+              setAiMealPlan({ text: accumulated, toolsUsed: [...toolsUsed] });
+            } else if (event.type === "done") {
+              // Refresh custom foods so newly saved items appear as loggable chips
+              supabase.from("custom_foods").select("*").eq("user_id", session.user.id)
+                .then(({ data: freshCustom }) => { if (freshCustom) setCustomFoods(freshCustom); });
+            } else if (event.type === "error") {
+              setAiMealPlan({ text: "⚠️ " + (event.message || "Could not generate plan."), toolsUsed });
+            }
+          } catch { /* skip malformed SSE line */ }
+        }
       }
     } catch {
       setAiMealPlan({ text: "⚠️ Network error. Please try again.", toolsUsed: [] });
