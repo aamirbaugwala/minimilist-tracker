@@ -26,6 +26,9 @@ import {
   Edit3,
   PlusCircle,
   Scale,
+  Activity,
+  ChefHat,
+  Users,
 } from "lucide-react";
 import { FOOD_CATEGORIES, FLATTENED_DB } from "./food-data";
 import { supabase } from "./supabase";
@@ -55,20 +58,20 @@ const CATEGORY_ICONS = {
 function getMealPeriod(createdAt) {
   const h = createdAt ? new Date(createdAt).getHours() : new Date().getHours();
   if (h >= 5 && h < 11) return { label: "Breakfast", icon: "☀️", order: 0 };
-  if (h >= 11 && h < 15) return { label: "Lunch",     icon: "🌤️", order: 1 };
-  if (h >= 15 && h < 18) return { label: "Snacks",    icon: "🍵", order: 2 };
-  if (h >= 18 && h < 22) return { label: "Dinner",    icon: "🌙", order: 3 };
+  if (h >= 11 && h < 15) return { label: "Lunch", icon: "🌤️", order: 1 };
+  if (h >= 15 && h < 18) return { label: "Snacks", icon: "🍵", order: 2 };
+  if (h >= 18 && h < 22) return { label: "Dinner", icon: "🌙", order: 3 };
   return { label: "Late Night", icon: "🌑", order: 4 };
 }
 
 // --- MEMOIZED STATS ---
 const StatsBoard = memo(({ totals, userProfile, onAddWater }) => {
   const targets = calculateTargets(userProfile);
-  const targetCals  = targets.cals;
-  const targetP     = targets.p;
-  const targetC     = targets.c;
-  const targetF     = targets.f;
-  const targetFib   = targets.fib;
+  const targetCals = targets.cals;
+  const targetP = targets.p;
+  const targetC = targets.c;
+  const targetF = targets.f;
+  const targetFib = targets.fib;
   const targetWater = targets.water;
   const pct = capPct;
 
@@ -78,50 +81,106 @@ const StatsBoard = memo(({ totals, userProfile, onAddWater }) => {
   const calPct = Math.min(totals.calories / targetCals, 1);
   const calDash = calPct * circ;
   const isOver = totals.calories > targetCals;
-  const ringColor = isOver ? "#ef4444" : totals.calories / targetCals > 0.9 ? "#22c55e" : "#3b82f6";
+  const ringColor = isOver
+    ? "#ef4444"
+    : totals.calories / targetCals > 0.9
+      ? "#22c55e"
+      : "#3b82f6";
   const remaining = Math.max(0, targetCals - totals.calories);
 
   return (
     <section style={{ padding: "20px 20px 0" }}>
       {/* HERO CALORIE CARD */}
-      <div style={{
-        background: "linear-gradient(160deg, #111116, #18181e)",
-        borderRadius: 24,
-        padding: "24px 20px 20px",
-        border: "1px solid #1e1e26",
-        marginBottom: 12,
-        position: "relative",
-        overflow: "hidden",
-      }}>
+      <div
+        style={{
+          background: "linear-gradient(160deg, #111116, #18181e)",
+          borderRadius: 24,
+          padding: "24px 20px 20px",
+          border: "1px solid #1e1e26",
+          marginBottom: 12,
+          position: "relative",
+          overflow: "hidden",
+        }}
+      >
         {/* subtle gradient orb */}
-        <div style={{
-          position: "absolute", top: -40, right: -40,
-          width: 160, height: 160, borderRadius: "50%",
-          background: `radial-gradient(circle, ${ringColor}18 0%, transparent 70%)`,
-          pointerEvents: "none",
-        }} />
+        <div
+          style={{
+            position: "absolute",
+            top: -40,
+            right: -40,
+            width: 160,
+            height: 160,
+            borderRadius: "50%",
+            background: `radial-gradient(circle, ${ringColor}18 0%, transparent 70%)`,
+            pointerEvents: "none",
+          }}
+        />
 
         <div style={{ display: "flex", alignItems: "center", gap: 24 }}>
           {/* SVG Calorie Ring */}
-          <div style={{ position: "relative", width: 128, height: 128, flexShrink: 0 }}>
-            <svg width="128" height="128" style={{ transform: "rotate(-90deg)" }}>
-              <circle cx="64" cy="64" r={R} fill="none" stroke="#1e1e26" strokeWidth="12" />
+          <div
+            style={{
+              position: "relative",
+              width: 128,
+              height: 128,
+              flexShrink: 0,
+            }}
+          >
+            <svg
+              width="128"
+              height="128"
+              style={{ transform: "rotate(-90deg)" }}
+            >
               <circle
-                cx="64" cy="64" r={R} fill="none"
-                stroke={ringColor} strokeWidth="12" strokeLinecap="round"
+                cx="64"
+                cy="64"
+                r={R}
+                fill="none"
+                stroke="#1e1e26"
+                strokeWidth="12"
+              />
+              <circle
+                cx="64"
+                cy="64"
+                r={R}
+                fill="none"
+                stroke={ringColor}
+                strokeWidth="12"
+                strokeLinecap="round"
                 strokeDasharray={`${calDash} ${circ}`}
-                style={{ transition: "stroke-dasharray 0.8s ease, stroke 0.3s ease" }}
+                style={{
+                  transition: "stroke-dasharray 0.8s ease, stroke 0.3s ease",
+                }}
               />
             </svg>
-            <div style={{
-              position: "absolute", inset: 0,
-              display: "flex", flexDirection: "column",
-              alignItems: "center", justifyContent: "center",
-            }}>
-              <div style={{ fontSize: "1.5rem", fontWeight: 900, color: "#fff", lineHeight: 1 }}>
+            <div
+              style={{
+                position: "absolute",
+                inset: 0,
+                display: "flex",
+                flexDirection: "column",
+                alignItems: "center",
+                justifyContent: "center",
+              }}
+            >
+              <div
+                style={{
+                  fontSize: "1.5rem",
+                  fontWeight: 900,
+                  color: "#fff",
+                  lineHeight: 1,
+                }}
+              >
                 {totals.calories}
               </div>
-              <div style={{ fontSize: "0.62rem", color: "#555", fontWeight: 600, marginTop: 2 }}>
+              <div
+                style={{
+                  fontSize: "0.62rem",
+                  color: "#555",
+                  fontWeight: 600,
+                  marginTop: 2,
+                }}
+              >
                 / {targetCals} kcal
               </div>
             </div>
@@ -129,46 +188,154 @@ const StatsBoard = memo(({ totals, userProfile, onAddWater }) => {
 
           {/* Right info */}
           <div style={{ flex: 1, minWidth: 0 }}>
-            <div style={{ fontSize: "0.7rem", color: "#444", textTransform: "uppercase", letterSpacing: 1.5, fontWeight: 700, marginBottom: 4 }}>
+            <div
+              style={{
+                fontSize: "0.7rem",
+                color: "#444",
+                textTransform: "uppercase",
+                letterSpacing: 1.5,
+                fontWeight: 700,
+                marginBottom: 4,
+              }}
+            >
               Calories Today
             </div>
-            <div style={{ fontSize: "1.6rem", fontWeight: 800, color: ringColor, lineHeight: 1, marginBottom: 6 }}>
-              {isOver ? "Over budget" : remaining === 0 ? "Goal hit! 🎉" : `${remaining} left`}
+            <div
+              style={{
+                fontSize: "1.6rem",
+                fontWeight: 800,
+                color: ringColor,
+                lineHeight: 1,
+                marginBottom: 6,
+              }}
+            >
+              {isOver
+                ? "Over budget"
+                : remaining === 0
+                  ? "Goal hit! 🎉"
+                  : `${remaining} left`}
             </div>
             <div style={{ fontSize: "0.82rem", color: "#555" }}>
               {Math.round(calPct * 100)}% of daily target
             </div>
 
             {/* Calorie bar */}
-            <div style={{ background: "#1e1e26", height: 6, borderRadius: 3, overflow: "hidden", marginTop: 12 }}>
-              <div style={{
-                height: "100%",
-                width: `${Math.min(100, calPct * 100)}%`,
-                background: ringColor,
+            <div
+              style={{
+                background: "#1e1e26",
+                height: 6,
                 borderRadius: 3,
-                transition: "width 0.8s ease",
-              }} />
+                overflow: "hidden",
+                marginTop: 12,
+              }}
+            >
+              <div
+                style={{
+                  height: "100%",
+                  width: `${Math.min(100, calPct * 100)}%`,
+                  background: ringColor,
+                  borderRadius: 3,
+                  transition: "width 0.8s ease",
+                }}
+              />
             </div>
           </div>
         </div>
 
         {/* MACRO PILLS ROW */}
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 8, marginTop: 20 }}>
+        <div
+          style={{
+            display: "grid",
+            gridTemplateColumns: "repeat(4, 1fr)",
+            gap: 8,
+            marginTop: 20,
+          }}
+        >
           {[
-            { label: "Protein", val: totals.protein, target: targetP, color: "#3b82f6", bg: "rgba(59,130,246,0.1)" },
-            { label: "Carbs",   val: totals.carbs,   target: targetC, color: "#f59e0b", bg: "rgba(245,158,11,0.1)" },
-            { label: "Fats",    val: totals.fats,    target: targetF, color: "#ef4444", bg: "rgba(239,68,68,0.1)"  },
-            { label: "Fiber",   val: totals.fiber,   target: targetFib, color: "#22c55e", bg: "rgba(34,197,94,0.1)" },
+            {
+              label: "Protein",
+              val: totals.protein,
+              target: targetP,
+              color: "#3b82f6",
+              bg: "rgba(59,130,246,0.1)",
+            },
+            {
+              label: "Carbs",
+              val: totals.carbs,
+              target: targetC,
+              color: "#f59e0b",
+              bg: "rgba(245,158,11,0.1)",
+            },
+            {
+              label: "Fats",
+              val: totals.fats,
+              target: targetF,
+              color: "#ef4444",
+              bg: "rgba(239,68,68,0.1)",
+            },
+            {
+              label: "Fiber",
+              val: totals.fiber,
+              target: targetFib,
+              color: "#22c55e",
+              bg: "rgba(34,197,94,0.1)",
+            },
           ].map(({ label, val, target, color, bg }) => {
             const p = pct(val, target);
             return (
-              <div key={label} style={{ background: bg, borderRadius: 12, padding: "10px 8px", textAlign: "center" }}>
-                <div style={{ fontSize: "1rem", fontWeight: 800, color, lineHeight: 1 }}>{val}</div>
-                <div style={{ fontSize: "0.58rem", color: "#555", fontWeight: 600, marginTop: 2 }}>/ {target}g</div>
-                <div style={{ background: "#1e1e26", height: 3, borderRadius: 2, overflow: "hidden", marginTop: 6 }}>
-                  <div style={{ height: "100%", width: `${p}%`, background: color, borderRadius: 2, transition: "width 0.6s ease" }} />
+              <div
+                key={label}
+                style={{
+                  background: bg,
+                  borderRadius: 12,
+                  padding: "10px 8px",
+                  textAlign: "center",
+                }}
+              >
+                <div
+                  style={{
+                    fontSize: "1rem",
+                    fontWeight: 800,
+                    color,
+                    lineHeight: 1,
+                  }}
+                >
+                  {val}
                 </div>
-                <div style={{ fontSize: "0.6rem", color: "#444", marginTop: 3 }}>{label}</div>
+                <div
+                  style={{
+                    fontSize: "0.58rem",
+                    color: "#555",
+                    fontWeight: 600,
+                    marginTop: 2,
+                  }}
+                >
+                  / {target}g
+                </div>
+                <div
+                  style={{
+                    background: "#1e1e26",
+                    height: 3,
+                    borderRadius: 2,
+                    overflow: "hidden",
+                    marginTop: 6,
+                  }}
+                >
+                  <div
+                    style={{
+                      height: "100%",
+                      width: `${p}%`,
+                      background: color,
+                      borderRadius: 2,
+                      transition: "width 0.6s ease",
+                    }}
+                  />
+                </div>
+                <div
+                  style={{ fontSize: "0.6rem", color: "#444", marginTop: 3 }}
+                >
+                  {label}
+                </div>
               </div>
             );
           })}
@@ -191,28 +358,58 @@ const StatsBoard = memo(({ totals, userProfile, onAddWater }) => {
         }}
       >
         {/* fill bar background */}
-        <div style={{
-          position: "absolute", top: 0, bottom: 0, left: 0,
-          width: `${Math.min(100, ((totals.water * 0.25) / targetWater) * 100)}%`,
-          background: "rgba(59,130,246,0.1)",
-          transition: "0.5s ease",
-        }} />
-        <div style={{ position: "relative", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+        <div
+          style={{
+            position: "absolute",
+            top: 0,
+            bottom: 0,
+            left: 0,
+            width: `${Math.min(100, ((totals.water * 0.25) / targetWater) * 100)}%`,
+            background: "rgba(59,130,246,0.1)",
+            transition: "0.5s ease",
+          }}
+        />
+        <div
+          style={{
+            position: "relative",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+          }}
+        >
           <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
             <Droplets size={20} color="#3b82f6" />
             <div>
-              <div style={{ fontWeight: 700, fontSize: "0.9rem", color: "#fff" }}>Hydration</div>
+              <div
+                style={{ fontWeight: 700, fontSize: "0.9rem", color: "#fff" }}
+              >
+                Hydration
+              </div>
               <div style={{ fontSize: "0.75rem", color: "#555" }}>
-                <span style={{ color: "#3b82f6", fontWeight: 700 }}>{(totals.water * 0.25).toFixed(2)}L</span>
-                {" "}/ {targetWater}L
+                <span style={{ color: "#3b82f6", fontWeight: 700 }}>
+                  {(totals.water * 0.25).toFixed(2)}L
+                </span>{" "}
+                / {targetWater}L
               </div>
             </div>
           </div>
           <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-            <div style={{ fontSize: "0.75rem", color: "#3b82f6", fontWeight: 700 }}>
+            <div
+              style={{ fontSize: "0.75rem", color: "#3b82f6", fontWeight: 700 }}
+            >
               {Math.round(((totals.water * 0.25) / targetWater) * 100) || 0}%
             </div>
-            <div style={{ background: "rgba(59,130,246,0.15)", border: "1px solid rgba(59,130,246,0.3)", borderRadius: 8, padding: "4px 10px", fontSize: "0.78rem", color: "#3b82f6", fontWeight: 700 }}>
+            <div
+              style={{
+                background: "rgba(59,130,246,0.15)",
+                border: "1px solid rgba(59,130,246,0.3)",
+                borderRadius: 8,
+                padding: "4px 10px",
+                fontSize: "0.78rem",
+                color: "#3b82f6",
+                fontWeight: 700,
+              }}
+            >
               + Glass
             </div>
           </div>
@@ -235,6 +432,8 @@ export default function Home() {
   const [loading, setLoading] = useState(true);
   const [logs, setLogs] = useState([]);
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
+  // Add this with your other UI states in the Home component
+  const [showAuth, setShowAuth] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [totals, setTotals] = useState({
     calories: 0,
@@ -333,7 +532,8 @@ export default function Home() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          message: "Build me a meal plan for the rest of the day based on my macro gap. Be specific with Indian food options and serving sizes. For every food you mention that is not already in the internal database, call save_food_to_database with your best estimated macros.",
+          message:
+            "Build me a meal plan for the rest of the day based on my macro gap. Be specific with Indian food options and serving sizes. For every food you mention that is not already in the internal database, call save_food_to_database with your best estimated macros.",
           userId: session.user.id,
           accessToken: session.access_token,
           skipHistory: true,
@@ -342,7 +542,10 @@ export default function Home() {
 
       if (!res.ok) {
         const data = await res.json().catch(() => ({}));
-        setAiMealPlan({ text: "⚠️ " + (data.error || "Could not generate plan. Try again."), toolsUsed: [] });
+        setAiMealPlan({
+          text: "⚠️ " + (data.error || "Could not generate plan. Try again."),
+          toolsUsed: [],
+        });
         return;
       }
 
@@ -372,16 +575,29 @@ export default function Home() {
               setAiMealPlan({ text: accumulated, toolsUsed: [...toolsUsed] });
             } else if (event.type === "done") {
               // Refresh custom foods so newly saved items appear as loggable chips
-              supabase.from("custom_foods").select("*").eq("user_id", session.user.id)
-                .then(({ data: freshCustom }) => { if (freshCustom) setCustomFoods(freshCustom); });
+              supabase
+                .from("custom_foods")
+                .select("*")
+                .eq("user_id", session.user.id)
+                .then(({ data: freshCustom }) => {
+                  if (freshCustom) setCustomFoods(freshCustom);
+                });
             } else if (event.type === "error") {
-              setAiMealPlan({ text: "⚠️ " + (event.message || "Could not generate plan."), toolsUsed });
+              setAiMealPlan({
+                text: "⚠️ " + (event.message || "Could not generate plan."),
+                toolsUsed,
+              });
             }
-          } catch { /* skip malformed SSE line */ }
+          } catch {
+            /* skip malformed SSE line */
+          }
         }
       }
     } catch {
-      setAiMealPlan({ text: "⚠️ Network error. Please try again.", toolsUsed: [] });
+      setAiMealPlan({
+        text: "⚠️ Network error. Please try again.",
+        toolsUsed: [],
+      });
     } finally {
       setAiMealPlanLoading(false);
     }
@@ -392,9 +608,9 @@ export default function Home() {
     // Use centralised target calculation
     const t = calculateTargets(userProfile);
     const targetCals = t.cals;
-    const targetP    = t.p;
-    const targetF    = t.f;
-    const targetC    = t.c;
+    const targetP = t.p;
+    const targetF = t.f;
+    const targetC = t.c;
 
     // REAL Remaining values
     const remainingCals = targetCals - totals.calories;
@@ -646,9 +862,7 @@ export default function Home() {
       if (profile) setUserProfile(profile);
       if (profile.username) setUsername(profile.username);
 
-      const { data: custom } = await supabase
-        .from("custom_foods")
-        .select("*")
+      const { data: custom } = await supabase.from("custom_foods").select("*");
       if (custom) setCustomFoods(custom);
     }
   };
@@ -706,7 +920,7 @@ export default function Home() {
       setLogs([]);
       setLoading(false);
     }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [session]);
 
   const closeWelcome = () => {
@@ -730,7 +944,10 @@ export default function Home() {
       protein_priority: userProfile.protein_priority || "balanced",
       updated_at: new Date(),
     });
-    if (error) { alert("Error saving goal"); return; }
+    if (error) {
+      alert("Error saving goal");
+      return;
+    }
 
     // Snapshot the goal so past days retain their original targets
     await supabase.from("goal_history").insert({
@@ -1006,7 +1223,9 @@ export default function Home() {
         .eq("date", todayKey);
       const OMIT = new Set(["id", "created_at"]);
       const cleanLogs = logs.map((log) => ({
-        ...Object.fromEntries(Object.entries(log).filter(([k]) => !OMIT.has(k))),
+        ...Object.fromEntries(
+          Object.entries(log).filter(([k]) => !OMIT.has(k)),
+        ),
         user_id: session.user.id,
         date: todayKey,
       }));
@@ -1192,9 +1411,19 @@ export default function Home() {
     if (!result.ok) alert(result.error);
   };
 
-  if (!session)
+  if (!session) {
     return (
-      <div style={{ minHeight: "100vh", background: "#08080a", display: "flex", flexDirection: "column", overflowX: "hidden" }}>
+      <div
+        style={{
+          minHeight: "100vh",
+          background: "#08080a",
+          color: "#fff",
+          display: "flex",
+          flexDirection: "column",
+          overflowX: "hidden",
+          fontFamily: "system-ui, sans-serif",
+        }}
+      >
         <style>{`
           @keyframes floatUp { 0% { opacity: 0; transform: translateY(24px); } 100% { opacity: 1; transform: translateY(0); } }
           @keyframes glow { 0%, 100% { opacity: 0.5; } 50% { opacity: 1; } }
@@ -1204,132 +1433,458 @@ export default function Home() {
           .auth-btn-primary { width: 100%; padding: 15px; border-radius: 12px; border: none; background: linear-gradient(135deg, #3b82f6, #8b5cf6); color: #fff; font-size: 1rem; font-weight: 700; cursor: pointer; transition: opacity 0.2s; }
           .auth-btn-primary:disabled { opacity: 0.5; cursor: not-allowed; }
           .auth-btn-primary:not(:disabled):hover { opacity: 0.9; }
+          .feature-grid { 
+    display: grid; 
+    grid-template-columns: repeat(auto-fit, minmax(min(100%, 320px), 1fr)); 
+    gap: 20px; 
+    width: 100%; 
+    padding: 0 16px; 
+    box-sizing: border-box;
+  }
+
+  .feature-card { 
+    background: #111113; 
+    border: 1px solid #1e1e22; 
+    border-radius: 20px; 
+    padding: 24px; 
+    display: flex; 
+    flex-direction: column;
+    transition: transform 0.2s;
+  }
+
+  /* Responsive Typography */
+  h1 { font-size: clamp(2rem, 8vw, 4rem); }
+  
+  @media (max-width: 640px) {
+    .feature-card { padding: 20px; }
+    .hero-padding { padding: 40px 16px; }
+  }
         `}</style>
 
-        {/* ── HERO ─────────────────────────────────────────────────── */}
-        <div style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: "48px 24px 32px", textAlign: "center" }}>
-
-          {/* Logo mark */}
-          <div style={{ animation: "floatUp 0.6s ease both", marginBottom: 24 }}>
-            <div style={{
-              width: 72, height: 72, borderRadius: 22,
-              background: "linear-gradient(135deg, #3b82f6, #8b5cf6)",
-              display: "flex", alignItems: "center", justifyContent: "center",
-              margin: "0 auto 20px",
-              boxShadow: "0 0 40px rgba(59,130,246,0.3)",
-            }}>
-              <Flame size={34} color="#fff" fill="#fff" />
-            </div>
-            <h1 style={{ fontSize: "2.6rem", fontWeight: 900, margin: "0 0 8px", letterSpacing: "-1px", background: "linear-gradient(135deg, #fff 40%, #8b5cf6)", WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent" }}>
-              NutriTrack
-            </h1>
-            <p style={{ color: "#555", fontSize: "1rem", margin: 0, fontWeight: 500 }}>
-              AI-powered nutrition intelligence
-            </p>
+        {/* ── TOP NAV ─────────────────────────────────────────────────── */}
+        <nav
+          style={{
+            display: "flex",
+            justifyContent: "space-between",
+            alignItems: "center",
+            padding: "20px 40px",
+            borderBottom: "1px solid #1e1e22",
+            background: "rgba(8,8,10,0.8)",
+            backdropFilter: "blur(12px)",
+            position: "sticky",
+            top: 0,
+            zIndex: 50,
+          }}
+        >
+          <div
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: 12,
+              fontWeight: 800,
+              fontSize: "1.2rem",
+              letterSpacing: "-0.5px",
+            }}
+          >
+            <Flame size={24} color="#3b82f6" fill="#3b82f6" /> NutriTrack
           </div>
+          {!showAuth && (
+            <button
+              onClick={() => setShowAuth(true)}
+              style={{
+                background: "#fff",
+                color: "#000",
+                border: "none",
+                padding: "10px 24px",
+                borderRadius: 50,
+                fontWeight: 700,
+                fontSize: "0.9rem",
+                cursor: "pointer",
+              }}
+            >
+              Log In
+            </button>
+          )}
+        </nav>
 
-          {/* Feature pills */}
-          <div style={{ display: "flex", gap: 8, flexWrap: "wrap", justifyContent: "center", marginBottom: 40, animation: "floatUp 0.6s ease 0.1s both" }}>
-            {[
-              { icon: "🤖", label: "AI Coach" },
-              { icon: "📊", label: "Trend Analytics" },
-              { icon: "🎯", label: "Smart Goals" },
-              { icon: "🔥", label: "Streak Tracking" },
-            ].map((f) => (
-              <div key={f.label} style={{
-                background: "#111113", border: "1px solid #27272a",
-                borderRadius: 20, padding: "6px 14px",
-                fontSize: "0.78rem", color: "#888", fontWeight: 600,
-                display: "flex", alignItems: "center", gap: 6,
-              }}>
-                {f.icon} {f.label}
+        {/* ── CONDITIONAL RENDER: LANDING VS AUTH ─────────────────────── */}
+        {!showAuth ? (
+          <div
+            style={{
+              flex: 1,
+              display: "flex",
+              flexDirection: "column",
+              alignItems: "center",
+              animation: "floatUp 0.6s ease both",
+            }}
+          >
+            {/* Hero Section */}
+            <div
+              style={{
+                maxWidth: 840,
+                textAlign: "center",
+                padding: "80px 24px 60px",
+              }}
+            >
+              <div
+                style={{
+                  display: "inline-block",
+                  background: "rgba(236,72,153,0.1)",
+                  border: "1px solid rgba(236,72,153,0.3)",
+                  color: "#ec4899",
+                  padding: "6px 16px",
+                  borderRadius: 50,
+                  fontSize: "0.85rem",
+                  fontWeight: 700,
+                  marginBottom: 24,
+                  letterSpacing: "1px",
+                  textTransform: "uppercase",
+                }}
+              >
+                Clinical-Grade Nutrition Intelligence
               </div>
-            ))}
-          </div>
-
-          {/* ── AUTH CARD ─────────────────────────────────────────── */}
-          <div style={{
-            width: "100%", maxWidth: 380,
-            background: "#111113",
-            border: "1px solid #1e1e22",
-            borderRadius: 24,
-            padding: 28,
-            boxShadow: "0 24px 60px rgba(0,0,0,0.5)",
-            animation: "floatUp 0.6s ease 0.2s both",
-          }}>
-            {/* Tab switcher */}
-            <div style={{ display: "flex", background: "#0a0a0c", borderRadius: 12, padding: 4, marginBottom: 24 }}>
-              {[
-                { id: false, label: "✉️ Email OTP" },
-                { id: true,  label: "🔑 Password" },
-              ].map((t) => (
-                <button
-                  key={String(t.id)}
-                  onClick={() => setUsePasswordLogin(t.id)}
+              <h1
+                style={{
+                  fontSize: "clamp(2.5rem, 6vw, 4.5rem)",
+                  fontWeight: 900,
+                  margin: "0 0 24px",
+                  letterSpacing: "-1.5px",
+                  lineHeight: 1.1,
+                }}
+              >
+                Stop Guessing. <br />
+                <span
                   style={{
-                    flex: 1, padding: "9px 0", border: "none", borderRadius: 9,
-                    background: usePasswordLogin === t.id ? "#1f1f24" : "transparent",
-                    color: usePasswordLogin === t.id ? "#fff" : "#555",
-                    fontWeight: usePasswordLogin === t.id ? 700 : 500,
-                    fontSize: "0.82rem", cursor: "pointer",
-                    transition: "all 0.2s",
-                    boxShadow: usePasswordLogin === t.id ? "0 1px 4px rgba(0,0,0,0.4)" : "none",
+                    background: "linear-gradient(135deg, #3b82f6, #ec4899)",
+                    WebkitBackgroundClip: "text",
+                    WebkitTextFillColor: "transparent",
                   }}
                 >
-                  {t.label}
-                </button>
-              ))}
+                  Start Healing.
+                </span>
+              </h1>
+              <p
+                style={{
+                  color: "#888",
+                  fontSize: "1.15rem",
+                  margin: "0 auto 40px",
+                  maxWidth: 680,
+                  lineHeight: 1.6,
+                }}
+              >
+                NutriTrack merges your clinical blood work with real-time macro tracking. Talk to your AI coach, compete with friends, and let an agentic engine plan your meals—all in one immersive ecosystem.
+              </p>
+              <button
+                onClick={() => setShowAuth(true)}
+                style={{
+                  background: "linear-gradient(135deg, #3b82f6, #8b5cf6)",
+                  color: "#fff",
+                  border: "none",
+                  padding: "18px 40px",
+                  borderRadius: 50,
+                  fontWeight: 800,
+                  fontSize: "1.1rem",
+                  cursor: "pointer",
+                  boxShadow: "0 10px 30px rgba(59,130,246,0.3)",
+                }}
+              >
+                Enter Platform →
+              </button>
             </div>
 
-            {usePasswordLogin ? (
-              <form onSubmit={handlePasswordLogin} style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-                <input className="auth-input" type="email" placeholder="your@email.com" value={email} onChange={(e) => setEmail(e.target.value)} required />
-                <input className="auth-input" type="password" placeholder="Password" value={password} onChange={(e) => setPassword(e.target.value)} required />
-                <button className="auth-btn-primary" disabled={authLoading} style={{ marginTop: 4 }}>
-                  {authLoading ? <Loader2 size={18} className="animate-spin" style={{ margin: "0 auto", display: "block" }} /> : "Sign In →"}
-                </button>
-              </form>
-            ) : !isCodeSent ? (
-              <form onSubmit={handleSendCode} style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-                <div style={{ fontSize: "0.82rem", color: "#555", marginBottom: 4 }}>
-                  Enter your email and we&apos;ll send a one-time code — no password needed.
-                </div>
-                <input className="auth-input" type="email" placeholder="your@email.com" value={email} onChange={(e) => setEmail(e.target.value)} required />
-                <button className="auth-btn-primary" disabled={authLoading} style={{ marginTop: 4 }}>
-                  {authLoading ? <Loader2 size={18} className="animate-spin" style={{ margin: "0 auto", display: "block" }} /> : "Send Code →"}
-                </button>
-              </form>
-            ) : (
-              <form onSubmit={handleVerifyCode} style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-                <div style={{ textAlign: "center", marginBottom: 4 }}>
-                  <div style={{ fontSize: "0.82rem", color: "#555" }}>Code sent to</div>
-                  <div style={{ fontWeight: 700, color: "#fff", fontSize: "0.9rem" }}>{email}</div>
-                </div>
-                <input
-                  className="auth-input"
-                  type="text" placeholder="· · · · · · · ·"
-                  value={otp} onChange={(e) => setOtp(e.target.value)}
-                  required maxLength={10}
-                  style={{ letterSpacing: 6, textAlign: "center", fontSize: "1.4rem", padding: "14px 16px" }}
-                />
-                <button className="auth-btn-primary" disabled={authLoading}>
-                  {authLoading ? <Loader2 size={18} className="animate-spin" style={{ margin: "0 auto", display: "block" }} /> : "Verify & Enter →"}
-                </button>
-                <button type="button" onClick={() => setIsCodeSent(false)} style={{ background: "none", border: "none", color: "#555", cursor: "pointer", fontSize: "0.8rem" }}>
-                  ← Use a different email
-                </button>
-              </form>
-            )}
-          </div>
+            {/* Responsive Feature Grid */}
+<div className="feature-grid" style={{ maxWidth: 1200, margin: "0 auto 80px" }}>
+  
+  {/* Card 1: Agentic Coach */}
+  <div className="feature-card">
+    <div style={{ width: 44, height: 44, borderRadius: 12, background: "rgba(139,92,246,0.1)", display: "flex", alignItems: "center", justifyContent: "center", marginBottom: 16 }}>
+      <Sparkles size={20} color="#8b5cf6" />
+    </div>
+    <h3 style={{ fontSize: "1.1rem", fontWeight: 800, margin: "0 0 8px" }}>Conversational AI Coach</h3>
+    <p style={{ color: "#666", fontSize: "0.9rem", lineHeight: 1.5, margin: 0 }}>Engage in hands-free, real-time voice conversations with an agent that understands your live data, goals, and unique health context.</p>
+  </div>
 
-          {/* Footer note */}
-          <p style={{ color: "#333", fontSize: "0.72rem", marginTop: 24, animation: "floatUp 0.6s ease 0.3s both" }}>
-            Science-backed · Mifflin-St Jeor · ISSN Protein Standards
-          </p>
-        </div>
+  {/* Card 2: Biomarker Analysis */}
+  <div className="feature-card">
+    <div style={{ width: 44, height: 44, borderRadius: 12, background: "rgba(236,72,153,0.1)", display: "flex", alignItems: "center", justifyContent: "center", marginBottom: 16 }}>
+      <Activity size={20} color="#ec4899" />
+    </div>
+    <h3 style={{ fontSize: "1.1rem", fontWeight: 800, margin: "0 0 8px" }}>Clinical Biomarkers</h3>
+    <p style={{ color: "#666", fontSize: "0.9rem", lineHeight: 1.5, margin: 0 }}>Securely upload medical PDFs. Our extraction agent pulls your HbA1c, LDL, and vitamin levels to visualize trends alongside your daily logs.</p>
+  </div>
+
+  {/* Card 3: Social Competition */}
+  <div className="feature-card">
+    <div style={{ width: 44, height: 44, borderRadius: 12, background: "rgba(249,115,22,0.1)", display: "flex", alignItems: "center", justifyContent: "center", marginBottom: 16 }}>
+      <Users size={20} color="#f97316" />
+    </div>
+    <h3 style={{ fontSize: "1.1rem", fontWeight: 800, margin: "0 0 8px" }}>Social Leaderboards</h3>
+    <p style={{ color: "#666", fontSize: "0.9rem", lineHeight: 1.5, margin: 0 }}>Compete against friends to stay consistent. Track everyday goals, climb the ranks, and hold your squad accountable.</p>
+  </div>
+
+  {/* Card 4: Recipe Planning */}
+  <div className="feature-card">
+    <div style={{ width: 44, height: 44, borderRadius: 12, background: "rgba(16,185,129,0.1)", display: "flex", alignItems: "center", justifyContent: "center", marginBottom: 16 }}>
+      <ChefHat size={20} color="#10b981" />
+    </div>
+    <h3 style={{ fontSize: "1.1rem", fontWeight: 800, margin: "0 0 8px" }}>Clinical Recipe Planner</h3>
+    <p style={{ color: "#666", fontSize: "0.9rem", lineHeight: 1.5, margin: 0 }}>Get recipes dynamically adapted to your medical needs. Elevated cholesterol? Our agent adjusts meals to prioritize heart-healthy fiber.</p>
+  </div>
+
+  {/* Card 5: Analytics */}
+  <div className="feature-card">
+    <div style={{ width: 44, height: 44, borderRadius: 12, background: "rgba(59,130,246,0.1)", display: "flex", alignItems: "center", justifyContent: "center", marginBottom: 16 }}>
+      <Target size={20} color="#3b82f6" />
+    </div>
+    <h3 style={{ fontSize: "1.1rem", fontWeight: 800, margin: "0 0 8px" }}>Immersive Analytics</h3>
+    <p style={{ color: "#666", fontSize: "0.9rem", lineHeight: 1.5, margin: 0 }}>Dive deep with a 30-day dashboard that synthesizes your macro intake and medical progress into actionable insights.</p>
+  </div>
+
+  {/* Card 6: Dynamic Goals */}
+  <div className="feature-card">
+    <div style={{ width: 44, height: 44, borderRadius: 12, background: "rgba(167,139,250,0.1)", display: "flex", alignItems: "center", justifyContent: "center", marginBottom: 16 }}>
+      <Zap size={20} color="#a78bfa" />
+    </div>
+    <h3 style={{ fontSize: "1.1rem", fontWeight: 800, margin: "0 0 8px" }}>Auto-Adjusting Targets</h3>
+    <p style={{ color: "#666", fontSize: "0.9rem", lineHeight: 1.5, margin: 0 }}>Using ISSN standards, your goals evolve in real-time as you log weight and hit new performance milestones.</p>
+  </div>
+
+</div>
+          </div>
+        ) : (
+          <div
+            style={{
+              flex: 1,
+              display: "flex",
+              flexDirection: "column",
+              alignItems: "center",
+              justifyContent: "center",
+              padding: "24px",
+            }}
+          >
+            {/* Back Button */}
+            <button
+              onClick={() => setShowAuth(false)}
+              style={{
+                background: "none",
+                border: "none",
+                color: "#666",
+                cursor: "pointer",
+                display: "flex",
+                alignItems: "center",
+                gap: 8,
+                padding: "0 0 24px 0",
+                alignSelf: "center",
+              }}
+            >
+              ← Back to home
+            </button>
+
+            {/* ── EXISTING AUTH CARD ─────────────────────────────────────────── */}
+            <div
+              style={{
+                width: "100%",
+                maxWidth: 380,
+                background: "#111113",
+                border: "1px solid #1e1e22",
+                borderRadius: 24,
+                padding: 28,
+                boxShadow: "0 24px 60px rgba(0,0,0,0.5)",
+                animation: "floatUp 0.4s ease both",
+              }}
+            >
+              <h2
+                style={{
+                  textAlign: "center",
+                  margin: "0 0 24px",
+                  fontSize: "1.5rem",
+                  fontWeight: 800,
+                }}
+              >
+                Welcome Back
+              </h2>
+
+              <div
+                style={{
+                  display: "flex",
+                  background: "#0a0a0c",
+                  borderRadius: 12,
+                  padding: 4,
+                  marginBottom: 24,
+                }}
+              >
+                {[
+                  { id: false, label: "✉️ Email OTP" },
+                  { id: true, label: "🔑 Password" },
+                ].map((t) => (
+                  <button
+                    key={String(t.id)}
+                    onClick={() => setUsePasswordLogin(t.id)}
+                    style={{
+                      flex: 1,
+                      padding: "9px 0",
+                      border: "none",
+                      borderRadius: 9,
+                      background:
+                        usePasswordLogin === t.id ? "#1f1f24" : "transparent",
+                      color: usePasswordLogin === t.id ? "#fff" : "#555",
+                      fontWeight: usePasswordLogin === t.id ? 700 : 500,
+                      fontSize: "0.82rem",
+                      cursor: "pointer",
+                      transition: "all 0.2s",
+                      boxShadow:
+                        usePasswordLogin === t.id
+                          ? "0 1px 4px rgba(0,0,0,0.4)"
+                          : "none",
+                    }}
+                  >
+                    {t.label}
+                  </button>
+                ))}
+              </div>
+
+              {usePasswordLogin ? (
+                <form
+                  onSubmit={handlePasswordLogin}
+                  style={{ display: "flex", flexDirection: "column", gap: 12 }}
+                >
+                  <input
+                    className="auth-input"
+                    type="email"
+                    placeholder="your@email.com"
+                    value={email}
+                    onChange={(e) => setEmail(e.target.value)}
+                    required
+                  />
+                  <input
+                    className="auth-input"
+                    type="password"
+                    placeholder="Password"
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    required
+                  />
+                  <button
+                    className="auth-btn-primary"
+                    disabled={authLoading}
+                    style={{ marginTop: 4 }}
+                  >
+                    {authLoading ? (
+                      <Loader2
+                        size={18}
+                        className="animate-spin"
+                        style={{ margin: "0 auto", display: "block" }}
+                      />
+                    ) : (
+                      "Sign In →"
+                    )}
+                  </button>
+                </form>
+              ) : !isCodeSent ? (
+                <form
+                  onSubmit={handleSendCode}
+                  style={{ display: "flex", flexDirection: "column", gap: 12 }}
+                >
+                  <div
+                    style={{
+                      fontSize: "0.82rem",
+                      color: "#555",
+                      marginBottom: 4,
+                    }}
+                  >
+                    Enter your email and we'll send a one-time code — no
+                    password needed.
+                  </div>
+                  <input
+                    className="auth-input"
+                    type="email"
+                    placeholder="your@email.com"
+                    value={email}
+                    onChange={(e) => setEmail(e.target.value)}
+                    required
+                  />
+                  <button
+                    className="auth-btn-primary"
+                    disabled={authLoading}
+                    style={{ marginTop: 4 }}
+                  >
+                    {authLoading ? (
+                      <Loader2
+                        size={18}
+                        className="animate-spin"
+                        style={{ margin: "0 auto", display: "block" }}
+                      />
+                    ) : (
+                      "Send Code →"
+                    )}
+                  </button>
+                </form>
+              ) : (
+                <form
+                  onSubmit={handleVerifyCode}
+                  style={{ display: "flex", flexDirection: "column", gap: 12 }}
+                >
+                  <div style={{ textAlign: "center", marginBottom: 4 }}>
+                    <div style={{ fontSize: "0.82rem", color: "#555" }}>
+                      Code sent to
+                    </div>
+                    <div
+                      style={{
+                        fontWeight: 700,
+                        color: "#fff",
+                        fontSize: "0.9rem",
+                      }}
+                    >
+                      {email}
+                    </div>
+                  </div>
+                  <input
+                    className="auth-input"
+                    type="text"
+                    placeholder="· · · · · · · ·"
+                    value={otp}
+                    onChange={(e) => setOtp(e.target.value)}
+                    required
+                    maxLength={10}
+                    style={{
+                      letterSpacing: 6,
+                      textAlign: "center",
+                      fontSize: "1.4rem",
+                      padding: "14px 16px",
+                    }}
+                  />
+                  <button className="auth-btn-primary" disabled={authLoading}>
+                    {authLoading ? (
+                      <Loader2
+                        size={18}
+                        className="animate-spin"
+                        style={{ margin: "0 auto", display: "block" }}
+                      />
+                    ) : (
+                      "Verify & Enter →"
+                    )}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setIsCodeSent(false)}
+                    style={{
+                      background: "none",
+                      border: "none",
+                      color: "#555",
+                      cursor: "pointer",
+                      fontSize: "0.8rem",
+                    }}
+                  >
+                    ← Use a different email
+                  </button>
+                </form>
+              )}
+            </div>
+          </div>
+        )}
       </div>
     );
-
+  }
   return (
     <div
       className="app-wrapper"
@@ -1837,13 +2392,41 @@ export default function Home() {
         <div className="modal-overlay" style={{ alignItems: "center" }}>
           <div
             className="modal-content"
-            style={{ maxWidth: 320, width: "88%", textAlign: "center", borderRadius: 20, border: "1px solid rgba(255,255,255,0.07)" }}
+            style={{
+              maxWidth: 320,
+              width: "88%",
+              textAlign: "center",
+              borderRadius: 20,
+              border: "1px solid rgba(255,255,255,0.07)",
+            }}
           >
-            <div style={{ fontSize: "0.65rem", color: "#666", textTransform: "uppercase", letterSpacing: 1, marginBottom: 6 }}>Modify Quantity</div>
-            <h3 style={{ margin: "0 0 4px 0", fontSize: "1rem", color: "#fff", fontWeight: 700, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+            <div
+              style={{
+                fontSize: "0.65rem",
+                color: "#666",
+                textTransform: "uppercase",
+                letterSpacing: 1,
+                marginBottom: 6,
+              }}
+            >
+              Modify Quantity
+            </div>
+            <h3
+              style={{
+                margin: "0 0 4px 0",
+                fontSize: "1rem",
+                color: "#fff",
+                fontWeight: 700,
+                overflow: "hidden",
+                textOverflow: "ellipsis",
+                whiteSpace: "nowrap",
+              }}
+            >
               {currentLogToEdit.name}
             </h3>
-            <div style={{ color: "#555", fontSize: "0.8rem", marginBottom: 24 }}>
+            <div
+              style={{ color: "#555", fontSize: "0.8rem", marginBottom: 24 }}
+            >
               {currentLogToEdit.calories} kcal per serving
             </div>
 
@@ -1859,20 +2442,53 @@ export default function Home() {
               <button
                 className="qty-btn"
                 onClick={() => setEditQty(Math.max(0.5, editQty - 0.5))}
-                style={{ width: 44, height: 44, borderRadius: 12, background: "#1a1a1f", border: "1px solid #2a2a30", color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer" }}
+                style={{
+                  width: 44,
+                  height: 44,
+                  borderRadius: 12,
+                  background: "#1a1a1f",
+                  border: "1px solid #2a2a30",
+                  color: "#fff",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  cursor: "pointer",
+                }}
               >
                 <Minus size={18} />
               </button>
               <div>
-                <div style={{ fontSize: "2.2rem", fontWeight: 800, color: "#fff", lineHeight: 1 }}>{editQty}</div>
-                <div style={{ fontSize: "0.7rem", color: "#555", marginTop: 2 }}>
+                <div
+                  style={{
+                    fontSize: "2.2rem",
+                    fontWeight: 800,
+                    color: "#fff",
+                    lineHeight: 1,
+                  }}
+                >
+                  {editQty}
+                </div>
+                <div
+                  style={{ fontSize: "0.7rem", color: "#555", marginTop: 2 }}
+                >
                   = {Math.round(currentLogToEdit.calories * editQty)} kcal
                 </div>
               </div>
               <button
                 className="qty-btn"
                 onClick={() => setEditQty(editQty + 0.5)}
-                style={{ width: 44, height: 44, borderRadius: 12, background: "#1a1a1f", border: "1px solid #2a2a30", color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer" }}
+                style={{
+                  width: 44,
+                  height: 44,
+                  borderRadius: 12,
+                  background: "#1a1a1f",
+                  border: "1px solid #2a2a30",
+                  color: "#fff",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  cursor: "pointer",
+                }}
               >
                 <Plus size={18} />
               </button>
@@ -1882,11 +2498,14 @@ export default function Home() {
               <button
                 onClick={() => setIsEditingLog(false)}
                 style={{
-                  flex: 1, padding: 13,
+                  flex: 1,
+                  padding: 13,
                   background: "transparent",
                   border: "1px solid #2a2a30",
-                  borderRadius: 12, color: "#666",
-                  fontWeight: 600, cursor: "pointer",
+                  borderRadius: 12,
+                  color: "#666",
+                  fontWeight: 600,
+                  cursor: "pointer",
                 }}
               >
                 Cancel
@@ -1894,11 +2513,14 @@ export default function Home() {
               <button
                 onClick={saveLogEdit}
                 style={{
-                  flex: 1, padding: 13,
+                  flex: 1,
+                  padding: 13,
                   background: "var(--brand)",
                   border: "none",
-                  borderRadius: 12, color: "#fff",
-                  fontWeight: 700, cursor: "pointer",
+                  borderRadius: 12,
+                  color: "#fff",
+                  fontWeight: 700,
+                  cursor: "pointer",
                 }}
               >
                 Update
@@ -1913,7 +2535,9 @@ export default function Home() {
         <div
           className="modal-overlay"
           style={{ alignItems: "flex-end", paddingBottom: 62 }}
-          onClick={(e) => { if (e.target === e.currentTarget) setIsSettingGoal(false); }}
+          onClick={(e) => {
+            if (e.target === e.currentTarget) setIsSettingGoal(false);
+          }}
         >
           <div
             style={{
@@ -1930,8 +2554,21 @@ export default function Home() {
             }}
           >
             {/* ── Drag handle ─────────────────────────────────────── */}
-            <div style={{ display: "flex", justifyContent: "center", padding: "10px 0 4px" }}>
-              <div style={{ width: 36, height: 4, borderRadius: 2, background: "#333" }} />
+            <div
+              style={{
+                display: "flex",
+                justifyContent: "center",
+                padding: "10px 0 4px",
+              }}
+            >
+              <div
+                style={{
+                  width: 36,
+                  height: 4,
+                  borderRadius: 2,
+                  background: "#333",
+                }}
+              />
             </div>
 
             {/* ── Header ──────────────────────────────────────────── */}
@@ -1985,7 +2622,8 @@ export default function Home() {
                 style={{
                   flex: 1,
                   padding: 8,
-                  background: settingsTab === "profile" ? "#333" : "transparent",
+                  background:
+                    settingsTab === "profile" ? "#333" : "transparent",
                   border: "none",
                   color: "#fff",
                   borderRadius: 6,
@@ -2000,7 +2638,8 @@ export default function Home() {
                 style={{
                   flex: 1,
                   padding: 8,
-                  background: settingsTab === "security" ? "#333" : "transparent",
+                  background:
+                    settingsTab === "security" ? "#333" : "transparent",
                   border: "none",
                   color: "#fff",
                   borderRadius: 6,
@@ -2013,152 +2652,304 @@ export default function Home() {
             </div>
 
             {/* ── Scrollable body ─────────────────────────────────── */}
-            <div style={{ overflowY: "auto", flex: 1, padding: "12px 16px 32px" }}>
-            {settingsTab === "security" ? (
-              <div
-                style={{ display: "flex", flexDirection: "column", gap: 20 }}
-              >
+            <div
+              style={{ overflowY: "auto", flex: 1, padding: "12px 16px 32px" }}
+            >
+              {settingsTab === "security" ? (
                 <div
-                  style={{
-                    background: "#1f1f22",
-                    padding: 16,
-                    borderRadius: 12,
-                    border: "1px solid #333",
-                    textAlign: "center",
-                  }}
+                  style={{ display: "flex", flexDirection: "column", gap: 20 }}
                 >
-                  <Shield
-                    size={32}
-                    color="#3b82f6"
-                    style={{ marginBottom: 10 }}
-                  />
-                  <h4 style={{ margin: "0 0 10px 0" }}>Account Details</h4>
-                  <p
-                    style={{
-                      color: "#888",
-                      fontSize: "0.85rem",
-                      marginBottom: 15,
-                    }}
-                  >
-                    Update your public username or login password.
-                  </p>
-
-                  <input
-                    type="text"
-                    placeholder="Username"
-                    value={username}
-                    onChange={(e) => setUsername(e.target.value)}
-                    style={{
-                      width: "100%",
-                      padding: 12,
-                      background: "#000",
-                      border: "1px solid #444",
-                      color: "#fff",
-                      borderRadius: 8,
-                      marginBottom: 10,
-                    }}
-                  />
-
-                  <input
-                    type="password"
-                    placeholder="New Password (optional)"
-                    value={newPassword}
-                    onChange={(e) => setNewPassword(e.target.value)}
-                    style={{
-                      width: "100%",
-                      padding: 12,
-                      background: "#000",
-                      border: "1px solid #444",
-                      color: "#fff",
-                      borderRadius: 8,
-                      marginBottom: 10,
-                    }}
-                  />
-                  <button
-                    onClick={handleUpdatePassword}
-                    style={{
-                      width: "100%",
-                      padding: 12,
-                      background: "var(--brand)",
-                      border: "none",
-                      borderRadius: 8,
-                      color: "#fff",
-                      fontWeight: 600,
-                      cursor: "pointer",
-                    }}
-                  >
-                    Update Account
-                  </button>
-                </div>
-              </div>
-            ) : (
-              <div
-                style={{ display: "flex", flexDirection: "column", gap: 12 }}
-              >
-                <div
-                  style={{
-                    background: "#1f1f22",
-                    padding: 12,
-                    borderRadius: 12,
-                    border: "1px solid #333",
-                  }}
-                >
-                  <label
-                    style={{
-                      fontSize: "0.85rem",
-                      color: "#f59e0b",
-                      fontWeight: 600,
-                      marginBottom: 8,
-                      display: "block",
-                    }}
-                  >
-                    🎯 Manual Calorie Target
-                  </label>
-                  <input
-                    type="number"
-                    placeholder="e.g. 2200"
-                    value={userProfile.target_calories || ""}
-                    onChange={(e) =>
-                      setUserProfile({
-                        ...userProfile,
-                        target_calories: e.target.value,
-                      })
-                    }
-                    style={{
-                      width: "100%",
-                      padding: 12,
-                      background: "#000",
-                      border: "1px solid #444",
-                      color: "#fff",
-                      borderRadius: 8,
-                      fontSize: "1rem",
-                      fontWeight: 600,
-                    }}
-                  />
-                </div>
-                <div style={{ opacity: userProfile.target_calories ? 0.5 : 1 }}>
                   <div
                     style={{
-                      display: "flex",
-                      alignItems: "center",
-                      gap: 6,
-                      marginBottom: 8,
+                      background: "#1f1f22",
+                      padding: 16,
+                      borderRadius: 12,
+                      border: "1px solid #333",
+                      textAlign: "center",
                     }}
                   >
-                    <Calculator size={14} color="#3b82f6" />
-                    <span style={{ fontSize: "0.82rem", fontWeight: 600 }}>
-                      Auto-Calculate
-                    </span>
+                    <Shield
+                      size={32}
+                      color="#3b82f6"
+                      style={{ marginBottom: 10 }}
+                    />
+                    <h4 style={{ margin: "0 0 10px 0" }}>Account Details</h4>
+                    <p
+                      style={{
+                        color: "#888",
+                        fontSize: "0.85rem",
+                        marginBottom: 15,
+                      }}
+                    >
+                      Update your public username or login password.
+                    </p>
+
+                    <input
+                      type="text"
+                      placeholder="Username"
+                      value={username}
+                      onChange={(e) => setUsername(e.target.value)}
+                      style={{
+                        width: "100%",
+                        padding: 12,
+                        background: "#000",
+                        border: "1px solid #444",
+                        color: "#fff",
+                        borderRadius: 8,
+                        marginBottom: 10,
+                      }}
+                    />
+
+                    <input
+                      type="password"
+                      placeholder="New Password (optional)"
+                      value={newPassword}
+                      onChange={(e) => setNewPassword(e.target.value)}
+                      style={{
+                        width: "100%",
+                        padding: 12,
+                        background: "#000",
+                        border: "1px solid #444",
+                        color: "#fff",
+                        borderRadius: 8,
+                        marginBottom: 10,
+                      }}
+                    />
+                    <button
+                      onClick={handleUpdatePassword}
+                      style={{
+                        width: "100%",
+                        padding: 12,
+                        background: "var(--brand)",
+                        border: "none",
+                        borderRadius: 8,
+                        color: "#fff",
+                        fontWeight: 600,
+                        cursor: "pointer",
+                      }}
+                    >
+                      Update Account
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <div
+                  style={{ display: "flex", flexDirection: "column", gap: 12 }}
+                >
+                  <div
+                    style={{
+                      background: "#1f1f22",
+                      padding: 12,
+                      borderRadius: 12,
+                      border: "1px solid #333",
+                    }}
+                  >
+                    <label
+                      style={{
+                        fontSize: "0.85rem",
+                        color: "#f59e0b",
+                        fontWeight: 600,
+                        marginBottom: 8,
+                        display: "block",
+                      }}
+                    >
+                      🎯 Manual Calorie Target
+                    </label>
+                    <input
+                      type="number"
+                      placeholder="e.g. 2200"
+                      value={userProfile.target_calories || ""}
+                      onChange={(e) =>
+                        setUserProfile({
+                          ...userProfile,
+                          target_calories: e.target.value,
+                        })
+                      }
+                      style={{
+                        width: "100%",
+                        padding: 12,
+                        background: "#000",
+                        border: "1px solid #444",
+                        color: "#fff",
+                        borderRadius: 8,
+                        fontSize: "1rem",
+                        fontWeight: 600,
+                      }}
+                    />
                   </div>
                   <div
-                    style={{
-                      display: "grid",
-                      gridTemplateColumns: "1fr 1fr",
-                      gap: 8,
-                      marginBottom: 8,
-                    }}
+                    style={{ opacity: userProfile.target_calories ? 0.5 : 1 }}
                   >
-                    <div>
+                    <div
+                      style={{
+                        display: "flex",
+                        alignItems: "center",
+                        gap: 6,
+                        marginBottom: 8,
+                      }}
+                    >
+                      <Calculator size={14} color="#3b82f6" />
+                      <span style={{ fontSize: "0.82rem", fontWeight: 600 }}>
+                        Auto-Calculate
+                      </span>
+                    </div>
+                    <div
+                      style={{
+                        display: "grid",
+                        gridTemplateColumns: "1fr 1fr",
+                        gap: 8,
+                        marginBottom: 8,
+                      }}
+                    >
+                      <div>
+                        <label
+                          style={{
+                            fontSize: "0.7rem",
+                            color: "#888",
+                            marginBottom: 3,
+                            display: "block",
+                          }}
+                        >
+                          Weight (kg)
+                        </label>
+                        <input
+                          type="number"
+                          value={userProfile.weight}
+                          onChange={(e) =>
+                            setUserProfile({
+                              ...userProfile,
+                              weight: e.target.value,
+                            })
+                          }
+                          style={{
+                            width: "100%",
+                            padding: 8,
+                            background: "#000",
+                            border: "1px solid #333",
+                            color: "#fff",
+                            borderRadius: 8,
+                          }}
+                        />
+                      </div>
+                      <div>
+                        <label
+                          style={{
+                            fontSize: "0.7rem",
+                            color: "#888",
+                            marginBottom: 3,
+                            display: "block",
+                          }}
+                        >
+                          Height (cm)
+                        </label>
+                        <input
+                          type="number"
+                          value={userProfile.height}
+                          onChange={(e) =>
+                            setUserProfile({
+                              ...userProfile,
+                              height: e.target.value,
+                            })
+                          }
+                          style={{
+                            width: "100%",
+                            padding: 8,
+                            background: "#000",
+                            border: "1px solid #333",
+                            color: "#fff",
+                            borderRadius: 8,
+                          }}
+                        />
+                      </div>
+                    </div>
+                    <div
+                      style={{
+                        display: "grid",
+                        gridTemplateColumns: "1fr 1.5fr",
+                        gap: 8,
+                        marginBottom: 8,
+                      }}
+                    >
+                      <div>
+                        <label
+                          style={{
+                            fontSize: "0.7rem",
+                            color: "#888",
+                            marginBottom: 3,
+                            display: "block",
+                          }}
+                        >
+                          Age
+                        </label>
+                        <input
+                          type="number"
+                          value={userProfile.age}
+                          onChange={(e) =>
+                            setUserProfile({
+                              ...userProfile,
+                              age: e.target.value,
+                            })
+                          }
+                          style={{
+                            width: "100%",
+                            padding: 8,
+                            background: "#000",
+                            border: "1px solid #333",
+                            color: "#fff",
+                            borderRadius: 8,
+                          }}
+                        />
+                      </div>
+                      <div>
+                        <label
+                          style={{
+                            fontSize: "0.7rem",
+                            color: "#888",
+                            marginBottom: 4,
+                            display: "block",
+                          }}
+                        >
+                          Gender
+                        </label>
+                        <div
+                          style={{
+                            display: "flex",
+                            height: 42,
+                            background: "#000",
+                            borderRadius: 8,
+                            border: "1px solid #333",
+                            overflow: "hidden",
+                          }}
+                        >
+                          {["male", "female"].map((g) => (
+                            <button
+                              key={g}
+                              onClick={() =>
+                                setUserProfile({ ...userProfile, gender: g })
+                              }
+                              style={{
+                                flex: 1,
+                                background:
+                                  userProfile.gender === g
+                                    ? "#333"
+                                    : "transparent",
+                                border: "none",
+                                color:
+                                  userProfile.gender === g ? "#fff" : "#666",
+                                textTransform: "capitalize",
+                                fontSize: "0.85rem",
+                                cursor: "pointer",
+                                fontWeight:
+                                  userProfile.gender === g ? 600 : 400,
+                              }}
+                            >
+                              {g}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    </div>
+                    <div style={{ marginBottom: 8 }}>
                       <label
                         style={{
                           fontSize: "0.7rem",
@@ -2167,15 +2958,14 @@ export default function Home() {
                           display: "block",
                         }}
                       >
-                        Weight (kg)
+                        Activity Level
                       </label>
-                      <input
-                        type="number"
-                        value={userProfile.weight}
+                      <select
+                        value={userProfile.activity}
                         onChange={(e) =>
                           setUserProfile({
                             ...userProfile,
-                            weight: e.target.value,
+                            activity: e.target.value,
                           })
                         }
                         style={{
@@ -2185,300 +2975,349 @@ export default function Home() {
                           border: "1px solid #333",
                           color: "#fff",
                           borderRadius: 8,
-                        }}
-                      />
-                    </div>
-                    <div>
-                      <label
-                        style={{
-                          fontSize: "0.7rem",
-                          color: "#888",
-                          marginBottom: 3,
-                          display: "block",
+                          cursor: "pointer",
+                          fontSize: "0.82rem",
                         }}
                       >
-                        Height (cm)
-                      </label>
-                      <input
-                        type="number"
-                        value={userProfile.height}
-                        onChange={(e) =>
-                          setUserProfile({
-                            ...userProfile,
-                            height: e.target.value,
-                          })
-                        }
-                        style={{
-                          width: "100%",
-                          padding: 8,
-                          background: "#000",
-                          border: "1px solid #333",
-                          color: "#fff",
-                          borderRadius: 8,
-                        }}
-                      />
-                    </div>
-                  </div>
-                  <div
-                    style={{
-                      display: "grid",
-                      gridTemplateColumns: "1fr 1.5fr",
-                      gap: 8,
-                      marginBottom: 8,
-                    }}
-                  >
-                    <div>
-                      <label
-                        style={{
-                          fontSize: "0.7rem",
-                          color: "#888",
-                          marginBottom: 3,
-                          display: "block",
-                        }}
-                      >
-                        Age
-                      </label>
-                      <input
-                        type="number"
-                        value={userProfile.age}
-                        onChange={(e) =>
-                          setUserProfile({
-                            ...userProfile,
-                            age: e.target.value,
-                          })
-                        }
-                        style={{
-                          width: "100%",
-                          padding: 8,
-                          background: "#000",
-                          border: "1px solid #333",
-                          color: "#fff",
-                          borderRadius: 8,
-                        }}
-                      />
+                        <option value="sedentary">
+                          Sedentary (Office Job)
+                        </option>
+                        <option value="light">Light Exercise (1-3 days)</option>
+                        <option value="moderate">
+                          Moderate Exercise (3-5 days)
+                        </option>
+                        <option value="active">Active (6-7 days)</option>
+                      </select>
                     </div>
                     <div>
                       <label
                         style={{
-                          fontSize: "0.7rem",
+                          fontSize: "0.75rem",
                           color: "#888",
                           marginBottom: 4,
                           display: "block",
                         }}
                       >
-                        Gender
+                        Goal Preset
                       </label>
                       <div
                         style={{
-                          display: "flex",
-                          height: 42,
-                          background: "#000",
-                          borderRadius: 8,
-                          border: "1px solid #333",
-                          overflow: "hidden",
+                          display: "grid",
+                          gridTemplateColumns: "1fr 1fr",
+                          gap: 8,
                         }}
                       >
-                        {["male", "female"].map((g) => (
+                        {GOAL_PRESETS.map((g) => (
                           <button
-                            key={g}
+                            key={g.id}
                             onClick={() =>
-                              setUserProfile({ ...userProfile, gender: g })
+                              setUserProfile({
+                                ...userProfile,
+                                goal: g.id,
+                                calorie_adjustment: g.calorie_adjustment,
+                                protein_priority: g.protein_priority,
+                              })
                             }
                             style={{
-                              flex: 1,
+                              padding: "10px 12px",
                               background:
-                                userProfile.gender === g
-                                  ? "#333"
-                                  : "transparent",
-                              border: "none",
-                              color: userProfile.gender === g ? "#fff" : "#666",
-                              textTransform: "capitalize",
-                              fontSize: "0.85rem",
+                                userProfile.goal === g.id
+                                  ? g.color + "22"
+                                  : "#000",
+                              border:
+                                userProfile.goal === g.id
+                                  ? `2px solid ${g.color}`
+                                  : "1px solid #333",
+                              borderRadius: 10,
+                              color:
+                                userProfile.goal === g.id ? g.color : "#aaa",
+                              textAlign: "left",
                               cursor: "pointer",
-                              fontWeight: userProfile.gender === g ? 600 : 400,
+                              transition: "all 0.15s",
                             }}
                           >
-                            {g}
+                            <div
+                              style={{ fontWeight: 700, fontSize: "0.82rem" }}
+                            >
+                              {g.label}
+                            </div>
+                            <div
+                              style={{
+                                fontSize: "0.68rem",
+                                opacity: 0.75,
+                                marginTop: 2,
+                              }}
+                            >
+                              {g.desc}
+                            </div>
                           </button>
                         ))}
                       </div>
                     </div>
-                  </div>
-                  <div style={{ marginBottom: 8 }}>
-                    <label
-                      style={{
-                        fontSize: "0.7rem",
-                        color: "#888",
-                        marginBottom: 3,
-                        display: "block",
-                      }}
-                    >
-                      Activity Level
-                    </label>
-                    <select
-                      value={userProfile.activity}
-                      onChange={(e) =>
-                        setUserProfile({
-                          ...userProfile,
-                          activity: e.target.value,
-                        })
-                      }
-                      style={{
-                        width: "100%",
-                        padding: 8,
-                        background: "#000",
-                        border: "1px solid #333",
-                        color: "#fff",
-                        borderRadius: 8,
-                        cursor: "pointer",
-                        fontSize: "0.82rem",
-                      }}
-                    >
-                      <option value="sedentary">Sedentary (Office Job)</option>
-                      <option value="light">Light Exercise (1-3 days)</option>
-                      <option value="moderate">Moderate Exercise (3-5 days)</option>
-                      <option value="active">Active (6-7 days)</option>
-                    </select>
-                  </div>
-                  <div>
-                    <label
-                      style={{
-                        fontSize: "0.75rem",
-                        color: "#888",
-                        marginBottom: 4,
-                        display: "block",
-                      }}
-                    >
-                      Goal Preset
-                    </label>
-                    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
-                      {GOAL_PRESETS.map((g) => (
-                        <button
-                          key={g.id}
-                          onClick={() =>
+
+                    {/* ── Fine-tune dials ─────────────────────────────────── */}
+                    <div>
+                      <label
+                        style={{
+                          fontSize: "0.75rem",
+                          color: "#888",
+                          marginBottom: 4,
+                          display: "block",
+                        }}
+                      >
+                        Calorie Adjustment from TDEE
+                      </label>
+                      <div
+                        style={{
+                          display: "flex",
+                          alignItems: "center",
+                          gap: 10,
+                        }}
+                      >
+                        <input
+                          type="range"
+                          min="-700"
+                          max="500"
+                          step="50"
+                          value={userProfile.calorie_adjustment ?? 0}
+                          onChange={(e) =>
                             setUserProfile({
                               ...userProfile,
-                              goal: g.id,
-                              calorie_adjustment: g.calorie_adjustment,
-                              protein_priority: g.protein_priority,
+                              calorie_adjustment: Number(e.target.value),
+                              goal: "custom",
                             })
                           }
+                          style={{ flex: 1, accentColor: "var(--brand)" }}
+                        />
+                        <span
                           style={{
-                            padding: "10px 12px",
-                            background: userProfile.goal === g.id ? g.color + "22" : "#000",
-                            border: userProfile.goal === g.id ? `2px solid ${g.color}` : "1px solid #333",
-                            borderRadius: 10,
-                            color: userProfile.goal === g.id ? g.color : "#aaa",
-                            textAlign: "left",
-                            cursor: "pointer",
-                            transition: "all 0.15s",
+                            minWidth: 56,
+                            textAlign: "right",
+                            fontWeight: 700,
+                            fontSize: "0.82rem",
+                            color:
+                              (userProfile.calorie_adjustment ?? 0) < 0
+                                ? "#ef4444"
+                                : (userProfile.calorie_adjustment ?? 0) > 0
+                                  ? "#3b82f6"
+                                  : "#22c55e",
                           }}
                         >
-                          <div style={{ fontWeight: 700, fontSize: "0.82rem" }}>{g.label}</div>
-                          <div style={{ fontSize: "0.68rem", opacity: 0.75, marginTop: 2 }}>{g.desc}</div>
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-
-                  {/* ── Fine-tune dials ─────────────────────────────────── */}
-                  <div>
-                    <label style={{ fontSize: "0.75rem", color: "#888", marginBottom: 4, display: "block" }}>
-                      Calorie Adjustment from TDEE
-                    </label>
-                    <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                      <input
-                        type="range"
-                        min="-700" max="500" step="50"
-                        value={userProfile.calorie_adjustment ?? 0}
-                        onChange={(e) =>
-                          setUserProfile({ ...userProfile, calorie_adjustment: Number(e.target.value), goal: "custom" })
-                        }
-                        style={{ flex: 1, accentColor: "var(--brand)" }}
-                      />
-                      <span style={{
-                        minWidth: 56, textAlign: "right", fontWeight: 700, fontSize: "0.82rem",
-                        color: (userProfile.calorie_adjustment ?? 0) < 0 ? "#ef4444" : (userProfile.calorie_adjustment ?? 0) > 0 ? "#3b82f6" : "#22c55e",
-                      }}>
-                        {(userProfile.calorie_adjustment ?? 0) > 0 ? "+" : ""}{userProfile.calorie_adjustment ?? 0} kcal
-                      </span>
-                    </div>
-                    <div style={{ display: "flex", justifyContent: "space-between", fontSize: "0.65rem", color: "#555", marginTop: 2 }}>
-                      <span>Aggressive cut</span><span>TDEE</span><span>Bulk</span>
-                    </div>
-                  </div>
-
-                  <div>
-                    <label style={{ fontSize: "0.75rem", color: "#888", marginBottom: 6, display: "block" }}>
-                      Protein Priority
-                    </label>
-                    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 6 }}>
-                      {[
-                        { id: "preserve", label: "Preserve", sub: "2.0g/kg", tip: "Deep deficit — protect muscle" },
-                        { id: "balanced", label: "Balanced", sub: "1.8g/kg", tip: "Standard for most goals" },
-                        { id: "maximize", label: "Maximize", sub: "2.4g/kg", tip: "Recomp / aggressive build" },
-                      ].map((p) => (
-                        <button
-                          key={p.id}
-                          onClick={() =>
-                            setUserProfile({ ...userProfile, protein_priority: p.id, goal: userProfile.goal === "custom" ? "custom" : userProfile.goal })
-                          }
-                          title={p.tip}
-                          style={{
-                            padding: "8px 6px",
-                            background: userProfile.protein_priority === p.id ? "#6366f122" : "#000",
-                            border: userProfile.protein_priority === p.id ? "2px solid #6366f1" : "1px solid #333",
-                            borderRadius: 8,
-                            color: userProfile.protein_priority === p.id ? "#6366f1" : "#aaa",
-                            cursor: "pointer", textAlign: "center",
-                          }}
-                        >
-                          <div style={{ fontWeight: 700, fontSize: "0.78rem" }}>{p.label}</div>
-                          <div style={{ fontSize: "0.65rem", opacity: 0.7, marginTop: 1 }}>{p.sub}</div>
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-
-                  {/* ── Live target preview ─────────────────────────────── */}
-                  {(() => {
-                    const preview = calculateTargets(userProfile);
-                    return (
-                      <div style={{
-                        background: "#0a0a0a", border: "1px solid #27272a",
-                        borderRadius: 10, padding: "10px 14px",
-                      }}>
-                        <div style={{ fontSize: "0.7rem", color: "#52525b", marginBottom: 6, fontWeight: 600, letterSpacing: "0.05em", textTransform: "uppercase" }}>
-                          Target Preview
-                        </div>
-                        <div style={{ display: "grid", gridTemplateColumns: "repeat(5, 1fr)", gap: 4, textAlign: "center" }}>
-                          {[
-                            { label: "Cals",    val: preview.cals,  unit: "",   color: "#f59e0b" },
-                            { label: "Protein", val: preview.p,     unit: "g",  color: "#6366f1" },
-                            { label: "Carbs",   val: preview.c,     unit: "g",  color: "#22c55e" },
-                            { label: "Fat",     val: preview.f,     unit: "g",  color: "#f97316" },
-                            { label: "Fiber",   val: preview.fib,   unit: "g",  color: "#8b5cf6" },
-                          ].map((m) => (
-                            <div key={m.label}>
-                              <div style={{ fontWeight: 800, fontSize: "0.88rem", color: m.color }}>
-                                {m.val}{m.unit}
-                              </div>
-                              <div style={{ fontSize: "0.6rem", color: "#52525b", marginTop: 1 }}>{m.label}</div>
-                            </div>
-                          ))}
-                        </div>
+                          {(userProfile.calorie_adjustment ?? 0) > 0 ? "+" : ""}
+                          {userProfile.calorie_adjustment ?? 0} kcal
+                        </span>
                       </div>
-                    );
-                  })()}
+                      <div
+                        style={{
+                          display: "flex",
+                          justifyContent: "space-between",
+                          fontSize: "0.65rem",
+                          color: "#555",
+                          marginTop: 2,
+                        }}
+                      >
+                        <span>Aggressive cut</span>
+                        <span>TDEE</span>
+                        <span>Bulk</span>
+                      </div>
+                    </div>
 
+                    <div>
+                      <label
+                        style={{
+                          fontSize: "0.75rem",
+                          color: "#888",
+                          marginBottom: 6,
+                          display: "block",
+                        }}
+                      >
+                        Protein Priority
+                      </label>
+                      <div
+                        style={{
+                          display: "grid",
+                          gridTemplateColumns: "1fr 1fr 1fr",
+                          gap: 6,
+                        }}
+                      >
+                        {[
+                          {
+                            id: "preserve",
+                            label: "Preserve",
+                            sub: "2.0g/kg",
+                            tip: "Deep deficit — protect muscle",
+                          },
+                          {
+                            id: "balanced",
+                            label: "Balanced",
+                            sub: "1.8g/kg",
+                            tip: "Standard for most goals",
+                          },
+                          {
+                            id: "maximize",
+                            label: "Maximize",
+                            sub: "2.4g/kg",
+                            tip: "Recomp / aggressive build",
+                          },
+                        ].map((p) => (
+                          <button
+                            key={p.id}
+                            onClick={() =>
+                              setUserProfile({
+                                ...userProfile,
+                                protein_priority: p.id,
+                                goal:
+                                  userProfile.goal === "custom"
+                                    ? "custom"
+                                    : userProfile.goal,
+                              })
+                            }
+                            title={p.tip}
+                            style={{
+                              padding: "8px 6px",
+                              background:
+                                userProfile.protein_priority === p.id
+                                  ? "#6366f122"
+                                  : "#000",
+                              border:
+                                userProfile.protein_priority === p.id
+                                  ? "2px solid #6366f1"
+                                  : "1px solid #333",
+                              borderRadius: 8,
+                              color:
+                                userProfile.protein_priority === p.id
+                                  ? "#6366f1"
+                                  : "#aaa",
+                              cursor: "pointer",
+                              textAlign: "center",
+                            }}
+                          >
+                            <div
+                              style={{ fontWeight: 700, fontSize: "0.78rem" }}
+                            >
+                              {p.label}
+                            </div>
+                            <div
+                              style={{
+                                fontSize: "0.65rem",
+                                opacity: 0.7,
+                                marginTop: 1,
+                              }}
+                            >
+                              {p.sub}
+                            </div>
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+
+                    {/* ── Live target preview ─────────────────────────────── */}
+                    {(() => {
+                      const preview = calculateTargets(userProfile);
+                      return (
+                        <div
+                          style={{
+                            background: "#0a0a0a",
+                            border: "1px solid #27272a",
+                            borderRadius: 10,
+                            padding: "10px 14px",
+                          }}
+                        >
+                          <div
+                            style={{
+                              fontSize: "0.7rem",
+                              color: "#52525b",
+                              marginBottom: 6,
+                              fontWeight: 600,
+                              letterSpacing: "0.05em",
+                              textTransform: "uppercase",
+                            }}
+                          >
+                            Target Preview
+                          </div>
+                          <div
+                            style={{
+                              display: "grid",
+                              gridTemplateColumns: "repeat(5, 1fr)",
+                              gap: 4,
+                              textAlign: "center",
+                            }}
+                          >
+                            {[
+                              {
+                                label: "Cals",
+                                val: preview.cals,
+                                unit: "",
+                                color: "#f59e0b",
+                              },
+                              {
+                                label: "Protein",
+                                val: preview.p,
+                                unit: "g",
+                                color: "#6366f1",
+                              },
+                              {
+                                label: "Carbs",
+                                val: preview.c,
+                                unit: "g",
+                                color: "#22c55e",
+                              },
+                              {
+                                label: "Fat",
+                                val: preview.f,
+                                unit: "g",
+                                color: "#f97316",
+                              },
+                              {
+                                label: "Fiber",
+                                val: preview.fib,
+                                unit: "g",
+                                color: "#8b5cf6",
+                              },
+                            ].map((m) => (
+                              <div key={m.label}>
+                                <div
+                                  style={{
+                                    fontWeight: 800,
+                                    fontSize: "0.88rem",
+                                    color: m.color,
+                                  }}
+                                >
+                                  {m.val}
+                                  {m.unit}
+                                </div>
+                                <div
+                                  style={{
+                                    fontSize: "0.6rem",
+                                    color: "#52525b",
+                                    marginTop: 1,
+                                  }}
+                                >
+                                  {m.label}
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      );
+                    })()}
+                  </div>
                 </div>
-              </div>
-            )}
-            </div>{/* end scrollable body */}
+              )}
+            </div>
+            {/* end scrollable body */}
 
             {/* ── Pinned save button ───────────────────────────────── */}
             {settingsTab === "profile" && (
-              <div style={{ padding: "12px 16px", paddingBottom: "calc(24px + env(safe-area-inset-bottom, 0px))", flexShrink: 0, borderTop: "1px solid var(--border)" }}>
+              <div
+                style={{
+                  padding: "12px 16px",
+                  paddingBottom:
+                    "calc(24px + env(safe-area-inset-bottom, 0px))",
+                  flexShrink: 0,
+                  borderTop: "1px solid var(--border)",
+                }}
+              >
                 <button
                   onClick={saveGoal}
                   style={{
@@ -2497,7 +3336,8 @@ export default function Home() {
                 </button>
               </div>
             )}
-          </div>{/* end bottom sheet */}
+          </div>
+          {/* end bottom sheet */}
         </div>
       )}
 
@@ -2691,28 +3531,57 @@ export default function Home() {
       >
         {/* Left: branding + greeting */}
         <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-          <div style={{
-            width: 40, height: 40, borderRadius: 12,
-            background: "linear-gradient(135deg, #3b82f6, #8b5cf6)",
-            display: "flex", alignItems: "center", justifyContent: "center",
-            flexShrink: 0,
-          }}>
+          <div
+            style={{
+              width: 40,
+              height: 40,
+              borderRadius: 12,
+              background: "linear-gradient(135deg, #3b82f6, #8b5cf6)",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              flexShrink: 0,
+            }}
+          >
             <Flame size={20} color="#fff" fill="#fff" />
           </div>
           <div>
-            <div style={{ fontSize: "1rem", fontWeight: 800, color: "#fff", lineHeight: 1.1 }}>
+            <div
+              style={{
+                fontSize: "1rem",
+                fontWeight: 800,
+                color: "#fff",
+                lineHeight: 1.1,
+              }}
+            >
               {username ? `Hey, ${username} 👋` : "NutriTrack"}
             </div>
-            <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 2 }}>
-              <div className="date-badge" style={{ fontSize: "0.7rem" }}>Today</div>
+            <div
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: 8,
+                marginTop: 2,
+              }}
+            >
+              <div className="date-badge" style={{ fontSize: "0.7rem" }}>
+                Today
+              </div>
               {streak > 0 && (
-                <div style={{
-                  display: "flex", alignItems: "center", gap: 4,
-                  background: "rgba(245,158,11,0.12)",
-                  border: "1px solid rgba(245,158,11,0.25)",
-                  borderRadius: 10, padding: "1px 8px",
-                  fontSize: "0.72rem", color: "#f59e0b", fontWeight: 700,
-                }}>
+                <div
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 4,
+                    background: "rgba(245,158,11,0.12)",
+                    border: "1px solid rgba(245,158,11,0.25)",
+                    borderRadius: 10,
+                    padding: "1px 8px",
+                    fontSize: "0.72rem",
+                    color: "#f59e0b",
+                    fontWeight: 700,
+                  }}
+                >
                   <Flame size={11} fill="#f59e0b" color="#f59e0b" /> {streak}d
                 </div>
               )}
@@ -2723,7 +3592,10 @@ export default function Home() {
         {/* Right: action buttons */}
         <div style={{ display: "flex", gap: 6 }}>
           <button
-            onClick={() => { setIsSettingGoal(true); setSettingsTab("profile"); }}
+            onClick={() => {
+              setIsSettingGoal(true);
+              setSettingsTab("profile");
+            }}
             style={{
               background: "rgba(59,130,246,0.1)",
               border: "1px solid rgba(59,130,246,0.25)",
@@ -2731,14 +3603,20 @@ export default function Home() {
               cursor: "pointer",
               padding: "8px 14px",
               borderRadius: 12,
-              display: "flex", alignItems: "center", gap: 6,
-              fontSize: "0.8rem", fontWeight: 700,
+              display: "flex",
+              alignItems: "center",
+              gap: 6,
+              fontSize: "0.8rem",
+              fontWeight: 700,
             }}
           >
             <Target size={15} /> Goal
           </button>
           <button
-            onClick={() => { setIsSettingGoal(true); setSettingsTab("security"); }}
+            onClick={() => {
+              setIsSettingGoal(true);
+              setSettingsTab("security");
+            }}
             style={{
               background: "#111113",
               border: "1px solid #27272a",
@@ -2746,7 +3624,9 @@ export default function Home() {
               cursor: "pointer",
               padding: 9,
               borderRadius: 12,
-              display: "flex", alignItems: "center", justifyContent: "center",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
             }}
           >
             <Settings size={16} />
@@ -2762,39 +3642,77 @@ export default function Home() {
 
       {/* === WEIGHT TRACKER CARD === */}
       <section style={{ padding: "12px 20px 0" }}>
-        <div style={{
-          background: "#111116",
-          borderRadius: 18,
-          padding: "16px 18px",
-          border: "1px solid #1e1e26",
-          display: "flex",
-          alignItems: "center",
-          gap: 14,
-        }}>
-          <div style={{
-            background: "rgba(236,72,153,0.12)",
-            border: "1px solid rgba(236,72,153,0.2)",
-            padding: 10, borderRadius: 12, flexShrink: 0,
-          }}>
+        <div
+          style={{
+            background: "#111116",
+            borderRadius: 18,
+            padding: "16px 18px",
+            border: "1px solid #1e1e26",
+            display: "flex",
+            alignItems: "center",
+            gap: 14,
+          }}
+        >
+          <div
+            style={{
+              background: "rgba(236,72,153,0.12)",
+              border: "1px solid rgba(236,72,153,0.2)",
+              padding: 10,
+              borderRadius: 12,
+              flexShrink: 0,
+            }}
+          >
             <Scale size={20} color="#ec4899" />
           </div>
           <div style={{ flex: 1, minWidth: 0 }}>
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 6 }}>
-              <span style={{ fontWeight: 700, fontSize: "0.9rem", color: "#fff" }}>Today&apos;s Weight</span>
-              <span style={{ fontSize: "1.1rem", fontWeight: 800, color: "#ec4899" }}>
-                {userProfile.weight || "--"} <span style={{ fontSize: "0.75rem", color: "#555", fontWeight: 600 }}>kg</span>
+            <div
+              style={{
+                display: "flex",
+                justifyContent: "space-between",
+                alignItems: "baseline",
+                marginBottom: 6,
+              }}
+            >
+              <span
+                style={{ fontWeight: 700, fontSize: "0.9rem", color: "#fff" }}
+              >
+                Today&apos;s Weight
+              </span>
+              <span
+                style={{
+                  fontSize: "1.1rem",
+                  fontWeight: 800,
+                  color: "#ec4899",
+                }}
+              >
+                {userProfile.weight || "--"}{" "}
+                <span
+                  style={{
+                    fontSize: "0.75rem",
+                    color: "#555",
+                    fontWeight: 600,
+                  }}
+                >
+                  kg
+                </span>
               </span>
             </div>
             <div style={{ display: "flex", gap: 8 }}>
               <input
-                type="number" step="0.1"
+                type="number"
+                step="0.1"
                 placeholder="Log weight..."
                 value={weightInput}
                 onChange={(e) => setWeightInput(e.target.value)}
                 style={{
-                  flex: 1, padding: "8px 12px", borderRadius: 10,
-                  background: "#0a0a0c", border: "1px solid #27272a",
-                  color: "#fff", outline: "none", fontSize: "0.9rem",
+                  flex: 1,
+                  padding: "8px 12px",
+                  borderRadius: 10,
+                  background: "#0a0a0c",
+                  border: "1px solid #27272a",
+                  color: "#fff",
+                  outline: "none",
+                  fontSize: "0.9rem",
                 }}
               />
               <button
@@ -2802,15 +3720,26 @@ export default function Home() {
                 disabled={isLoggingWeight || !weightInput}
                 style={{
                   padding: "8px 16px",
-                  background: weightInput ? "linear-gradient(135deg, #ec4899, #8b5cf6)" : "#1e1e26",
+                  background: weightInput
+                    ? "linear-gradient(135deg, #ec4899, #8b5cf6)"
+                    : "#1e1e26",
                   color: weightInput ? "#fff" : "#444",
-                  border: "none", borderRadius: 10,
-                  fontWeight: 700, cursor: weightInput ? "pointer" : "not-allowed",
-                  fontSize: "0.85rem", transition: "all 0.2s",
-                  display: "flex", alignItems: "center", gap: 6,
+                  border: "none",
+                  borderRadius: 10,
+                  fontWeight: 700,
+                  cursor: weightInput ? "pointer" : "not-allowed",
+                  fontSize: "0.85rem",
+                  transition: "all 0.2s",
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 6,
                 }}
               >
-                {isLoggingWeight ? <Loader2 size={14} className="animate-spin" /> : "Save"}
+                {isLoggingWeight ? (
+                  <Loader2 size={14} className="animate-spin" />
+                ) : (
+                  "Save"
+                )}
               </button>
             </div>
           </div>
@@ -2819,10 +3748,25 @@ export default function Home() {
 
       <section className="command-center">
         {/* Section label */}
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 12 }}>
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            marginBottom: 12,
+          }}
+        >
           <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
             <Plus size={14} color="#555" />
-            <span style={{ fontSize: "0.78rem", fontWeight: 700, color: "#555", textTransform: "uppercase", letterSpacing: 1.2 }}>
+            <span
+              style={{
+                fontSize: "0.78rem",
+                fontWeight: 700,
+                color: "#555",
+                textTransform: "uppercase",
+                letterSpacing: 1.2,
+              }}
+            >
               Log Food
             </span>
           </div>
@@ -2833,13 +3777,19 @@ export default function Home() {
                 key={v}
                 onClick={() => setQty(v)}
                 style={{
-                  padding: "3px 9px", borderRadius: 8, border: "none",
+                  padding: "3px 9px",
+                  borderRadius: 8,
+                  border: "none",
                   background: qty === v ? "#3b82f6" : "#1e1e26",
                   color: qty === v ? "#fff" : "#555",
-                  fontSize: "0.75rem", fontWeight: 700, cursor: "pointer",
+                  fontSize: "0.75rem",
+                  fontWeight: 700,
+                  cursor: "pointer",
                   transition: "all 0.15s",
                 }}
-              >{v}×</button>
+              >
+                {v}×
+              </button>
             ))}
           </div>
         </div>
@@ -2847,7 +3797,10 @@ export default function Home() {
         {/* Search row — qty stepper + input + custom */}
         <div className="input-row" style={{ display: "flex", gap: 8 }}>
           <div className="qty-wrapper" style={{ flexShrink: 0 }}>
-            <button className="qty-btn" onClick={() => setQty(Math.max(0.5, qty - 0.5))}>
+            <button
+              className="qty-btn"
+              onClick={() => setQty(Math.max(0.5, qty - 0.5))}
+            >
               <Minus size={14} />
             </button>
             <div className="qty-val">{qty}</div>
@@ -2866,19 +3819,38 @@ export default function Home() {
             {query.length > 0 && (
               <button
                 onClick={() => setQuery("")}
-                style={{ background: "none", border: "none", color: "#555", cursor: "pointer", padding: "0 8px", display: "flex", alignItems: "center" }}
+                style={{
+                  background: "none",
+                  border: "none",
+                  color: "#555",
+                  cursor: "pointer",
+                  padding: "0 8px",
+                  display: "flex",
+                  alignItems: "center",
+                }}
               >
                 <X size={14} />
               </button>
             )}
           </div>
           <button
-            onClick={() => { setManualFood({ ...manualFood, name: query }); setIsManualEntryOpen(true); }}
+            onClick={() => {
+              setManualFood({ ...manualFood, name: query });
+              setIsManualEntryOpen(true);
+            }}
             style={{
-              background: "#111116", border: "1px solid #27272a", color: "#3b82f6",
-              borderRadius: 12, padding: "0 12px",
-              display: "flex", alignItems: "center", gap: 5,
-              cursor: "pointer", fontWeight: 700, fontSize: "0.8rem", flexShrink: 0,
+              background: "#111116",
+              border: "1px solid #27272a",
+              color: "#3b82f6",
+              borderRadius: 12,
+              padding: "0 12px",
+              display: "flex",
+              alignItems: "center",
+              gap: 5,
+              cursor: "pointer",
+              fontWeight: 700,
+              fontSize: "0.8rem",
+              flexShrink: 0,
             }}
           >
             <PlusCircle size={15} /> Custom
@@ -2892,33 +3864,59 @@ export default function Home() {
               {/* Smart Recs */}
               {[
                 {
-                  id: "Smart", label: "Smart Recs", icon: "✨",
-                  color: "#8b5cf6", activeBg: "rgba(139,92,246,0.2)", activeBorder: "#8b5cf6",
-                  onClick: () => { setActiveCategory("Smart"); if (!aiMealPlan && !aiMealPlanLoading) fetchAiMealPlan(); },
+                  id: "Smart",
+                  label: "Smart Recs",
+                  icon: "✨",
+                  color: "#8b5cf6",
+                  activeBg: "rgba(139,92,246,0.2)",
+                  activeBorder: "#8b5cf6",
+                  onClick: () => {
+                    setActiveCategory("Smart");
+                    if (!aiMealPlan && !aiMealPlanLoading) fetchAiMealPlan();
+                  },
                 },
                 { id: "Recent", label: "Recent", icon: "🕐", color: "#fff" },
-                { id: "Meals",  label: "Meals",  icon: "🍱", color: "#fff" },
-              ].map(({ id, label, icon, color, activeBg, activeBorder, onClick }) => {
-                const isActive = activeCategory === id;
-                return (
-                  <button
-                    key={id}
-                    className={`suggestion-chip ${isActive ? "active" : ""}`}
-                    onClick={onClick || (() => setActiveCategory(id))}
-                    style={{
-                      display: "flex", alignItems: "center", gap: 5,
-                      border: isActive ? `1px solid ${activeBorder || "#3b82f6"}` : "1px solid #1e1e26",
-                      background: isActive ? (activeBg || "rgba(59,130,246,0.15)") : "#111116",
-                      color: isActive ? color : "#555",
-                      fontWeight: isActive ? 700 : 500,
-                      fontSize: "0.8rem", padding: "6px 12px", borderRadius: 20,
-                      transition: "all 0.15s", flexShrink: 0,
-                    }}
-                  >
-                    <span>{icon}</span> {label}
-                  </button>
-                );
-              })}
+                { id: "Meals", label: "Meals", icon: "🍱", color: "#fff" },
+              ].map(
+                ({
+                  id,
+                  label,
+                  icon,
+                  color,
+                  activeBg,
+                  activeBorder,
+                  onClick,
+                }) => {
+                  const isActive = activeCategory === id;
+                  return (
+                    <button
+                      key={id}
+                      className={`suggestion-chip ${isActive ? "active" : ""}`}
+                      onClick={onClick || (() => setActiveCategory(id))}
+                      style={{
+                        display: "flex",
+                        alignItems: "center",
+                        gap: 5,
+                        border: isActive
+                          ? `1px solid ${activeBorder || "#3b82f6"}`
+                          : "1px solid #1e1e26",
+                        background: isActive
+                          ? activeBg || "rgba(59,130,246,0.15)"
+                          : "#111116",
+                        color: isActive ? color : "#555",
+                        fontWeight: isActive ? 700 : 500,
+                        fontSize: "0.8rem",
+                        padding: "6px 12px",
+                        borderRadius: 20,
+                        transition: "all 0.15s",
+                        flexShrink: 0,
+                      }}
+                    >
+                      <span>{icon}</span> {label}
+                    </button>
+                  );
+                },
+              )}
               {/* Dynamic food category tabs */}
               {Object.keys(FOOD_CATEGORIES).map((cat) => {
                 const isActive = activeCategory === cat;
@@ -2929,13 +3927,22 @@ export default function Home() {
                     className={`suggestion-chip ${isActive ? "active" : ""}`}
                     onClick={() => setActiveCategory(cat)}
                     style={{
-                      display: "flex", alignItems: "center", gap: 5,
-                      border: isActive ? "1px solid #3b82f6" : "1px solid #1e1e26",
-                      background: isActive ? "rgba(59,130,246,0.12)" : "#111116",
+                      display: "flex",
+                      alignItems: "center",
+                      gap: 5,
+                      border: isActive
+                        ? "1px solid #3b82f6"
+                        : "1px solid #1e1e26",
+                      background: isActive
+                        ? "rgba(59,130,246,0.12)"
+                        : "#111116",
                       color: isActive ? "#fff" : "#555",
                       fontWeight: isActive ? 700 : 500,
-                      fontSize: "0.8rem", padding: "6px 12px", borderRadius: 20,
-                      transition: "all 0.15s", flexShrink: 0,
+                      fontSize: "0.8rem",
+                      padding: "6px 12px",
+                      borderRadius: 20,
+                      transition: "all 0.15s",
+                      flexShrink: 0,
                     }}
                   >
                     <span>{icon}</span> {cat}
@@ -2951,7 +3958,9 @@ export default function Home() {
             style={{
               display: "grid",
               gridTemplateColumns:
-                query || activeCategory === "Meals" || activeCategory === "Smart"
+                query ||
+                activeCategory === "Meals" ||
+                activeCategory === "Smart"
                   ? "1fr"
                   : "repeat(3, 1fr)",
               gap: 8,
@@ -2959,144 +3968,320 @@ export default function Home() {
           >
             {activeCategory === "Smart" && !query ? (
               <div style={{ padding: "4px 0" }}>
-                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
-                  <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: "0.8rem", color: "#8b5cf6", fontWeight: 700 }}>
+                <div
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "space-between",
+                    marginBottom: 10,
+                  }}
+                >
+                  <div
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      gap: 6,
+                      fontSize: "0.8rem",
+                      color: "#8b5cf6",
+                      fontWeight: 700,
+                    }}
+                  >
                     <Sparkles size={13} color="#8b5cf6" />
                     NutriCoach · AI Meal Plan
                   </div>
                   <button
-                    onClick={() => { setAiMealPlan(null); fetchAiMealPlan(); }}
+                    onClick={() => {
+                      setAiMealPlan(null);
+                      fetchAiMealPlan();
+                    }}
                     disabled={aiMealPlanLoading}
                     style={{
-                      background: "transparent", border: "1px solid #27272a", color: "#666",
+                      background: "transparent",
+                      border: "1px solid #27272a",
+                      color: "#666",
                       cursor: aiMealPlanLoading ? "wait" : "pointer",
-                      padding: "3px 10px", borderRadius: 8, fontSize: "0.72rem",
-                      display: "flex", alignItems: "center", gap: 4,
+                      padding: "3px 10px",
+                      borderRadius: 8,
+                      fontSize: "0.72rem",
+                      display: "flex",
+                      alignItems: "center",
+                      gap: 4,
                     }}
                   >
-                    {aiMealPlanLoading ? <Loader2 size={11} className="animate-spin" /> : <Sparkles size={11} />}
+                    {aiMealPlanLoading ? (
+                      <Loader2 size={11} className="animate-spin" />
+                    ) : (
+                      <Sparkles size={11} />
+                    )}
                     {aiMealPlanLoading ? "Thinking…" : "Regenerate"}
                   </button>
                 </div>
 
                 {aiMealPlanLoading && !aiMealPlan && (
-                  <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "14px 0", color: "#666", fontSize: "0.85rem" }}>
-                    <Loader2 size={16} className="animate-spin" color="#8b5cf6" />
+                  <div
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      gap: 10,
+                      padding: "14px 0",
+                      color: "#666",
+                      fontSize: "0.85rem",
+                    }}
+                  >
+                    <Loader2
+                      size={16}
+                      className="animate-spin"
+                      color="#8b5cf6"
+                    />
                     <span>Agent is building your personalized meal plan…</span>
                   </div>
                 )}
 
-                {aiMealPlan && (() => {
-                  const planText = aiMealPlan.text.toLowerCase();
-                  const matched = Object.keys(COMBINED_DB)
-                    .filter((k) => planText.includes(k))
-                    .sort((a, b) => b.length - a.length)
-                    .slice(0, 8);
-                  return (
-                    <>
-                      <div style={{
-                        background: "rgba(139,92,246,0.06)", border: "1px solid rgba(139,92,246,0.25)",
-                        borderRadius: 12, padding: "14px 16px",
-                        fontSize: "0.88rem", color: "#ddd", lineHeight: 1.7,
-                        whiteSpace: "pre-wrap", marginBottom: matched.length > 0 ? 12 : 0,
-                      }}>
-                        {aiMealPlan.text}
-                      </div>
-                      {matched.length > 0 && (
-                        <div>
-                          <div style={{ fontSize: "0.72rem", color: "#666", marginBottom: 8, display: "flex", alignItems: "center", gap: 5 }}>
-                            <Sparkles size={11} color="#8b5cf6" /> Found in your DB — tap to log:
-                          </div>
-                          <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-                            {matched.map((key) => {
-                              const item = COMBINED_DB[key];
-                              return (
-                                <button
-                                  key={key}
-                                  onClick={() => addFood(key)}
-                                  className="suggestion-chip"
-                                  style={{
-                                    display: "flex", alignItems: "center", justifyContent: "space-between",
-                                    width: "100%", border: "1px solid rgba(139,92,246,0.4)",
-                                    background: "rgba(139,92,246,0.08)", padding: "10px 14px",
-                                    borderRadius: 10, cursor: "pointer", textAlign: "left",
-                                    height: "auto", whiteSpace: "normal",
-                                  }}
-                                >
-                                  <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                                    <Sparkles size={11} color="#8b5cf6" />
-                                    <span style={{ fontWeight: 600, color: "#fff", fontSize: "0.85rem", textTransform: "capitalize" }}>
-                                      {key}
-                                    </span>
-                                  </div>
-                                  <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-                                    <div style={{ display: "flex", gap: 6, fontSize: "0.7rem" }}>
-                                      <span style={{ color: "#a78bfa" }}>{item.calories} kcal</span>
-                                      <span style={{ color: "#3b82f6" }}>P:{item.protein}g</span>
-                                    </div>
-                                    <div style={{ background: "#8b5cf6", color: "#fff", borderRadius: 6, padding: "2px 8px", fontSize: "0.7rem", fontWeight: 700 }}>
-                                      + Log
-                                    </div>
-                                  </div>
-                                </button>
-                              );
-                            })}
-                          </div>
+                {aiMealPlan &&
+                  (() => {
+                    const planText = aiMealPlan.text.toLowerCase();
+                    const matched = Object.keys(COMBINED_DB)
+                      .filter((k) => planText.includes(k))
+                      .sort((a, b) => b.length - a.length)
+                      .slice(0, 8);
+                    return (
+                      <>
+                        <div
+                          style={{
+                            background: "rgba(139,92,246,0.06)",
+                            border: "1px solid rgba(139,92,246,0.25)",
+                            borderRadius: 12,
+                            padding: "14px 16px",
+                            fontSize: "0.88rem",
+                            color: "#ddd",
+                            lineHeight: 1.7,
+                            whiteSpace: "pre-wrap",
+                            marginBottom: matched.length > 0 ? 12 : 0,
+                          }}
+                        >
+                          {aiMealPlan.text}
                         </div>
-                      )}
-                      {matched.length === 0 && (
-                        <div style={{ fontSize: "0.75rem", color: "#555", marginTop: 6 }}>
-                          💡 None of the suggested foods are in your DB yet. Search for them above or add via Custom.
-                        </div>
-                      )}
-                    </>
-                  );
-                })()}
+                        {matched.length > 0 && (
+                          <div>
+                            <div
+                              style={{
+                                fontSize: "0.72rem",
+                                color: "#666",
+                                marginBottom: 8,
+                                display: "flex",
+                                alignItems: "center",
+                                gap: 5,
+                              }}
+                            >
+                              <Sparkles size={11} color="#8b5cf6" /> Found in
+                              your DB — tap to log:
+                            </div>
+                            <div
+                              style={{
+                                display: "flex",
+                                flexDirection: "column",
+                                gap: 6,
+                              }}
+                            >
+                              {matched.map((key) => {
+                                const item = COMBINED_DB[key];
+                                return (
+                                  <button
+                                    key={key}
+                                    onClick={() => addFood(key)}
+                                    className="suggestion-chip"
+                                    style={{
+                                      display: "flex",
+                                      alignItems: "center",
+                                      justifyContent: "space-between",
+                                      width: "100%",
+                                      border: "1px solid rgba(139,92,246,0.4)",
+                                      background: "rgba(139,92,246,0.08)",
+                                      padding: "10px 14px",
+                                      borderRadius: 10,
+                                      cursor: "pointer",
+                                      textAlign: "left",
+                                      height: "auto",
+                                      whiteSpace: "normal",
+                                    }}
+                                  >
+                                    <div
+                                      style={{
+                                        display: "flex",
+                                        alignItems: "center",
+                                        gap: 8,
+                                      }}
+                                    >
+                                      <Sparkles size={11} color="#8b5cf6" />
+                                      <span
+                                        style={{
+                                          fontWeight: 600,
+                                          color: "#fff",
+                                          fontSize: "0.85rem",
+                                          textTransform: "capitalize",
+                                        }}
+                                      >
+                                        {key}
+                                      </span>
+                                    </div>
+                                    <div
+                                      style={{
+                                        display: "flex",
+                                        gap: 8,
+                                        alignItems: "center",
+                                      }}
+                                    >
+                                      <div
+                                        style={{
+                                          display: "flex",
+                                          gap: 6,
+                                          fontSize: "0.7rem",
+                                        }}
+                                      >
+                                        <span style={{ color: "#a78bfa" }}>
+                                          {item.calories} kcal
+                                        </span>
+                                        <span style={{ color: "#3b82f6" }}>
+                                          P:{item.protein}g
+                                        </span>
+                                      </div>
+                                      <div
+                                        style={{
+                                          background: "#8b5cf6",
+                                          color: "#fff",
+                                          borderRadius: 6,
+                                          padding: "2px 8px",
+                                          fontSize: "0.7rem",
+                                          fontWeight: 700,
+                                        }}
+                                      >
+                                        + Log
+                                      </div>
+                                    </div>
+                                  </button>
+                                );
+                              })}
+                            </div>
+                          </div>
+                        )}
+                        {matched.length === 0 && (
+                          <div
+                            style={{
+                              fontSize: "0.75rem",
+                              color: "#555",
+                              marginTop: 6,
+                            }}
+                          >
+                            💡 None of the suggested foods are in your DB yet.
+                            Search for them above or add via Custom.
+                          </div>
+                        )}
+                      </>
+                    );
+                  })()}
 
                 {!aiMealPlanLoading && !aiMealPlan && (
-                  <div style={{ color: "#555", fontSize: "0.85rem", padding: "10px 0" }}>
-                    Tap <strong style={{ color: "#8b5cf6" }}>Smart Recs</strong> to generate your AI meal plan.
+                  <div
+                    style={{
+                      color: "#555",
+                      fontSize: "0.85rem",
+                      padding: "10px 0",
+                    }}
+                  >
+                    Tap <strong style={{ color: "#8b5cf6" }}>Smart Recs</strong>{" "}
+                    to generate your AI meal plan.
                   </div>
                 )}
               </div>
-
             ) : activeCategory === "Meals" && !query ? (
               <>
                 <button
                   className="suggestion-chip"
-                  style={{ border: "1px dashed #333", color: "#aaa", textAlign: "center" }}
+                  style={{
+                    border: "1px dashed #333",
+                    color: "#aaa",
+                    textAlign: "center",
+                  }}
                   onClick={() => openMealBuilder()}
                 >
-                  <Plus size={14} style={{ display: "inline", marginRight: 4 }} /> Build Meal
+                  <Plus
+                    size={14}
+                    style={{ display: "inline", marginRight: 4 }}
+                  />{" "}
+                  Build Meal
                 </button>
                 {savedMeals.map((meal) => (
                   <div
                     key={meal.id}
                     className="suggestion-chip"
-                    style={{ display: "flex", justifyContent: "space-between", gap: 8, paddingRight: 6, whiteSpace: "normal", height: "auto", minHeight: 44, textAlign: "left" }}
+                    style={{
+                      display: "flex",
+                      justifyContent: "space-between",
+                      gap: 8,
+                      paddingRight: 6,
+                      whiteSpace: "normal",
+                      height: "auto",
+                      minHeight: 44,
+                      textAlign: "left",
+                    }}
                   >
-                    <span onClick={() => loadMeal(meal)} style={{ flex: 1 }}>{meal.name}</span>
-                    <div style={{ display: "flex", gap: 8, color: "#666", borderLeft: "1px solid #333", paddingLeft: 8, cursor: "pointer" }}>
-                      <span onClick={() => openMealBuilder(meal)} style={{ cursor: "pointer" }}><Pencil size={12} /></span>
-                      <span onClick={() => deleteMeal(meal.id)} style={{ cursor: "pointer" }}><Trash2 size={12} /></span>
+                    <span onClick={() => loadMeal(meal)} style={{ flex: 1 }}>
+                      {meal.name}
+                    </span>
+                    <div
+                      style={{
+                        display: "flex",
+                        gap: 8,
+                        color: "#666",
+                        borderLeft: "1px solid #333",
+                        paddingLeft: 8,
+                        cursor: "pointer",
+                      }}
+                    >
+                      <span
+                        onClick={() => openMealBuilder(meal)}
+                        style={{ cursor: "pointer" }}
+                      >
+                        <Pencil size={12} />
+                      </span>
+                      <span
+                        onClick={() => deleteMeal(meal.id)}
+                        style={{ cursor: "pointer" }}
+                      >
+                        <Trash2 size={12} />
+                      </span>
                     </div>
                   </div>
                 ))}
               </>
-
             ) : (
               /* ── Regular food chips — now with calorie badge ───── */
               getDisplayItems().map((item) => {
                 const foodName = typeof item === "string" ? item : item.name;
-                const cals = typeof item === "object" && item.calories !== undefined ? item.calories : null;
-                const p    = typeof item === "object" && item.protein  !== undefined ? item.protein  : null;
-                const c    = typeof item === "object" && item.carbs    !== undefined ? item.carbs    : null;
-                const f    = typeof item === "object" && item.fats     !== undefined ? item.fats     : null;
-                const fib  = typeof item === "object" && item.fiber    !== undefined ? item.fiber    : null;
+                const cals =
+                  typeof item === "object" && item.calories !== undefined
+                    ? item.calories
+                    : null;
+                const p =
+                  typeof item === "object" && item.protein !== undefined
+                    ? item.protein
+                    : null;
+                const c =
+                  typeof item === "object" && item.carbs !== undefined
+                    ? item.carbs
+                    : null;
+                const f =
+                  typeof item === "object" && item.fats !== undefined
+                    ? item.fats
+                    : null;
+                const fib =
+                  typeof item === "object" && item.fiber !== undefined
+                    ? item.fiber
+                    : null;
 
-                const isMeal  = activeCategory === "Meals" && !query;
+                const isMeal = activeCategory === "Meals" && !query;
                 const isSmart = item.isSmart === true;
-                const isWeb   = item.isWeb   === true;
+                const isWeb = item.isWeb === true;
                 const isNoRes = item.id === "no-res";
                 const displayLabel = isMeal || isSmart ? item.name : foodName;
                 const isListView = !!query || isMeal || isSmart || isWeb;
@@ -3106,11 +4291,21 @@ export default function Home() {
                     key={item.id || displayLabel}
                     className="suggestion-chip"
                     onClick={() => {
-                      if (isNoRes) { setIsManualEntryOpen(true); return; }
+                      if (isNoRes) {
+                        setIsManualEntryOpen(true);
+                        return;
+                      }
                       if (isMeal) loadMeal(item);
                       else if (isSmart) loadMeal(item);
                       else if (isWeb) {
-                        const webItemData = { name: displayLabel, calories: item.calories, protein: item.protein, carbs: item.carbs, fats: item.fats, fiber: item.fiber };
+                        const webItemData = {
+                          name: displayLabel,
+                          calories: item.calories,
+                          protein: item.protein,
+                          carbs: item.carbs,
+                          fats: item.fats,
+                          fiber: item.fiber,
+                        };
                         saveCustomFoodToDb(webItemData);
                         addFood(displayLabel, null, webItemData);
                       } else addFood(displayLabel);
@@ -3127,7 +4322,11 @@ export default function Home() {
                       alignItems: "center",
                       justifyContent: isListView ? "space-between" : "center",
                       gap: 8,
-                      border: isSmart ? "1px solid #8b5cf6" : isWeb ? "1px dashed #3b82f6" : "1px solid #1e1e26",
+                      border: isSmart
+                        ? "1px solid #8b5cf6"
+                        : isWeb
+                          ? "1px dashed #3b82f6"
+                          : "1px solid #1e1e26",
                       background: isSmart ? "rgba(139,92,246,0.1)" : "#111116",
                       borderRadius: 12,
                       transition: "border-color 0.15s",
@@ -3135,13 +4334,33 @@ export default function Home() {
                   >
                     {/* Left: name + macro row */}
                     <div style={{ flex: 1, minWidth: 0 }}>
-                      <span style={{ fontWeight: 600, fontSize: "0.85rem", display: "flex", alignItems: "center", gap: 5, textTransform: "capitalize" }}>
+                      <span
+                        style={{
+                          fontWeight: 600,
+                          fontSize: "0.85rem",
+                          display: "flex",
+                          alignItems: "center",
+                          gap: 5,
+                          textTransform: "capitalize",
+                        }}
+                      >
                         {isSmart && <Sparkles size={11} color="#8b5cf6" />}
-                        {isWeb && !isNoRes && <Globe size={11} color="#3b82f6" />}
-                        {displayLabel.charAt(0).toUpperCase() + displayLabel.slice(1)}
+                        {isWeb && !isNoRes && (
+                          <Globe size={11} color="#3b82f6" />
+                        )}
+                        {displayLabel.charAt(0).toUpperCase() +
+                          displayLabel.slice(1)}
                       </span>
                       {p !== null && !isMeal && !isNoRes && (
-                        <div style={{ fontSize: "0.62rem", marginTop: 3, display: "flex", gap: 6, flexWrap: "wrap" }}>
+                        <div
+                          style={{
+                            fontSize: "0.62rem",
+                            marginTop: 3,
+                            display: "flex",
+                            gap: 6,
+                            flexWrap: "wrap",
+                          }}
+                        >
                           <span style={{ color: "#3b82f6" }}>P:{p}g</span>
                           <span style={{ color: "#f59e0b" }}>C:{c}g</span>
                           <span style={{ color: "#ef4444" }}>F:{f}g</span>
@@ -3149,7 +4368,14 @@ export default function Home() {
                         </div>
                       )}
                       {isWeb && !isNoRes && (
-                        <span style={{ fontSize: "0.6rem", color: "#555", marginTop: 2, display: "block" }}>
+                        <span
+                          style={{
+                            fontSize: "0.6rem",
+                            color: "#555",
+                            marginTop: 2,
+                            display: "block",
+                          }}
+                        >
                           Web estimate · will be saved
                         </span>
                       )}
@@ -3157,12 +4383,19 @@ export default function Home() {
 
                     {/* Right: calorie badge */}
                     {cals !== null && !isNoRes && !isMeal && (
-                      <div style={{
-                        background: "rgba(255,255,255,0.05)", border: "1px solid #27272a",
-                        borderRadius: 8, padding: "3px 8px", flexShrink: 0,
-                        fontSize: "0.72rem", fontWeight: 700, color: "#aaa",
-                        whiteSpace: "nowrap",
-                      }}>
+                      <div
+                        style={{
+                          background: "rgba(255,255,255,0.05)",
+                          border: "1px solid #27272a",
+                          borderRadius: 8,
+                          padding: "3px 8px",
+                          flexShrink: 0,
+                          fontSize: "0.72rem",
+                          fontWeight: 700,
+                          color: "#aaa",
+                          whiteSpace: "nowrap",
+                        }}
+                      >
                         {cals} kcal
                       </div>
                     )}
@@ -3176,65 +4409,113 @@ export default function Home() {
 
       {/* TIMELINE */}
       <section className="timeline" style={{ padding: "0 20px 100px" }}>
-
         {/* Section header */}
-        <div style={{
-          display: "flex", alignItems: "center", justifyContent: "space-between",
-          marginBottom: 12, marginTop: 4,
-        }}>
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            marginBottom: 12,
+            marginTop: 4,
+          }}
+        >
           <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
             <Utensils size={15} color="#555" />
-            <span style={{ fontSize: "0.8rem", fontWeight: 700, color: "#555", textTransform: "uppercase", letterSpacing: 1.2 }}>
+            <span
+              style={{
+                fontSize: "0.8rem",
+                fontWeight: 700,
+                color: "#555",
+                textTransform: "uppercase",
+                letterSpacing: 1.2,
+              }}
+            >
               Today&apos;s Log
             </span>
             {logs.length > 0 && (
-              <span style={{
-                background: "#1e1e26", border: "1px solid #27272a",
-                color: "#666", fontSize: "0.65rem", fontWeight: 700,
-                padding: "1px 7px", borderRadius: 8,
-              }}>{logs.length}</span>
+              <span
+                style={{
+                  background: "#1e1e26",
+                  border: "1px solid #27272a",
+                  color: "#666",
+                  fontSize: "0.65rem",
+                  fontWeight: 700,
+                  padding: "1px 7px",
+                  borderRadius: 8,
+                }}
+              >
+                {logs.length}
+              </span>
             )}
           </div>
           {hasUnsavedChanges && (
-            <span style={{
-              background: "rgba(245,158,11,0.1)", border: "1px solid rgba(245,158,11,0.25)",
-              color: "#f59e0b", fontSize: "0.7rem", fontWeight: 700,
-              padding: "2px 10px", borderRadius: 10,
-            }}>
+            <span
+              style={{
+                background: "rgba(245,158,11,0.1)",
+                border: "1px solid rgba(245,158,11,0.25)",
+                color: "#f59e0b",
+                fontSize: "0.7rem",
+                fontWeight: 700,
+                padding: "2px 10px",
+                borderRadius: 10,
+              }}
+            >
               Unsaved
             </span>
           )}
         </div>
 
         {/* Calorie budget bar */}
-        {logs.length > 0 && (() => {
-          const calTarget = calculateTargets(userProfile).cals || 2000;
-          const barPct = Math.min(100, Math.round((totals.calories / calTarget) * 100));
-          const isOver = totals.calories > calTarget;
-          const barColor = isOver
-            ? "linear-gradient(90deg,#ef4444,#f97316)"
-            : barPct > 85
-              ? "linear-gradient(90deg,#f59e0b,#eab308)"
-              : "linear-gradient(90deg,#3b82f6,#22c55e)";
-          return (
-            <div style={{ marginBottom: 16 }}>
-              <div style={{ height: 5, borderRadius: 99, background: "#1e1e26", overflow: "hidden" }}>
-                <div style={{
-                  height: "100%", borderRadius: 99,
-                  width: `${barPct}%`,
-                  background: barColor,
-                  transition: "width 0.4s ease",
-                }} />
+        {logs.length > 0 &&
+          (() => {
+            const calTarget = calculateTargets(userProfile).cals || 2000;
+            const barPct = Math.min(
+              100,
+              Math.round((totals.calories / calTarget) * 100),
+            );
+            const isOver = totals.calories > calTarget;
+            const barColor = isOver
+              ? "linear-gradient(90deg,#ef4444,#f97316)"
+              : barPct > 85
+                ? "linear-gradient(90deg,#f59e0b,#eab308)"
+                : "linear-gradient(90deg,#3b82f6,#22c55e)";
+            return (
+              <div style={{ marginBottom: 16 }}>
+                <div
+                  style={{
+                    height: 5,
+                    borderRadius: 99,
+                    background: "#1e1e26",
+                    overflow: "hidden",
+                  }}
+                >
+                  <div
+                    style={{
+                      height: "100%",
+                      borderRadius: 99,
+                      width: `${barPct}%`,
+                      background: barColor,
+                      transition: "width 0.4s ease",
+                    }}
+                  />
+                </div>
+                <div
+                  style={{
+                    display: "flex",
+                    justifyContent: "space-between",
+                    marginTop: 4,
+                    fontSize: "0.65rem",
+                    color: "#444",
+                  }}
+                >
+                  <span>0</span>
+                  <span style={{ color: isOver ? "#ef4444" : "#555" }}>
+                    {totals.calories} / {calTarget} kcal
+                  </span>
+                </div>
               </div>
-              <div style={{ display: "flex", justifyContent: "space-between", marginTop: 4, fontSize: "0.65rem", color: "#444" }}>
-                <span>0</span>
-                <span style={{ color: isOver ? "#ef4444" : "#555" }}>
-                  {totals.calories} / {calTarget} kcal
-                </span>
-              </div>
-            </div>
-          );
-        })()}
+            );
+          })()}
 
         {loading ? (
           <div style={{ textAlign: "center", padding: 20, color: "#666" }}>
@@ -3244,138 +4525,267 @@ export default function Home() {
           <div style={{ textAlign: "center", color: "#444", padding: 40 }}>
             <Utensils size={36} style={{ opacity: 0.15, marginBottom: 10 }} />
             <div style={{ fontSize: "0.9rem" }}>No food logged yet.</div>
-            <div style={{ fontSize: "0.78rem", color: "#333", marginTop: 4 }}>Tap a food above to start tracking</div>
+            <div style={{ fontSize: "0.78rem", color: "#333", marginTop: 4 }}>
+              Tap a food above to start tracking
+            </div>
           </div>
-        ) : (() => {
-          /* Group logs by meal period */
-          const groups = {};
-          logs.forEach((log) => {
-            const period = getMealPeriod(log.created_at);
-            if (!groups[period.label]) groups[period.label] = { ...period, items: [] };
-            groups[period.label].items.push(log);
-          });
-          const sortedGroups = Object.values(groups).sort((a, b) => a.order - b.order);
+        ) : (
+          (() => {
+            /* Group logs by meal period */
+            const groups = {};
+            logs.forEach((log) => {
+              const period = getMealPeriod(log.created_at);
+              if (!groups[period.label])
+                groups[period.label] = { ...period, items: [] };
+              groups[period.label].items.push(log);
+            });
+            const sortedGroups = Object.values(groups).sort(
+              (a, b) => a.order - b.order,
+            );
 
-          return sortedGroups.map((group) => (
-            <div key={group.label} style={{ marginBottom: 20 }}>
-              {/* Meal period header */}
-              <div style={{
-                display: "flex", alignItems: "center", gap: 7,
-                marginBottom: 8, paddingBottom: 6,
-                borderBottom: "1px solid #18181b",
-              }}>
-                <span style={{ fontSize: "1rem" }}>{group.icon}</span>
-                <span style={{ fontSize: "0.72rem", fontWeight: 700, color: "#444", textTransform: "uppercase", letterSpacing: 1 }}>
-                  {group.label}
-                </span>
-                <span style={{ fontSize: "0.65rem", color: "#333", marginLeft: "auto" }}>
-                  {group.items.reduce((s, l) => s + (l.calories || 0), 0)} kcal
-                </span>
-              </div>
-
-              {/* Log rows */}
-              {group.items.map((log) => {
-                const pct = totals.calories > 0
-                  ? Math.round((log.calories / totals.calories) * 100)
-                  : 0;
-                const isWater = log.name === "Water";
-                return (
-                  <div
-                    key={log.id}
+            return sortedGroups.map((group) => (
+              <div key={group.label} style={{ marginBottom: 20 }}>
+                {/* Meal period header */}
+                <div
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 7,
+                    marginBottom: 8,
+                    paddingBottom: 6,
+                    borderBottom: "1px solid #18181b",
+                  }}
+                >
+                  <span style={{ fontSize: "1rem" }}>{group.icon}</span>
+                  <span
                     style={{
-                      background: isWater ? "rgba(59,130,246,0.07)" : "#111116",
-                      border: isWater ? "1px solid rgba(59,130,246,0.2)" : "1px solid #1e1e26",
-                      borderRadius: 14,
-                      padding: "10px 12px",
-                      marginBottom: 8,
-                      display: "flex",
-                      alignItems: "center",
-                      gap: 10,
+                      fontSize: "0.72rem",
+                      fontWeight: 700,
+                      color: "#444",
+                      textTransform: "uppercase",
+                      letterSpacing: 1,
                     }}
                   >
-                    {/* Qty badge */}
-                    <div style={{
-                      background: isWater ? "rgba(59,130,246,0.2)" : "#1e1e26",
-                      color: isWater ? "#3b82f6" : "#666",
-                      borderRadius: 8, padding: "4px 8px",
-                      fontSize: "0.75rem", fontWeight: 700,
-                      minWidth: 34, textAlign: "center", flexShrink: 0,
-                    }}>
-                      {log.qty}×
-                    </div>
+                    {group.label}
+                  </span>
+                  <span
+                    style={{
+                      fontSize: "0.65rem",
+                      color: "#333",
+                      marginLeft: "auto",
+                    }}
+                  >
+                    {group.items.reduce((s, l) => s + (l.calories || 0), 0)}{" "}
+                    kcal
+                  </span>
+                </div>
 
-                    {/* Name + macros */}
-                    <div style={{ flex: 1, minWidth: 0 }}>
-                      <div style={{
-                        fontWeight: 600, color: "#e4e4e7",
-                        textTransform: "capitalize", fontSize: "0.9rem",
-                        overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
-                      }}>
-                        {log.name}
+                {/* Log rows */}
+                {group.items.map((log) => {
+                  const pct =
+                    totals.calories > 0
+                      ? Math.round((log.calories / totals.calories) * 100)
+                      : 0;
+                  const isWater = log.name === "Water";
+                  return (
+                    <div
+                      key={log.id}
+                      style={{
+                        background: isWater
+                          ? "rgba(59,130,246,0.07)"
+                          : "#111116",
+                        border: isWater
+                          ? "1px solid rgba(59,130,246,0.2)"
+                          : "1px solid #1e1e26",
+                        borderRadius: 14,
+                        padding: "10px 12px",
+                        marginBottom: 8,
+                        display: "flex",
+                        alignItems: "center",
+                        gap: 10,
+                      }}
+                    >
+                      {/* Qty badge */}
+                      <div
+                        style={{
+                          background: isWater
+                            ? "rgba(59,130,246,0.2)"
+                            : "#1e1e26",
+                          color: isWater ? "#3b82f6" : "#666",
+                          borderRadius: 8,
+                          padding: "4px 8px",
+                          fontSize: "0.75rem",
+                          fontWeight: 700,
+                          minWidth: 34,
+                          textAlign: "center",
+                          flexShrink: 0,
+                        }}
+                      >
+                        {log.qty}×
                       </div>
-                      {!isWater && (
-                        <div style={{ display: "flex", gap: 5, marginTop: 4, flexWrap: "wrap" }}>
-                          <span style={{ fontSize: "0.65rem", background: "rgba(59,130,246,0.12)", color: "#3b82f6", padding: "1px 5px", borderRadius: 4, fontWeight: 600 }}>
-                            P {log.protein}g
-                          </span>
-                          <span style={{ fontSize: "0.65rem", background: "rgba(245,158,11,0.12)", color: "#f59e0b", padding: "1px 5px", borderRadius: 4, fontWeight: 600 }}>
-                            C {log.carbs}g
-                          </span>
-                          <span style={{ fontSize: "0.65rem", background: "rgba(239,68,68,0.12)", color: "#ef4444", padding: "1px 5px", borderRadius: 4, fontWeight: 600 }}>
-                            F {log.fats}g
-                          </span>
-                          {log.fiber > 0 && (
-                            <span style={{ fontSize: "0.65rem", background: "rgba(16,185,129,0.12)", color: "#10b981", padding: "1px 5px", borderRadius: 4, fontWeight: 600 }}>
-                              Fib {log.fiber}g
+
+                      {/* Name + macros */}
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div
+                          style={{
+                            fontWeight: 600,
+                            color: "#e4e4e7",
+                            textTransform: "capitalize",
+                            fontSize: "0.9rem",
+                            overflow: "hidden",
+                            textOverflow: "ellipsis",
+                            whiteSpace: "nowrap",
+                          }}
+                        >
+                          {log.name}
+                        </div>
+                        {!isWater && (
+                          <div
+                            style={{
+                              display: "flex",
+                              gap: 5,
+                              marginTop: 4,
+                              flexWrap: "wrap",
+                            }}
+                          >
+                            <span
+                              style={{
+                                fontSize: "0.65rem",
+                                background: "rgba(59,130,246,0.12)",
+                                color: "#3b82f6",
+                                padding: "1px 5px",
+                                borderRadius: 4,
+                                fontWeight: 600,
+                              }}
+                            >
+                              P {log.protein}g
                             </span>
-                          )}
-                        </div>
-                      )}
-                      {isWater && (
-                        <span style={{ fontSize: "0.72rem", color: "#3b82f6", fontWeight: 600 }}>
-                          {log.qty * 0.25}L
-                        </span>
-                      )}
-                    </div>
-
-                    {/* Calorie + % badge */}
-                    <div style={{ textAlign: "right", flexShrink: 0 }}>
-                      <div style={{ fontWeight: 700, fontSize: "0.95rem", color: isWater ? "#3b82f6" : "#fff" }}>
-                        {log.calories}
+                            <span
+                              style={{
+                                fontSize: "0.65rem",
+                                background: "rgba(245,158,11,0.12)",
+                                color: "#f59e0b",
+                                padding: "1px 5px",
+                                borderRadius: 4,
+                                fontWeight: 600,
+                              }}
+                            >
+                              C {log.carbs}g
+                            </span>
+                            <span
+                              style={{
+                                fontSize: "0.65rem",
+                                background: "rgba(239,68,68,0.12)",
+                                color: "#ef4444",
+                                padding: "1px 5px",
+                                borderRadius: 4,
+                                fontWeight: 600,
+                              }}
+                            >
+                              F {log.fats}g
+                            </span>
+                            {log.fiber > 0 && (
+                              <span
+                                style={{
+                                  fontSize: "0.65rem",
+                                  background: "rgba(16,185,129,0.12)",
+                                  color: "#10b981",
+                                  padding: "1px 5px",
+                                  borderRadius: 4,
+                                  fontWeight: 600,
+                                }}
+                              >
+                                Fib {log.fiber}g
+                              </span>
+                            )}
+                          </div>
+                        )}
+                        {isWater && (
+                          <span
+                            style={{
+                              fontSize: "0.72rem",
+                              color: "#3b82f6",
+                              fontWeight: 600,
+                            }}
+                          >
+                            {log.qty * 0.25}L
+                          </span>
+                        )}
                       </div>
-                      {!isWater && pct > 0 && (
-                        <div style={{
-                          fontSize: "0.62rem", color: "#aaa", fontWeight: 700,
-                          background: "rgba(255,255,255,0.07)", borderRadius: 5, padding: "1px 5px", marginTop: 2,
-                        }}>
-                          {pct}%
-                        </div>
-                      )}
-                    </div>
 
-                    {/* Actions — compact icon group */}
-                    <div style={{ display: "flex", flexDirection: "column", gap: 2, flexShrink: 0 }}>
-                      <button
-                        onClick={() => openEditModal(log)}
-                        style={{ background: "none", border: "none", color: "#444", cursor: "pointer", padding: 5, borderRadius: 6 }}
-                        title="Edit"
+                      {/* Calorie + % badge */}
+                      <div style={{ textAlign: "right", flexShrink: 0 }}>
+                        <div
+                          style={{
+                            fontWeight: 700,
+                            fontSize: "0.95rem",
+                            color: isWater ? "#3b82f6" : "#fff",
+                          }}
+                        >
+                          {log.calories}
+                        </div>
+                        {!isWater && pct > 0 && (
+                          <div
+                            style={{
+                              fontSize: "0.62rem",
+                              color: "#aaa",
+                              fontWeight: 700,
+                              background: "rgba(255,255,255,0.07)",
+                              borderRadius: 5,
+                              padding: "1px 5px",
+                              marginTop: 2,
+                            }}
+                          >
+                            {pct}%
+                          </div>
+                        )}
+                      </div>
+
+                      {/* Actions — compact icon group */}
+                      <div
+                        style={{
+                          display: "flex",
+                          flexDirection: "column",
+                          gap: 2,
+                          flexShrink: 0,
+                        }}
                       >
-                        <Edit3 size={14} />
-                      </button>
-                      <button
-                        onClick={() => deleteLog(log.id)}
-                        style={{ background: "none", border: "none", color: "#333", cursor: "pointer", padding: 5, borderRadius: 6 }}
-                        title="Delete"
-                      >
-                        <Trash2 size={14} />
-                      </button>
+                        <button
+                          onClick={() => openEditModal(log)}
+                          style={{
+                            background: "none",
+                            border: "none",
+                            color: "#444",
+                            cursor: "pointer",
+                            padding: 5,
+                            borderRadius: 6,
+                          }}
+                          title="Edit"
+                        >
+                          <Edit3 size={14} />
+                        </button>
+                        <button
+                          onClick={() => deleteLog(log.id)}
+                          style={{
+                            background: "none",
+                            border: "none",
+                            color: "#333",
+                            cursor: "pointer",
+                            padding: 5,
+                            borderRadius: 6,
+                          }}
+                          title="Delete"
+                        >
+                          <Trash2 size={14} />
+                        </button>
+                      </div>
                     </div>
-                  </div>
-                );
-              })}
-            </div>
-          ));
-        })()}
+                  );
+                })}
+              </div>
+            ));
+          })()
+        )}
       </section>
 
       {/* Floating Save FAB */}
@@ -3385,18 +4795,29 @@ export default function Home() {
             onClick={saveChanges}
             disabled={isSaving}
             style={{
-              display: "flex", alignItems: "center", gap: 8,
-              background: isSaving ? "#444" : "linear-gradient(135deg,#22c55e,#16a34a)",
-              color: "#fff", border: "none",
-              padding: "12px 20px", borderRadius: 50,
-              fontWeight: 700, fontSize: "0.9rem",
+              display: "flex",
+              alignItems: "center",
+              gap: 8,
+              background: isSaving
+                ? "#444"
+                : "linear-gradient(135deg,#22c55e,#16a34a)",
+              color: "#fff",
+              border: "none",
+              padding: "12px 20px",
+              borderRadius: 50,
+              fontWeight: 700,
+              fontSize: "0.9rem",
               boxShadow: "0 8px 24px rgba(34,197,94,0.4)",
               cursor: isSaving ? "wait" : "pointer",
               transition: "transform 0.15s, box-shadow 0.15s",
               animation: "fabBounce 0.4s cubic-bezier(0.34,1.56,0.64,1)",
             }}
           >
-            {isSaving ? <Loader2 className="animate-spin" size={16} /> : <Save size={16} />}
+            {isSaving ? (
+              <Loader2 className="animate-spin" size={16} />
+            ) : (
+              <Save size={16} />
+            )}
             {isSaving ? "Saving…" : "Save"}
           </button>
         </div>

@@ -23,15 +23,12 @@ import {
   Check,
   Target,
   Mic,
-  MicOff,
   UtensilsCrossed,
   BarChart2,
   HeartPulse,
   SaveAll,
   Globe,
   ImageIcon,
-  Volume2,
-  VolumeX,
   X,
 } from "lucide-react";
 
@@ -185,16 +182,15 @@ export default function AgentPage() {
   const [error, setError] = useState("");
   const [copiedIndex, setCopiedIndex] = useState(null);
   // ── Voice input state ──────────────────────────────────────────────────────
-  const [isListening, setIsListening] = useState(false);
+  const [, setIsListening] = useState(false);
   const recognitionRef = useRef(null);
   // ── Image attachment state ─────────────────────────────────────────────────
   const [selectedImage, setSelectedImage] = useState(null); // { base64, mimeType, preview }
   const imageInputRef = useRef(null);
   // ── TTS (voice output) state ───────────────────────────────────────────────
-  const [ttsEnabled, setTtsEnabled] = useState(false);
-  const [speaking, setSpeaking] = useState(false);
+  const [, setSpeaking] = useState(false);
   // ── Voice conversation mode ────────────────────────────────────────────────
-  const [isVoiceMode, setIsVoiceMode] = useState(false);
+  const [, setIsVoiceMode] = useState(false);
   // Refs — always-current values safe to read inside async/event callbacks
   const isVoiceModeRef       = useRef(false);
   const loadingRef           = useRef(false);
@@ -205,7 +201,6 @@ export default function AgentPage() {
   const sendMessageRef       = useRef(null);
   // ── Weekly report state ────────────────────────────────────────────────────
   const [weeklyReport, setWeeklyReport] = useState(null); // { insight, score, weekStart }
-  const [reportLoading, setReportLoading] = useState(false);
   const bottomRef = useRef(null);
   const inputRef = useRef(null);
 
@@ -215,37 +210,6 @@ export default function AgentPage() {
       setCopiedIndex(index);
       setTimeout(() => setCopiedIndex(null), 2000);
     });
-  };
-
-  // ── VOICE INPUT ────────────────────────────────────────────────────────────
-  const toggleVoice = () => {
-    if (!("webkitSpeechRecognition" in window) && !("SpeechRecognition" in window)) {
-      setError("Voice input is not supported in this browser. Try Chrome.");
-      return;
-    }
-    if (isListening) {
-      recognitionRef.current?.stop();
-      setIsListening(false);
-      return;
-    }
-    const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
-    const recognition = new SR();
-    recognition.lang = "en-IN";
-    recognition.continuous = false;
-    recognition.interimResults = false;
-
-    recognition.onresult = (event) => {
-      const transcript = event.results[0][0].transcript;
-      setInput((prev) => (prev ? prev + " " + transcript : transcript));
-      setIsListening(false);
-      setTimeout(() => inputRef.current?.focus(), 100);
-    };
-    recognition.onerror = () => setIsListening(false);
-    recognition.onend = () => setIsListening(false);
-
-    recognitionRef.current = recognition;
-    recognition.start();
-    setIsListening(true);
   };
 
   // ── IMAGE PICK ─────────────────────────────────────────────────────────────
@@ -305,12 +269,6 @@ export default function AgentPage() {
     window.speechSynthesis.speak(utterance);
   };
 
-  const stopSpeaking = () => {
-    window.speechSynthesis?.cancel();
-    ttsQueueCountRef.current = 0;
-    setSpeaking(false);
-  };
-
   // ── VOICE CONVERSATION LOOP ────────────────────────────────────────────────
   // Listens → auto-submits transcript → TTS plays response → listens again.
   // Uses refs so callbacks always see the latest state without stale closures.
@@ -367,33 +325,6 @@ export default function AgentPage() {
       setIsListening(true);
     } catch (e) {
       console.warn("Could not start recognition:", e.message);
-    }
-  };
-
-  // ── WEEKLY REPORT ──────────────────────────────────────────────────────────
-  const fetchWeeklyReport = async () => {
-    if (!session || reportLoading) return;
-    setReportLoading(true);
-    setError("");
-    try {
-      const res = await fetch("/api/weekly-report", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          userId: session.user.id,
-          accessToken: session.access_token,
-        }),
-      });
-      const data = await res.json();
-      if (!res.ok || data.error) {
-        setError(data.error || "Could not generate weekly report.");
-        return;
-      }
-      setWeeklyReport(data);
-    } catch {
-      setError("Network error generating weekly report.");
-    } finally {
-      setReportLoading(false);
     }
   };
 
@@ -689,7 +620,7 @@ export default function AgentPage() {
           </div>
         </div>
 
-        {/* Right side actions: TTS + Weekly Report + Clear */}
+        {/* Right side actions */}
         <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
           {/* Full voice page link */}
           <button
@@ -710,52 +641,6 @@ export default function AgentPage() {
             }}
           >
             <Mic size={13} /> Voice
-          </button>
-          {/* TTS toggle (manual) */}
-          {!isVoiceMode && (
-            <button
-              onClick={() => {
-                if (speaking) stopSpeaking();
-                const next = !ttsEnabled;
-                ttsEnabledRef.current = next;
-                setTtsEnabled(next);
-              }}
-              title={ttsEnabled ? "Voice output ON — click to disable" : "Enable voice output"}
-              style={{
-                background: ttsEnabled ? "rgba(139,92,246,0.12)" : "transparent",
-                border: `1px solid ${ttsEnabled ? "#8b5cf6" : "#333"}`,
-                color: ttsEnabled ? "#8b5cf6" : "#555",
-                cursor: "pointer",
-                padding: "6px 8px",
-                borderRadius: 8,
-                display: "flex",
-                alignItems: "center",
-                gap: 4,
-                fontSize: "0.72rem",
-              }}
-            >
-              {ttsEnabled ? <Volume2 size={13} /> : <VolumeX size={13} />}
-            </button>
-          )}
-          <button
-            onClick={fetchWeeklyReport}
-            disabled={reportLoading}
-            title="Generate weekly AI insight"
-            style={{
-              background: weeklyReport ? "#1a2a1a" : "transparent",
-              border: `1px solid ${weeklyReport ? "#22c55e" : "#333"}`,
-              color: weeklyReport ? "#22c55e" : "#666",
-              cursor: reportLoading ? "wait" : "pointer",
-              padding: "6px 10px",
-              borderRadius: 8,
-              display: "flex",
-              alignItems: "center",
-              gap: 5,
-              fontSize: "0.78rem",
-            }}
-          >
-            {reportLoading ? <Loader2 size={13} className="animate-spin" /> : <BarChart2 size={13} />}
-            Weekly
           </button>
 
           {messages.length > 0 && (
@@ -1207,28 +1092,6 @@ export default function AgentPage() {
           >
             <ImageIcon size={16} />
           </button>
-          {/* Voice input button — hidden in voice mode (status bar handles it) */}
-          {!isVoiceMode && (
-            <button
-              onClick={toggleVoice}
-              title={isListening ? "Stop listening" : "Voice input"}
-              style={{
-                background: isListening ? "#ef444420" : "transparent",
-                border: `1px solid ${isListening ? "#ef4444" : "#333"}`,
-                color: isListening ? "#ef4444" : "#555",
-                cursor: "pointer",
-                padding: 9,
-                borderRadius: 10,
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "center",
-                flexShrink: 0,
-                transition: "all 0.2s",
-              }}
-            >
-              {isListening ? <MicOff size={16} /> : <Mic size={16} />}
-            </button>
-          )}
           <button
             onClick={() => sendMessage()}
             disabled={(!input.trim() && !selectedImage) || loading}
