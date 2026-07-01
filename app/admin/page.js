@@ -15,6 +15,8 @@ import {
   Activity,
   LogIn,
   TrendingUp,
+  Bell,
+  Smartphone,
 } from "lucide-react";
 import { supabase } from "../supabase";
 
@@ -28,6 +30,8 @@ const EVENT_CONFIG = {
   medical: { emoji: "🩺", color: "#ef4444", label: "Medical Report" },
   insight: { emoji: "📊", color: "#06b6d4", label: "Weekly AI Report" },
   recipe:  { emoji: "🥘", color: "#f97316", label: "Recipe Saved" },
+  reminder: { emoji: "🔔", color: "#6366f1", label: "Reminder Created" },
+  device:   { emoji: "📱", color: "#14b8a6", label: "Push Device Added" },
 };
 
 // ─── HELPERS ──────────────────────────────────────────────────────────────────
@@ -60,18 +64,30 @@ export default function AdminDashboard() {
   const [allMedical,  setAllMedical]  = useState([]);
   const [allInsights, setAllInsights] = useState([]);
   const [allRecipes,  setAllRecipes]  = useState([]);
+  const [allReminders, setAllReminders] = useState([]);
+  const [allPushSubs,  setAllPushSubs]  = useState([]);
 
   // Derived
   const [userList,    setUserList]    = useState([]);
   const [globalStats, setGlobalStats] = useState({
     totalUsers: 0, totalLogs: 0, activeToday: 0,
     agentMsgsToday: 0, medicalTotal: 0, recipesTotal: 0,
+    remindersTotal: 0, pushUsers: 0,
   });
 
   // UI
   const [selectedUserId, setSelectedUserId] = useState(null);
   const [searchQuery,    setSearchQuery]    = useState("");
   const [activeTab,      setActiveTab]      = useState("overview");
+
+  const safeRpc = async (fn) => {
+    const { data, error } = await supabase.rpc(fn);
+    if (error) {
+      console.warn(`[admin] RPC ${fn} unavailable:`, error.message);
+      return [];
+    }
+    return data || [];
+  };
 
   // ── Data fetch + stats processing ─────────────────────────────────────────
   useEffect(() => {
@@ -81,36 +97,44 @@ export default function AdminDashboard() {
       if (!session) { router.push("/"); return; }
 
       const [
-        { data: logs },
-        { data: chats },
-        { data: medical },
-        { data: insights },
-        { data: recipes },
-        { data: users },
+        logs,
+        chats,
+        medical,
+        insights,
+        recipes,
+        users,
+        reminders,
+        pushSubs,
       ] = await Promise.all([
-        supabase.rpc("get_admin_all_logs"),
-        supabase.rpc("get_admin_chat_sessions"),
-        supabase.rpc("get_admin_medical_reports"),
-        supabase.rpc("get_admin_weekly_insights"),
-        supabase.rpc("get_admin_recipes"),
-        supabase.rpc("get_user_emails"),
+        safeRpc("get_admin_all_logs"),
+        safeRpc("get_admin_chat_sessions"),
+        safeRpc("get_admin_medical_reports"),
+        safeRpc("get_admin_weekly_insights"),
+        safeRpc("get_admin_recipes"),
+        safeRpc("get_user_emails"),
+        safeRpc("get_admin_reminders"),
+        safeRpc("get_admin_push_subscriptions"),
       ]);
 
       const map = {};
       (users || []).forEach((u) => (map[u.id] = u.email));
 
-      const safeChats    = chats    || [];
-      const safeMedical  = medical  || [];
-      const safeInsights = insights || [];
-      const safeRecipes  = recipes  || [];
-      const safeLogs     = logs     || [];
-      const safeUsers    = users    || [];
+      const safeChats     = chats     || [];
+      const safeMedical   = medical   || [];
+      const safeInsights  = insights  || [];
+      const safeRecipes   = recipes   || [];
+      const safeLogs      = logs      || [];
+      const safeUsers     = users     || [];
+      const safeReminders = reminders || [];
+      const safePushSubs  = pushSubs  || [];
 
       setAllLogs(safeLogs);
       setAllChats(safeChats);
       setAllMedical(safeMedical);
       setAllInsights(safeInsights);
       setAllRecipes(safeRecipes);
+      setAllReminders(safeReminders);
+      setAllPushSubs(safePushSubs);
 
       // ── Build unified user stats map ──────────────────────────────────────
       const today = new Date().toISOString().slice(0, 10);
@@ -121,13 +145,27 @@ export default function AdminDashboard() {
           userId: u.id, email: u.email || "Unknown",
           lastLogin: u.last_sign_in_at || null, joined: u.created_at || null,
           foodLogs: 0, agentMessages: 0, medicalReports: 0, weeklyInsights: 0, recipes: 0,
+          reminders: 0, pushDevices: 0,
           lastActive: u.last_sign_in_at?.slice(0, 10) || null,
         };
       });
 
       const touch = (userId, date, emailFallback) => {
         if (!statsMap[userId]) {
-          statsMap[userId] = { userId, email: map[userId] || emailFallback || "Unknown", lastLogin: null, joined: null, foodLogs: 0, agentMessages: 0, medicalReports: 0, weeklyInsights: 0, recipes: 0, lastActive: date };
+          statsMap[userId] = {
+            userId,
+            email: map[userId] || emailFallback || "Unknown",
+            lastLogin: null,
+            joined: null,
+            foodLogs: 0,
+            agentMessages: 0,
+            medicalReports: 0,
+            weeklyInsights: 0,
+            recipes: 0,
+            reminders: 0,
+            pushDevices: 0,
+            lastActive: date,
+          };
         }
         if (!statsMap[userId].lastActive || date > statsMap[userId].lastActive) {
           statsMap[userId].lastActive = date;
@@ -143,6 +181,8 @@ export default function AdminDashboard() {
       safeMedical.forEach((m) => { const d = m.created_at?.slice(0, 10) || today; touch(m.user_id, d); statsMap[m.user_id].medicalReports++; });
       safeInsights.forEach((i) => { const d = i.created_at?.slice(0, 10) || today; touch(i.user_id, d); statsMap[i.user_id].weeklyInsights++; });
       safeRecipes.forEach((r) => { const d = r.created_at?.slice(0, 10) || today; touch(r.user_id, d); statsMap[r.user_id].recipes++; });
+      safeReminders.forEach((r) => { const d = r.created_at?.slice(0, 10) || today; touch(r.user_id, d); statsMap[r.user_id].reminders++; });
+      safePushSubs.forEach((p) => { const d = p.created_at?.slice(0, 10) || today; touch(p.user_id, d); statsMap[p.user_id].pushDevices++; });
 
       const userArray = Object.values(statsMap)
         .filter((u) => u.lastActive)
@@ -156,6 +196,8 @@ export default function AdminDashboard() {
         agentMsgsToday: safeChats.filter((c) => c.role === "user" && c.created_at?.slice(0, 10) === today).length,
         medicalTotal:   safeMedical.length,
         recipesTotal:   safeRecipes.length,
+        remindersTotal: safeReminders.length,
+        pushUsers:      new Set(safePushSubs.map((p) => p.user_id)).size,
       });
 
       setLoading(false);
@@ -245,6 +287,29 @@ export default function AdminDashboard() {
         type: "recipe", ts: r.created_at || `${date}T12:00:00Z`, date,
         summary: r.name || "Recipe saved",
         detail: (r.tags || []).length > 0 ? r.tags.join(" · ") : null,
+      });
+    });
+
+    allReminders.filter((r) => r.user_id === selectedUserId).forEach((r) => {
+      const date = r.created_at?.slice(0, 10) || "unknown";
+      events.push({
+        type: "reminder",
+        ts: r.created_at || `${date}T12:00:00Z`,
+        date,
+        summary: `${r.title} (${r.time_hhmm})`,
+        detail: `${(r.days || []).length} day${(r.days || []).length > 1 ? "s" : ""} · ${r.active ? "active" : "paused"}`,
+      });
+    });
+
+    allPushSubs.filter((p) => p.user_id === selectedUserId).forEach((p) => {
+      const date = p.created_at?.slice(0, 10) || "unknown";
+      const endpointTail = (p.endpoint || "").slice(-24);
+      events.push({
+        type: "device",
+        ts: p.created_at || `${date}T12:00:00Z`,
+        date,
+        summary: "Push device registered",
+        detail: endpointTail ? `…${endpointTail}` : null,
       });
     });
 
@@ -384,6 +449,8 @@ export default function AdminDashboard() {
               { icon: <MessageSquare size={13} color="#8b5cf6" />,label: "Agent Today", value: globalStats.agentMsgsToday, color: "#8b5cf6"  },
               { icon: <FileText size={13} color="#ef4444" />,     label: "Reports",     value: globalStats.medicalTotal,   color: "#ef4444"  },
               { icon: <ChefHat size={13} color="#f97316" />,      label: "Recipes",     value: globalStats.recipesTotal,   color: "#f97316"  },
+              { icon: <Bell size={13} color="#6366f1" />,         label: "Reminders",   value: globalStats.remindersTotal, color: "#6366f1"  },
+              { icon: <Smartphone size={13} color="#14b8a6" />,   label: "Push Users",  value: globalStats.pushUsers,      color: "#14b8a6"  },
               { icon: <TrendingUp size={13} color="#06b6d4" />,   label: "Food Logs",   value: globalStats.totalLogs,      color: "#06b6d4"  },
             ].map((s) => (
               <div key={s.label} className="stat-pill">
@@ -442,6 +509,8 @@ export default function AdminDashboard() {
                     {user.medicalReports > 0 && <span style={{ fontSize: "0.68rem", background: "rgba(239,68,68,0.15)",   color: "#ef4444", padding: "2px 6px", borderRadius: 4 }}>🩺 {user.medicalReports}</span>}
                     {user.weeklyInsights > 0 && <span style={{ fontSize: "0.68rem", background: "rgba(6,182,212,0.15)",   color: "#06b6d4", padding: "2px 6px", borderRadius: 4 }}>📊 {user.weeklyInsights}</span>}
                     {user.recipes        > 0 && <span style={{ fontSize: "0.68rem", background: "rgba(249,115,22,0.15)",  color: "#f97316", padding: "2px 6px", borderRadius: 4 }}>🥘 {user.recipes}</span>}
+                    {user.reminders      > 0 && <span style={{ fontSize: "0.68rem", background: "rgba(99,102,241,0.15)",  color: "#818cf8", padding: "2px 6px", borderRadius: 4 }}>🔔 {user.reminders}</span>}
+                    {user.pushDevices    > 0 && <span style={{ fontSize: "0.68rem", background: "rgba(20,184,166,0.15)",  color: "#14b8a6", padding: "2px 6px", borderRadius: 4 }}>📱 {user.pushDevices}</span>}
                   </div>
 
                   <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
@@ -531,6 +600,8 @@ export default function AdminDashboard() {
                         { label: "Reports",     value: selectedUser.medicalReports, emoji: "🩺", color: "#ef4444" },
                         { label: "Wkly AI",     value: selectedUser.weeklyInsights, emoji: "📊", color: "#06b6d4" },
                         { label: "Recipes",     value: selectedUser.recipes,        emoji: "🥘", color: "#f97316" },
+                        { label: "Reminders",   value: selectedUser.reminders,      emoji: "🔔", color: "#6366f1" },
+                        { label: "Push Devices",value: selectedUser.pushDevices,    emoji: "📱", color: "#14b8a6" },
                       ].map((s) => (
                         <div key={s.label} className="overview-stat">
                           <div style={{ fontSize: 22, marginBottom: 6 }}>{s.emoji}</div>
@@ -626,6 +697,39 @@ export default function AdminDashboard() {
                               {ins.score}/100
                             </span>
                           )}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
+                  {allReminders.filter((r) => r.user_id === selectedUserId).length > 0 && (
+                    <div className="chart-card" style={{ padding: 18 }}>
+                      <div style={{ fontSize: "0.72rem", color: "#888", textTransform: "uppercase", letterSpacing: 1, marginBottom: 12 }}>Reminder Settings</div>
+                      {allReminders.filter((r) => r.user_id === selectedUserId).map((r, i, arr) => (
+                        <div key={r.id || i} style={{ padding: "10px 0", borderBottom: i < arr.length - 1 ? "1px solid #27272a" : "none", display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12 }}>
+                          <div>
+                            <div style={{ fontSize: "0.88rem", color: "#fff", fontWeight: 600 }}>🔔 {r.title}</div>
+                            <div style={{ fontSize: "0.72rem", color: "#666", marginTop: 2 }}>
+                              {r.time_hhmm} · {(r.days || []).join(", ")} · {r.type}
+                            </div>
+                          </div>
+                          <span style={{ fontSize: "0.68rem", padding: "2px 8px", borderRadius: 4, background: r.active ? "rgba(34,197,94,0.15)" : "rgba(161,161,170,0.15)", color: r.active ? "#22c55e" : "#a1a1aa" }}>
+                            {r.active ? "active" : "paused"}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
+                  {allPushSubs.filter((p) => p.user_id === selectedUserId).length > 0 && (
+                    <div className="chart-card" style={{ padding: 18 }}>
+                      <div style={{ fontSize: "0.72rem", color: "#888", textTransform: "uppercase", letterSpacing: 1, marginBottom: 12 }}>Registered Push Devices</div>
+                      {allPushSubs.filter((p) => p.user_id === selectedUserId).map((p, i, arr) => (
+                        <div key={p.id || i} style={{ padding: "10px 0", borderBottom: i < arr.length - 1 ? "1px solid #27272a" : "none", display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12 }}>
+                          <div style={{ fontSize: "0.82rem", color: "#ccc", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: "78%" }}>
+                            📱 …{(p.endpoint || "").slice(-38)}
+                          </div>
+                          <div style={{ fontSize: "0.68rem", color: "#666" }}>{formatDate(p.created_at)}</div>
                         </div>
                       ))}
                     </div>

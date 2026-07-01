@@ -1458,11 +1458,17 @@ export default function Home() {
   @media (max-width: 640px) {
     .feature-card { padding: 20px; }
     .hero-padding { padding: 40px 16px; }
+    .landing-nav { padding: 14px 16px !important; }
+    .auth-card { padding: 20px !important; border-radius: 16px !important; }
+    .auth-wrap { padding: 16px !important; justify-content: flex-start !important; padding-top: 24px !important; }
+    .auth-input { padding: 12px 14px; font-size: 0.95rem; }
+    .auth-btn-primary { padding: 13px; font-size: 0.95rem; }
   }
         `}</style>
 
         {/* ── TOP NAV ─────────────────────────────────────────────────── */}
         <nav
+          className="landing-nav"
           style={{
             display: "flex",
             justifyContent: "space-between",
@@ -1653,6 +1659,7 @@ export default function Home() {
           </div>
         ) : (
           <div
+            className="auth-wrap"
             style={{
               flex: 1,
               display: "flex",
@@ -1660,6 +1667,7 @@ export default function Home() {
               alignItems: "center",
               justifyContent: "center",
               padding: "24px",
+              width: "100%",
             }}
           >
             {/* Back Button */}
@@ -1682,6 +1690,7 @@ export default function Home() {
 
             {/* ── EXISTING AUTH CARD ─────────────────────────────────────────── */}
             <div
+              className="auth-card"
               style={{
                 width: "100%",
                 maxWidth: 380,
@@ -1691,6 +1700,7 @@ export default function Home() {
                 padding: 28,
                 boxShadow: "0 24px 60px rgba(0,0,0,0.5)",
                 animation: "floatUp 0.4s ease both",
+                boxSizing: "border-box",
               }}
             >
               <h2
@@ -1792,8 +1802,7 @@ export default function Home() {
                       marginBottom: 4,
                     }}
                   >
-                    Enter your email and we'll send a one-time code — no
-                    password needed.
+                    Enter your email and we&apos;ll send a one-time code — no password needed.
                   </div>
                   <input
                     className="auth-input"

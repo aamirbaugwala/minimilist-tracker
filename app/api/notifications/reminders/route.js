@@ -41,6 +41,15 @@ function validateHHMM(s) {
   return /^\d{2}:\d{2}$/.test(s);
 }
 
+function normalizeDays(days) {
+  const source = Array.isArray(days) ? days : ALL_DAYS;
+  const normalized = [...new Set(source.map((d) => Number(d)).filter((d) => d >= 1 && d <= 7))]
+    .sort((a, b) => a - b);
+  return normalized.length ? normalized : ALL_DAYS;
+}
+
+const ALL_DAYS = [1, 2, 3, 4, 5, 6, 7];
+
 export async function GET(req) {
   const { searchParams } = new URL(req.url);
   const userId      = searchParams.get("userId");
@@ -82,7 +91,7 @@ export async function POST(req) {
         title:     reminder.title.trim().slice(0, 100),
         body:      reminder.body.trim().slice(0, 200),
         time_hhmm: reminder.time_hhmm,
-        days:      Array.isArray(reminder.days) ? reminder.days.filter((d) => d >= 1 && d <= 7) : [1,2,3,4,5,6,7],
+        days:      normalizeDays(reminder.days),
         active:    true,
       })
       .select()
@@ -111,7 +120,7 @@ export async function PUT(req) {
       }
       updates.time_hhmm = reminder.time_hhmm;
     }
-    if (reminder.days   !== undefined) updates.days   = reminder.days.filter((d) => d >= 1 && d <= 7);
+    if (reminder.days   !== undefined) updates.days   = normalizeDays(reminder.days);
     if (reminder.active !== undefined) updates.active = Boolean(reminder.active);
 
     const db = getUserDb(accessToken);

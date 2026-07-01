@@ -9,6 +9,8 @@ import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import webpush from "web-push";
 
+let webPushConfigured = false;
+
 function getUserDb(accessToken) {
   return createClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL,
@@ -17,14 +19,26 @@ function getUserDb(accessToken) {
   );
 }
 
-webpush.setVapidDetails(
-  `mailto:${process.env.VAPID_EMAIL}`,
-  process.env.VAPID_PUBLIC_KEY,
-  process.env.VAPID_PRIVATE_KEY
-);
+function ensureWebPushConfigured() {
+  if (webPushConfigured) return;
+  if (!process.env.VAPID_PUBLIC_KEY || !process.env.VAPID_PRIVATE_KEY || !process.env.VAPID_EMAIL) {
+    throw new Error("VAPID keys not configured on server");
+  }
+  webpush.setVapidDetails(
+    `mailto:${process.env.VAPID_EMAIL}`,
+    process.env.VAPID_PUBLIC_KEY,
+    process.env.VAPID_PRIVATE_KEY
+  );
+  webPushConfigured = true;
+}
 
 export async function POST(req) {
   try {
+    const { userId, accessToken } = await req.json();
+    if (!userId || !accessToken) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+
     if (!process.env.VAPID_PUBLIC_KEY || !process.env.VAPID_PRIVATE_KEY) {
       return NextResponse.json(
         { error: "VAPID keys not configured on the server. Add VAPID_PUBLIC_KEY, VAPID_PRIVATE_KEY and VAPID_EMAIL to your environment variables." },
@@ -32,10 +46,7 @@ export async function POST(req) {
       );
     }
 
-    const { userId, accessToken } = await req.json();
-    if (!userId || !accessToken) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
+    ensureWebPushConfigured();
 
     const db = getUserDb(accessToken);
     const { data: subs } = await db

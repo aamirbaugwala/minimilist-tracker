@@ -34,17 +34,36 @@ import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import webpush from "web-push";
 
-// Service-role client — bypasses RLS to read all users' reminders and subscriptions
-const adminDb = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL,
-  process.env.SUPABASE_SERVICE_ROLE_KEY
-);
+let webPushConfigured = false;
 
-webpush.setVapidDetails(
-  `mailto:${process.env.VAPID_EMAIL}`,
-  process.env.VAPID_PUBLIC_KEY,
-  process.env.VAPID_PRIVATE_KEY
-);
+function getAdminDb() {
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  if (!url || !serviceKey) {
+    throw new Error("Supabase service credentials are not configured");
+  }
+  return createClient(url, serviceKey);
+}
+
+function ensureWebPushConfigured() {
+  if (webPushConfigured) return;
+  if (!process.env.VAPID_PUBLIC_KEY || !process.env.VAPID_PRIVATE_KEY || !process.env.VAPID_EMAIL) {
+    throw new Error("VAPID keys are not configured");
+  }
+  webpush.setVapidDetails(
+    `mailto:${process.env.VAPID_EMAIL}`,
+    process.env.VAPID_PUBLIC_KEY,
+    process.env.VAPID_PRIVATE_KEY
+  );
+  webPushConfigured = true;
+}
+
+function parseHHMMToMinutes(value) {
+  if (!/^\d{2}:\d{2}$/.test(value || "")) return null;
+  const [h, m] = value.split(":").map(Number);
+  if (h < 0 || h > 23 || m < 0 || m > 59) return null;
+  return h * 60 + m;
+}
 
 // URL-type hints per reminder type, so the notification click lands on the right page
 const TYPE_URLS = {
@@ -65,6 +84,7 @@ export async function GET(req) {
 }
 
 async function runCron(req) {
+  try {
   // ── Auth ──────────────────────────────────────────────────────────────────
   const xSecret = req.headers.get("x-cron-secret");
   const auth    = req.headers.get("authorization") || "";
@@ -75,9 +95,8 @@ async function runCron(req) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  if (!process.env.VAPID_PUBLIC_KEY || !process.env.VAPID_PRIVATE_KEY) {
-    return NextResponse.json({ error: "VAPID keys not configured" }, { status: 500 });
-  }
+  const adminDb = getAdminDb();
+  ensureWebPushConfigured();
 
   // ── Current time in IST (UTC+5:30) ────────────────────────────────────────
   const nowUtcMs  = Date.now() + 5.5 * 60 * 60 * 1000;
@@ -89,26 +108,41 @@ async function runCron(req) {
   const rawDow    = istNow.getUTCDay();
   const dow       = rawDow === 0 ? 7 : rawDow;
   const todayDate = istNow.toISOString().slice(0, 10);
+  const nowMinutes = parseHHMMToMinutes(timeStr);
+  const windowMinutes = Number(process.env.CRON_WINDOW_MINUTES || 15);
 
-  // ── Fetch due reminders ───────────────────────────────────────────────────
-  const { data: reminders, error: rErr } = await adminDb.rpc("get_due_reminders", {
-    current_hhmm: timeStr,
-    current_dow:  dow,
-  });
+  // ── Fetch candidate reminders for today/dow and evaluate in a time window ─
+  const { data: reminders, error: rErr } = await adminDb
+    .from("reminders")
+    .select("id, user_id, title, body, type, time_hhmm, last_sent_date")
+    .eq("active", true)
+    .contains("days", [dow])
+    .or(`last_sent_date.is.null,last_sent_date.lt.${todayDate}`);
 
   if (rErr) {
     console.error("[cron] get_due_reminders:", rErr.message);
     return NextResponse.json({ error: rErr.message }, { status: 500 });
   }
 
-  if (!reminders || reminders.length === 0) {
+  if (!reminders || reminders.length === 0 || nowMinutes === null) {
     return NextResponse.json({ sent: 0, time: timeStr, message: "No reminders due" });
+  }
+
+  const dueReminders = reminders.filter((reminder) => {
+    const reminderMinutes = parseHHMMToMinutes(reminder.time_hhmm);
+    if (reminderMinutes === null) return false;
+    const diff = nowMinutes - reminderMinutes;
+    return diff >= 0 && diff < Math.max(1, windowMinutes);
+  });
+
+  if (dueReminders.length === 0) {
+    return NextResponse.json({ sent: 0, time: timeStr, message: "No reminders due in window" });
   }
 
   let sent   = 0;
   let failed = 0;
 
-  for (const reminder of reminders) {
+  for (const reminder of dueReminders) {
     // Fetch all push subscriptions for this user
     const { data: subs } = await adminDb
       .from("push_subscriptions")
@@ -150,5 +184,8 @@ async function runCron(req) {
   }
 
   console.log(JSON.stringify({ event: "cron_push", time: timeStr, sent, failed }));
-  return NextResponse.json({ sent, failed, time: timeStr, processed: reminders.length });
+  return NextResponse.json({ sent, failed, time: timeStr, processed: dueReminders.length, scanned: reminders.length, windowMinutes });
+  } catch (error) {
+    return NextResponse.json({ error: error.message || "Cron run failed" }, { status: 500 });
+  }
 }
