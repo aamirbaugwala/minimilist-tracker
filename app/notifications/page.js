@@ -118,8 +118,12 @@ export default function NotificationsPage() {
 
   const handleToggleSubscription = async () => {
     if (isSubscribed) {
-      await unsubscribe();
-      flash("Notifications disabled on this device.", false);
+      const result = await unsubscribe();
+      if (result?.ok) {
+        flash("Notifications disabled on this device.", false);
+      } else {
+        flash(result?.error || "Could not disable notifications. Try again.", false);
+      }
     } else {
       const result = await subscribe();
       if (result.ok) flash("Notifications enabled.");
@@ -817,10 +821,18 @@ export default function NotificationsPage() {
                 ? "Permission blocked in browser settings"
                 : isSubscribed
                 ? "Active on this device"
+                : permission === "granted"
+                ? "Permission granted, but this device is not subscribed"
                 : "Disabled"}
             </span>
             <span className="pill">Permission: {permission}</span>
           </div>
+
+          {permission === "granted" && !isSubscribed && (
+            <p className="panel-sub" style={{ marginTop: 8 }}>
+              If you are on iPhone, install to Home Screen and open the app from there before enabling notifications.
+            </p>
+          )}
 
           {isSubscribed && (
             <button className="test-btn" onClick={handleTest} disabled={testLoading}>
