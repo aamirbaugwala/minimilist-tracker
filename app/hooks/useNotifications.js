@@ -34,28 +34,74 @@ export function useNotifications() {
     return /iPad|iPhone|iPod/.test(navigator.userAgent);
   }, []);
 
-  const getReadyRegistration = useCallback(async () => {
+  /**
+   * Polls for an active service worker registration.
+   * On iOS PWA, navigator.serviceWorker.ready can stall after a fresh install
+   * because the SW transitions through "installing" → "waiting" → "activated".
+   * We poll getRegistration() every 800ms (up to 25s) and race that against
+   * navigator.serviceWorker.ready — whichever resolves first wins.
+   */
+  const getReadyRegistration = useCallback(() => {
     if (!("serviceWorker" in navigator)) {
-      throw new Error("Service worker not supported on this browser");
+      return Promise.reject(new Error("Service worker not supported on this browser"));
     }
 
-    const timeoutMs = 8000;
-    const timeout = new Promise((_, reject) => {
-      setTimeout(() => reject(new Error("Service worker not ready. Reopen the app and try again.")), timeoutMs);
-    });
+    return new Promise((resolve, reject) => {
+      let done = false;
+      const MAX_MS = 25000;
+      const POLL_MS = 800;
+      const started = Date.now();
 
-    return Promise.race([navigator.serviceWorker.ready, timeout]);
+      // Path A: navigator.serviceWorker.ready (fast when SW already active)
+      navigator.serviceWorker.ready
+        .then((reg) => { if (!done) { done = true; resolve(reg); } })
+        .catch(() => {}); // polling handles the failure
+
+      // Path B: poll getRegistration so we catch it the moment it activates
+      const poll = async () => {
+        if (done) return;
+        try {
+          const reg = await navigator.serviceWorker.getRegistration("/");
+          if (reg?.active) {
+            done = true;
+            resolve(reg);
+            return;
+          }
+          // Nudge any waiting SW to skip the queue (already set in next-pwa config,
+          // but belt-and-suspenders for fresh installs on iOS)
+          const pending = reg?.waiting || reg?.installing;
+          if (pending) pending.postMessage({ type: "SKIP_WAITING" });
+        } catch { /* ignore individual poll errors */ }
+
+        if (Date.now() - started >= MAX_MS) {
+          done = true;
+          reject(new Error(
+            "App is still starting up. Close this app fully, reopen from Home Screen, wait 5 seconds, then try again."
+          ));
+          return;
+        }
+        setTimeout(poll, POLL_MS);
+      };
+
+      poll();
+    });
   }, []);
 
   const checkSubscription = useCallback(async () => {
     try {
-      const reg = await getReadyRegistration();
-      const sub = await reg.pushManager.getSubscription();
+      // Use a shorter non-throwing version here so page load isn't delayed
+      const reg = await Promise.race([
+        navigator.serviceWorker.ready,
+        navigator.serviceWorker.getRegistration("/").catch(() => null),
+        new Promise(res => setTimeout(() => res(null), 3000)),
+      ]);
+      if (!reg) { setIsSubscribed(false); return; }
+      const sub = await reg.pushManager?.getSubscription?.();
       setIsSubscribed(!!sub);
     } catch {
-      // Service worker not available (dev mode / SSR)
+      setIsSubscribed(false);
     }
-  }, [getReadyRegistration]);
+  }, []);
 
   useEffect(() => {
     const supported =
@@ -96,11 +142,20 @@ export function useNotifications() {
       setPermission(perm);
       if (perm !== "granted") return { ok: false, reason: "denied" };
 
-      const reg = await getReadyRegistration();
-      const sub = await reg.pushManager.subscribe({
-        userVisibleOnly:      true,
-        applicationServerKey: urlBase64ToUint8Array(vapidKey),
-      });
+      let reg;
+      try {
+        reg = await getReadyRegistration();
+      } catch (swErr) {
+        return { ok: false, error: swErr.message };
+      }
+
+      let sub = await reg.pushManager.getSubscription();
+      if (!sub) {
+        sub = await reg.pushManager.subscribe({
+          userVisibleOnly:      true,
+          applicationServerKey: urlBase64ToUint8Array(vapidKey),
+        });
+      }
 
       const subJson = sub?.toJSON?.();
       if (!subJson?.endpoint || !subJson?.keys?.p256dh || !subJson?.keys?.auth) {
@@ -173,9 +228,12 @@ export function useNotifications() {
     } catch (err) {
       return { ok: false, error: err.message };
     } finally {
-      await checkSubscription();
-      setPermission(typeof Notification !== "undefined" ? Notification.permission : permission);
+      // Force state to off immediately; don't call checkSubscription here
+      // because the SW may be torn down and re-calling getReadyRegistration hangs.
       setIsSubscribed(false);
+      if (typeof Notification !== "undefined") {
+        setPermission(Notification.permission);
+      }
       setLoading(false);
     }
   };
