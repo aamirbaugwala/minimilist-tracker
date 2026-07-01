@@ -37,7 +37,7 @@ import webpush from "web-push";
 // Service-role client — bypasses RLS to read all users' reminders and subscriptions
 const adminDb = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL,
-  process.env.SUPABASE_SERVICE_KEY
+  process.env.SUPABASE_SERVICE_ROLE_KEY
 );
 
 webpush.setVapidDetails(
