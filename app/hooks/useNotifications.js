@@ -53,7 +53,7 @@ export function useNotifications() {
     const { data: { session } } = await supabase.auth.getSession();
     if (!session) return { ok: false, error: "Not signed in" };
 
-    const vapidKey = process.env.VAPID_PUBLIC_KEY;
+    const vapidKey = process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY;
     if (!vapidKey) return { ok: false, error: "VAPID key not configured (add NEXT_PUBLIC_VAPID_PUBLIC_KEY)" };
 
     setLoading(true);
