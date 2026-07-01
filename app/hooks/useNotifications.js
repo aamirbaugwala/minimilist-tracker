@@ -34,74 +34,108 @@ export function useNotifications() {
     return /iPad|iPhone|iPod/.test(navigator.userAgent);
   }, []);
 
-  /**
-   * Polls for an active service worker registration.
-   * On iOS PWA, navigator.serviceWorker.ready can stall after a fresh install
-   * because the SW transitions through "installing" → "waiting" → "activated".
-   * We poll getRegistration() every 800ms (up to 25s) and race that against
-   * navigator.serviceWorker.ready — whichever resolves first wins.
-   */
-  const getReadyRegistration = useCallback(() => {
+  const SW_SCOPE = "/";
+  const SW_SCRIPT = "/sw.js";
+
+  const listServiceWorkerRegistrations = useCallback(async () => {
     if (!("serviceWorker" in navigator)) {
-      return Promise.reject(new Error("Service worker not supported on this browser"));
+      return [];
     }
+
+    return navigator.serviceWorker.getRegistrations().catch(() => []);
+  }, []);
+
+  const findServiceWorkerRegistration = useCallback(async () => {
+    const regs = await listServiceWorkerRegistrations();
+    if (!regs.length) return null;
+
+    const rootScope = new URL(SW_SCOPE, window.location.origin).href;
+    return (
+      regs.find((reg) => reg.scope === rootScope) ||
+      regs.find((reg) => reg.active || reg.waiting || reg.installing) ||
+      regs[0] ||
+      null
+    );
+  }, [listServiceWorkerRegistrations]);
+
+  /**
+   * Ensure a service worker registration exists and becomes active.
+   * This is the safer path for iPhone PWA installs where ready() can lag.
+   */
+  const ensureServiceWorkerRegistration = useCallback(async () => {
+    if (!("serviceWorker" in navigator)) {
+      throw new Error("Service worker not supported on this browser");
+    }
+
+    let reg = await findServiceWorkerRegistration();
+
+    if (!reg) {
+      reg = await navigator.serviceWorker.register(SW_SCRIPT, { scope: SW_SCOPE });
+    }
+
+    try {
+      await reg.update();
+    } catch {
+      // Non-fatal: we can still wait on the current registration.
+    }
+
+    if (reg.active) return reg;
 
     return new Promise((resolve, reject) => {
       let done = false;
-      const MAX_MS = 25000;
-      const POLL_MS = 800;
+      const MAX_MS = 45000;
+      const POLL_MS = 700;
       const started = Date.now();
 
-      // Path A: navigator.serviceWorker.ready (fast when SW already active)
-      navigator.serviceWorker.ready
-        .then((reg) => { if (!done) { done = true; resolve(reg); } })
-        .catch(() => {}); // polling handles the failure
-
-      // Path B: poll getRegistration so we catch it the moment it activates
-      const poll = async () => {
+      const finishIfActive = () => {
         if (done) return;
-        try {
-          const reg = await navigator.serviceWorker.getRegistration("/");
-          if (reg?.active) {
-            done = true;
-            resolve(reg);
-            return;
-          }
-          // Nudge any waiting SW to skip the queue (already set in next-pwa config,
-          // but belt-and-suspenders for fresh installs on iOS)
-          const pending = reg?.waiting || reg?.installing;
-          if (pending) pending.postMessage({ type: "SKIP_WAITING" });
-        } catch { /* ignore individual poll errors */ }
-
+        if (reg.active) {
+          done = true;
+          resolve(reg);
+          return;
+        }
         if (Date.now() - started >= MAX_MS) {
           done = true;
           reject(new Error(
-            "App is still starting up. Close this app fully, reopen from Home Screen, wait 5 seconds, then try again."
+            "The app is still finishing setup. Close it completely, reopen from the Home Screen, wait a few seconds, then try again."
           ));
           return;
         }
-        setTimeout(poll, POLL_MS);
+        setTimeout(async () => {
+          try {
+            await reg.update();
+          } catch {
+            // ignore update errors and keep polling
+          }
+          finishIfActive();
+        }, POLL_MS);
       };
 
-      poll();
+      const watch = (worker) => {
+        if (!worker) return;
+        worker.addEventListener("statechange", () => {
+          if (worker.state === "activated") {
+            finishIfActive();
+          }
+        });
+      };
+
+      watch(reg.installing);
+      watch(reg.waiting);
+      finishIfActive();
     });
-  }, []);
+  }, [findServiceWorkerRegistration]);
 
   const checkSubscription = useCallback(async () => {
     try {
-      // Use a shorter non-throwing version here so page load isn't delayed
-      const reg = await Promise.race([
-        navigator.serviceWorker.ready,
-        navigator.serviceWorker.getRegistration("/").catch(() => null),
-        new Promise(res => setTimeout(() => res(null), 3000)),
-      ]);
+      const reg = await findServiceWorkerRegistration();
       if (!reg) { setIsSubscribed(false); return; }
       const sub = await reg.pushManager?.getSubscription?.();
       setIsSubscribed(!!sub);
     } catch {
       setIsSubscribed(false);
     }
-  }, []);
+  }, [findServiceWorkerRegistration]);
 
   useEffect(() => {
     const supported =
@@ -142,44 +176,43 @@ export function useNotifications() {
       setPermission(perm);
       if (perm !== "granted") return { ok: false, reason: "denied" };
 
-      let reg;
       try {
-        reg = await getReadyRegistration();
+        const reg = await ensureServiceWorkerRegistration();
+
+        let sub = await reg.pushManager.getSubscription();
+        if (!sub) {
+          sub = await reg.pushManager.subscribe({
+            userVisibleOnly: true,
+            applicationServerKey: urlBase64ToUint8Array(vapidKey),
+          });
+        }
+
+        const subJson = sub?.toJSON?.();
+        if (!subJson?.endpoint || !subJson?.keys?.p256dh || !subJson?.keys?.auth) {
+          throw new Error("Push subscription did not return valid keys. Reopen app and try again.");
+        }
+
+        const res = await fetch("/api/notifications/subscribe", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            userId: session.user.id,
+            accessToken: session.access_token,
+            subscription: subJson,
+          }),
+        });
+
+        if (!res.ok) {
+          const err = await res.json();
+          throw new Error(err.error || "Failed to save subscription");
+        }
+
+        setIsSubscribed(true);
+        await checkSubscription();
+        return { ok: true };
       } catch (swErr) {
         return { ok: false, error: swErr.message };
       }
-
-      let sub = await reg.pushManager.getSubscription();
-      if (!sub) {
-        sub = await reg.pushManager.subscribe({
-          userVisibleOnly:      true,
-          applicationServerKey: urlBase64ToUint8Array(vapidKey),
-        });
-      }
-
-      const subJson = sub?.toJSON?.();
-      if (!subJson?.endpoint || !subJson?.keys?.p256dh || !subJson?.keys?.auth) {
-        throw new Error("Push subscription did not return valid keys. Reopen app and try again.");
-      }
-
-      const res = await fetch("/api/notifications/subscribe", {
-        method:  "POST",
-        headers: { "Content-Type": "application/json" },
-        body:    JSON.stringify({
-          userId:       session.user.id,
-          accessToken:  session.access_token,
-          subscription: subJson,
-        }),
-      });
-
-      if (!res.ok) {
-        const err = await res.json();
-        throw new Error(err.error || "Failed to save subscription");
-      }
-
-      setIsSubscribed(true);
-      await checkSubscription();
-      return { ok: true };
     } catch (err) {
       setIsSubscribed(false);
       return { ok: false, error: err.message };
@@ -198,11 +231,15 @@ export function useNotifications() {
       let endpoint = null;
 
       try {
-        const reg = await getReadyRegistration();
-        const sub = await reg.pushManager.getSubscription();
+        const reg = await findServiceWorkerRegistration();
+        const sub = reg ? await reg.pushManager.getSubscription() : null;
         if (sub) {
           endpoint = sub.endpoint;
-          await sub.unsubscribe();
+          try {
+            await sub.unsubscribe();
+          } catch {
+            // Even if browser unsubscribe fails, still clean the DB record.
+          }
         }
       } catch {
         // Continue with backend cleanup even if browser subscription lookup fails.
