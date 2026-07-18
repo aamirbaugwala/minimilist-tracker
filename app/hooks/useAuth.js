@@ -19,20 +19,42 @@ export function useAuth() {
   const [session, setSession]       = useState(null);
   const [authLoading, setAuthLoading] = useState(false);
   const [authError, setAuthError]   = useState("");
+  // Distinct from authLoading (which drives the form submit spinners): this
+  // covers only the one-time "are we already signed in?" check on mount, so the
+  // app can show a splash instead of flashing the landing page at returning
+  // users while getSession() reads storage / refreshes an expired token.
+  const [initializing, setInitializing] = useState(true);
 
   // ── Bootstrap: read current session + subscribe to changes ────────────────
   useEffect(() => {
+    let mounted = true;
+
     // Initial session check
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      setSession(session);
-    });
+    supabase.auth
+      .getSession()
+      .then(({ data: { session } }) => {
+        if (!mounted) return;
+        setSession(session);
+        setInitializing(false);
+      })
+      .catch(() => {
+        // Never strand the user on the splash if the check fails.
+        if (mounted) setInitializing(false);
+      });
 
     // Live subscription
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
-      (_event, session) => setSession(session)
+      (_event, session) => {
+        if (!mounted) return;
+        setSession(session);
+        setInitializing(false);
+      }
     );
 
-    return () => subscription.unsubscribe();
+    return () => {
+      mounted = false;
+      subscription.unsubscribe();
+    };
   }, []);
 
   // ── OTP (magic link / phone) ───────────────────────────────────────────────
@@ -86,6 +108,32 @@ export function useAuth() {
     }
   };
 
+  // ── Google OAuth ───────────────────────────────────────────────────────────
+  // Implicit flow (auth-js default): Supabase redirects back with the session in
+  // the URL fragment, which the browser client picks up via detectSessionInUrl
+  // and pushes through the onAuthStateChange subscription above — so there's no
+  // /auth/callback route to maintain.
+  const signInWithGoogle = async () => {
+    setAuthLoading(true);
+    setAuthError("");
+    try {
+      const { error } = await supabase.auth.signInWithOAuth({
+        provider: "google",
+        // Return to whichever origin we started from (localhost / preview / prod)
+        // rather than always the dashboard's Site URL.
+        options: { redirectTo: window.location.origin },
+      });
+      if (error) throw error;
+      // No finally-reset on success: the browser navigates away to Google, so we
+      // deliberately leave authLoading true to keep the button disabled.
+      return { ok: true };
+    } catch (err) {
+      setAuthError(err.message);
+      setAuthLoading(false);
+      return { ok: false, error: err.message };
+    }
+  };
+
   // ── Sign out ───────────────────────────────────────────────────────────────
   const signOut = async () => {
     await supabase.auth.signOut();
@@ -110,12 +158,14 @@ export function useAuth() {
 
   return {
     session,
+    initializing,
     authLoading,
     authError,
     setAuthError,
     sendOtp,
     verifyOtp,
     signInWithPassword,
+    signInWithGoogle,
     signOut,
     updatePassword,
   };

@@ -63,6 +63,20 @@ const FIBER_BONUS = {
   maximize: 3,
 };
 
+// ─── Medical override constants ──────────────────────────────────────────────
+// Conservative on purpose. This app must not prescribe a therapeutic diet — it
+// only declines to push someone in a direction their blood work argues against.
+
+/** g/kg ceiling when kidney markers are flagged. Still adequate for most adults;
+ *  a true therapeutic renal restriction (0.6–0.8 g/kg) is a clinician's call. */
+const RENAL_PROTEIN_CAP = 1.2;
+
+/** Max share of calories from fat when lipid markers are flagged. */
+const LIPID_FAT_CAP = 0.25;
+
+/** Fibre multiplier for glycaemic / lipid concerns. */
+const FIBER_UPLIFT = 1.25;
+
 const DEFAULTS = {
   cals: 2000,
   p: 150,
@@ -84,7 +98,7 @@ const DEFAULTS = {
  *     goal,                 // display label only, not used for math
  *   }
  */
-export function calculateTargets(profile) {
+export function calculateTargets(profile, conditions = []) {
   // ── Guard: no profile or missing weight means we can't calculate ──────────
   if (!profile || !profile.weight) {
     return {
@@ -92,6 +106,7 @@ export function calculateTargets(profile) {
       targetCals: DEFAULTS.cals,
       targetMacros: { p: DEFAULTS.p, c: DEFAULTS.c, f: DEFAULTS.f, fib: DEFAULTS.fib },
       waterTarget: DEFAULTS.water,
+      medical: { adjustments: [], conflicts: [] },
     };
   }
 
@@ -117,8 +132,43 @@ export function calculateTargets(profile) {
   targetCals = Math.max(800, Math.min(6000, targetCals));
 
   // ── 2. Macro targets ───────────────────────────────────────────────────────
-  const proteinMultiplier = PROTEIN_MULTIPLIERS[priority] ?? 1.8;
-  const fatPct            = FAT_PCT[priority]            ?? 0.28;
+  const active = new Set(
+    (conditions || []).filter((c) => c && c.enforced).map((c) => c.id),
+  );
+  const adjustments = [];
+  const conflicts = [];
+
+  let proteinMultiplier = PROTEIN_MULTIPLIERS[priority] ?? 1.8;
+  let fatPct            = FAT_PCT[priority]            ?? 0.28;
+
+  // ── Medical override: kidney ────────────────────────────────────────────────
+  // The important one. "Build muscle" pushes protein to 2.4 g/kg, which is the
+  // opposite of what you want when kidney markers are flagged. We cap at
+  // RENAL_PROTEIN_CAP — still generous by general-population standards, so we
+  // are not prescribing a therapeutic renal diet (that needs a nephrologist),
+  // just refusing to actively push protein higher.
+  if (active.has("renal") && proteinMultiplier > RENAL_PROTEIN_CAP) {
+    conflicts.push({
+      condition: "renal",
+      severity: "high",
+      title: "Protein target reduced",
+      detail:
+        `Your goal would set protein to ${proteinMultiplier} g/kg, but kidney markers on your ` +
+        `recent report were flagged. Protein is capped at ${RENAL_PROTEIN_CAP} g/kg. ` +
+        `Discuss your protein intake with your doctor before raising it.`,
+    });
+    proteinMultiplier = RENAL_PROTEIN_CAP;
+  }
+
+  // ── Medical override: lipids ───────────────────────────────────────────────
+  if (active.has("lipid") && fatPct > LIPID_FAT_CAP) {
+    adjustments.push({
+      condition: "lipid",
+      title: "Fat share reduced",
+      detail: `Fat lowered to ${Math.round(LIPID_FAT_CAP * 100)}% of calories because lipid markers were flagged.`,
+    });
+    fatPct = LIPID_FAT_CAP;
+  }
 
   const targetP = Math.round(weight * proteinMultiplier);
   const targetF = Math.round((targetCals * fatPct) / 9);
@@ -132,7 +182,19 @@ export function calculateTargets(profile) {
   // Base: 14g per 1000 kcal (DRI guideline)
   // Bonus: +3g for preserve/maximize priority (high protein → need more fiber)
   const baseFib  = Math.round((targetCals / 1000) * 14);
-  const targetFib = baseFib + (FIBER_BONUS[priority] ?? 0);
+  let targetFib = baseFib + (FIBER_BONUS[priority] ?? 0);
+
+  // Medical override: fibre helps both glycaemic control and LDL, and unlike
+  // sugar or sodium it is something this app can actually measure.
+  if (active.has("glycemic") || active.has("lipid")) {
+    const raised = Math.round(targetFib * FIBER_UPLIFT);
+    adjustments.push({
+      condition: active.has("glycemic") ? "glycemic" : "lipid",
+      title: "Fibre target raised",
+      detail: `Fibre raised from ${targetFib}g to ${raised}g — it supports both blood sugar and cholesterol.`,
+    });
+    targetFib = raised;
+  }
 
   // ── 4. Water target ────────────────────────────────────────────────────────
   let waterTarget = Math.round(weight * 0.035 * 10) / 10;
@@ -154,6 +216,11 @@ export function calculateTargets(profile) {
     targetCals,
     targetMacros: { p: targetP, c: targetC, f: targetF, fib: targetFib },
     waterTarget,
+
+    // What blood work changed, and where it contradicts the chosen goal.
+    // Additive: callers that pass no conditions get empty arrays and byte-for-byte
+    // the same numbers as before.
+    medical: { adjustments, conflicts },
   };
 }
 

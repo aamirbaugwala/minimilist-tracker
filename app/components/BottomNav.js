@@ -3,12 +3,7 @@
 import { useState, useEffect } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import Link from "next/link";
-import { createClient } from "@supabase/supabase-js";
-
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL,
-  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
-);
+import { useAuth } from "../hooks/useAuth";
 
 // Lucide icons inlined as SVG to avoid a heavy import in the layout
 const HomeIcon = () => (
@@ -56,18 +51,13 @@ export default function BottomNav() {
   const pathname = usePathname();
   const router = useRouter();
   const [showMore, setShowMore] = useState(false);
-  const [hasSession, setHasSession] = useState(false);
 
-  // Listen for auth state — show nav only when logged in
-  useEffect(() => {
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      setHasSession(!!session);
-    });
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
-      setHasSession(!!session);
-    });
-    return () => subscription.unsubscribe();
-  }, []);
+  // Auth state comes from the shared app-wide Supabase client via useAuth.
+  // This component previously called createClient() itself, which put a second
+  // GoTrueClient in the same tab — two clients competing over the same stored
+  // session and token refresh. Show the nav only when logged in.
+  const { session, signOut } = useAuth();
+  const hasSession = !!session;
 
   // Close the drawer whenever the route changes
   useEffect(() => {
@@ -194,7 +184,7 @@ export default function BottomNav() {
             <button
               onClick={async () => {
                 setShowMore(false);
-                await supabase.auth.signOut();
+                await signOut();
                 router.push("/");
               }}
               style={{

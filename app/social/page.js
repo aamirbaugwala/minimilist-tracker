@@ -4,6 +4,7 @@ import { useEffect, useState, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import { FLATTENED_DB } from "../food-data";
 import { calculateTargets, capPct } from "../lib/nutrition";
+import { computeFaceoff } from "../lib/socialScoring";
 import {
   UserPlus,
   Check,
@@ -17,7 +18,6 @@ import {
   HelpCircle,
   RefreshCw,
   ChevronLeft,
-  Swords,
   Users,
   Bot,
   Zap,
@@ -31,45 +31,11 @@ import {
   SaveAll,
 } from "lucide-react";
 import { supabase } from "../supabase";
-
-// ─── Avatar ───────────────────────────────────────────────────────────────────
-function Avatar({ name, size = 44, color = "#3b82f6", fontSize = "1.1rem" }) {
-  return (
-    <div style={{
-      width: size, height: size, borderRadius: "50%",
-      background: `linear-gradient(135deg, ${color}44, ${color}22)`,
-      border: `2px solid ${color}55`,
-      display: "flex", alignItems: "center", justifyContent: "center",
-      fontWeight: 800, fontSize, color, flexShrink: 0,
-    }}>
-      {name?.[0]?.toUpperCase() ?? "?"}
-    </div>
-  );
-}
-
-// ─── Stat tile ────────────────────────────────────────────────────────────────
-function StatTile({ label, value, max, unit, color }) {
-  const pct = Math.min(100, max > 0 ? (value / max) * 100 : 0);
-  return (
-    <div style={{
-      background: "rgba(255,255,255,0.04)",
-      border: `1px solid ${color}33`,
-      borderRadius: 12, padding: "10px 12px",
-    }}>
-      <div style={{ fontSize: "0.62rem", color: "#666", textTransform: "uppercase", letterSpacing: 1, marginBottom: 5 }}>{label}</div>
-      <div style={{ display: "flex", alignItems: "baseline", gap: 3, marginBottom: 7 }}>
-        <span style={{ fontSize: "1rem", fontWeight: 800, color }}>{value}<span style={{ fontSize: "0.62rem", fontWeight: 400, color: "#888" }}>{unit}</span></span>
-        <span style={{ fontSize: "0.62rem", color: "#555" }}>/ {max}{unit}</span>
-      </div>
-      <div style={{ height: 5, background: "rgba(255,255,255,0.06)", borderRadius: 99, overflow: "hidden" }}>
-        <div style={{ width: `${pct}%`, height: "100%", background: color, borderRadius: 99, transition: "width 0.6s ease" }} />
-      </div>
-      <div style={{ marginTop: 4, fontSize: "0.6rem", fontWeight: 700, color: pct >= 90 ? color : "#444", textAlign: "right" }}>
-        {Math.round(pct)}%
-      </div>
-    </div>
-  );
-}
+import { Avatar } from "../components/social/ui";
+import { Podium, SquadBanner } from "../components/social/Leaderboard";
+import FaceoffModal from "../components/social/FaceoffModal";
+import FriendModal from "../components/social/FriendModal";
+import RulesModal from "../components/social/RulesModal";
 
 // ─── TOOL BADGE METADATA ──────────────────────────────────────────────────────
 const TOOL_META = {
@@ -176,64 +142,9 @@ export default function SocialPage() {
     try {
       const { data: { session } } = await supabase.auth.getSession();
       if (!session) return;
-
       // Re-derive top2 from the current friends list (most recent sort order)
-      const allUsers = friends.map((f) => f);
-      if (allUsers.length < 2) return;
-      const top2 = allUsers.slice(0, 2);
-
-      const { data: historyLogs } = await supabase
-        .from("food_logs")
-        .select("user_id, date, calories, protein, carbs, fats, fiber, name, qty")
-        .in("user_id", top2.map((u) => u.id))
-        .order("date", { ascending: true })
-        .limit(50000);
-
-      const dateSet = new Set((historyLogs || []).map((l) => l.date));
-      const allDates = [...dateSet];
-
-      const wins           = { [top2[0].id]: 0, [top2[1].id]: 0 };
-      const lifetimePoints = { [top2[0].id]: 0, [top2[1].id]: 0 };
-      const loggedDays     = { [top2[0].id]: 0, [top2[1].id]: 0 };
-
-      const calcDayScore = (userLogs, targets) => {
-        if (!userLogs.length) return 0;
-        const s = userLogs.reduce((acc, item) => {
-          let fib = item.fiber || 0;
-          if (!fib && item.name !== "Water") {
-            const dbItem = FLATTENED_DB[item.name?.toLowerCase()];
-            if (dbItem?.fiber) fib = Math.round(dbItem.fiber * item.qty);
-          }
-          return { cals: acc.cals + (item.calories || 0), p: acc.p + (item.protein || 0), c: acc.c + (item.carbs || 0), f: acc.f + (item.fats || 0), fib: acc.fib + fib, water: item.name === "Water" ? acc.water + item.qty * 0.25 : acc.water };
-        }, { cals: 0, p: 0, c: 0, f: 0, fib: 0, water: 0 });
-        const capPctLocal = (v, t) => t > 0 ? Math.min(100, (v / t) * 100) : 0;
-        const baseScore = Math.round((capPctLocal(s.cals, targets.cals) + capPctLocal(s.p, targets.p) + capPctLocal(s.c, targets.c) + capPctLocal(s.f, targets.f) + capPctLocal(s.fib, targets.fib) + capPctLocal(s.water, targets.water)) / 6);
-        let bonus = 0;
-        if (s.p >= targets.p * 0.9) bonus += 15;
-        if (s.fib >= targets.fib * 0.9) bonus += 10;
-        if (s.water >= targets.water * 0.9) bonus += 10;
-        let penalty = 0;
-        if (s.cals > targets.cals) penalty += Math.floor(((s.cals - targets.cals) / targets.cals) * 10) * 5;
-        if (s.f > targets.f) penalty += Math.floor(((s.f - targets.f) / targets.f) * 10) * 5;
-        if (s.c > targets.c) penalty += Math.floor(((s.c - targets.c) / targets.c) * 10) * 3;
-        return Math.max(0, baseScore + bonus - penalty);
-      };
-
-      allDates.forEach((date) => {
-        const dayLogs = historyLogs.filter((l) => l.date === date);
-        const dayScores = top2.map((user) => ({ id: user.id, score: calcDayScore(dayLogs.filter((l) => l.user_id === user.id), user.targets) }));
-        const anyLogged = dayScores.some((d) => d.score > 0);
-        if (anyLogged) {
-          if (dayScores[0].score > dayScores[1].score) wins[dayScores[0].id]++;
-          else if (dayScores[1].score > dayScores[0].score) wins[dayScores[1].id]++;
-        }
-        dayScores.forEach(({ id, score }) => {
-          const userLogged = dayLogs.some((l) => l.user_id === id);
-          if (userLogged) { lifetimePoints[id] += score; loggedDays[id]++; }
-        });
-      });
-
-      setHistoricalStats({ u1: top2[0].id, u2: top2[1].id, wins, lifetimePoints, loggedDays, totalDays: allDates.length });
+      if (friends.length < 2) return;
+      setHistoricalStats(await computeFaceoff(friends.slice(0, 2)));
     } finally {
       setFaceoffLoading(false);
     }
@@ -462,85 +373,11 @@ export default function SocialPage() {
     setFriends(sortedFriends);
     setRequests(requestList);
 
+    // All-time head-to-head between the top 2. computeFaceoff() pages through
+    // the complete log history — see lib/socialScoring.js for why the previous
+    // single .limit(50000) query silently froze these totals.
     if (top2.length === 2) {
-      // Fetch full all-time history — no date filter, high limit to bypass Supabase's 1000-row default
-      const { data: historyLogs } = await supabase
-        .from("food_logs")
-        .select("user_id, date, calories, protein, carbs, fats, fiber, name, qty")
-        .in("user_id", top2.map((u) => u.id))
-        .order("date", { ascending: true })
-        .limit(50000);
-
-      // Group logs by date
-      const dateSet = new Set((historyLogs || []).map((l) => l.date));
-      const allDates = [...dateSet];
-
-      const wins           = { [top2[0].id]: 0, [top2[1].id]: 0 };
-      const lifetimePoints = { [top2[0].id]: 0, [top2[1].id]: 0 };
-      const loggedDays     = { [top2[0].id]: 0, [top2[1].id]: 0 };
-
-      // Full scoring formula — mirrors getUserData above (same bonuses/penalties, capped at 135)
-      const calcDayScore = (userLogs, targets) => {
-        if (!userLogs.length) return 0;
-        const s = userLogs.reduce((acc, item) => {
-          let fib = item.fiber || 0;
-          if (!fib && item.name !== "Water") {
-            const dbItem = FLATTENED_DB[item.name?.toLowerCase()];
-            if (dbItem?.fiber) fib = Math.round(dbItem.fiber * item.qty);
-          }
-          return {
-            cals:  acc.cals  + (item.calories || 0),
-            p:     acc.p     + (item.protein  || 0),
-            c:     acc.c     + (item.carbs    || 0),
-            f:     acc.f     + (item.fats     || 0),
-            fib:   acc.fib   + fib,
-            water: item.name === "Water" ? acc.water + item.qty * 0.25 : acc.water,
-          };
-        }, { cals: 0, p: 0, c: 0, f: 0, fib: 0, water: 0 });
-
-        const capPctLocal = (v, t) => t > 0 ? Math.min(100, (v / t) * 100) : 0;
-        const baseScore = Math.round(
-          (capPctLocal(s.cals, targets.cals) + capPctLocal(s.p, targets.p) +
-           capPctLocal(s.c,    targets.c)    + capPctLocal(s.f, targets.f) +
-           capPctLocal(s.fib,  targets.fib)  + capPctLocal(s.water, targets.water)) / 6
-        );
-
-        let bonus = 0;
-        if (s.p     >= targets.p     * 0.9) bonus += 15;
-        if (s.fib   >= targets.fib   * 0.9) bonus += 10;
-        if (s.water >= targets.water * 0.9) bonus += 10;
-
-        let penalty = 0;
-        if (s.cals > targets.cals) penalty += Math.floor(((s.cals - targets.cals) / targets.cals) * 10) * 5;
-        if (s.f    > targets.f)    penalty += Math.floor(((s.f    - targets.f)    / targets.f)    * 10) * 5;
-        if (s.c    > targets.c)    penalty += Math.floor(((s.c    - targets.c)    / targets.c)    * 10) * 3;
-
-        return Math.max(0, baseScore + bonus - penalty);
-      };
-
-      allDates.forEach((date) => {
-        const dayLogs = historyLogs.filter((l) => l.date === date);
-        const dayScores = top2.map((user) => ({
-          id:    user.id,
-          score: calcDayScore(dayLogs.filter((l) => l.user_id === user.id), user.targets),
-        }));
-        // Tally win (only if at least one user logged)
-        const anyLogged = dayScores.some((d) => d.score > 0);
-        if (anyLogged) {
-          if (dayScores[0].score > dayScores[1].score) wins[dayScores[0].id]++;
-          else if (dayScores[1].score > dayScores[0].score) wins[dayScores[1].id]++;
-        }
-        // Accumulate lifetime points (only add if user actually logged that day)
-        dayScores.forEach(({ id, score }) => {
-          const userLogged = dayLogs.some((l) => l.user_id === id);
-          if (userLogged) {
-            lifetimePoints[id] += score;
-            loggedDays[id]++;
-          }
-        });
-      });
-
-      setHistoricalStats({ u1: top2[0].id, u2: top2[1].id, wins, lifetimePoints, loggedDays, totalDays: allDates.length });
+      setHistoricalStats(await computeFaceoff(top2));
     }
 
     setLoading(false);
@@ -581,409 +418,27 @@ export default function SocialPage() {
     fetchSocialData();
   };
 
-  // ── Podium ────────────────────────────────────────────────────────────────
-  const PODIUM_CONFIG = [
-    { rank: 2, idx: 1, height: 80, color: "#94a3b8", gradient: "linear-gradient(to top,#1e293b,#334155)", borderTop: "#64748b", glow: false },
-    { rank: 1, idx: 0, height: 110, color: "#f59e0b", gradient: "linear-gradient(to top,#78350f,#b45309)", borderTop: "#f59e0b", glow: true },
-    { rank: 3, idx: 2, height: 60, color: "#a855f7", gradient: "linear-gradient(to top,#4c1d95,#6b21a8)", borderTop: "#a855f7", glow: false },
-  ];
-
-  const Podium = ({ top3 }) => (
-    <div style={{ display: "flex", alignItems: "flex-end", justifyContent: "center", gap: 8, marginBottom: 28, marginTop: 4 }}>
-      {PODIUM_CONFIG.map(({ rank, idx, height, color, gradient, borderTop, glow }) => {
-        const f = top3[idx];
-        if (!f) return <div key={rank} style={{ width: "30%" }} />;
-        const isFirst = rank === 1;
-        return (
-          <div
-            key={rank}
-            onClick={() => handleViewLogs(f)}
-            style={{ display: "flex", flexDirection: "column", alignItems: "center", width: isFirst ? "35%" : "30%", cursor: "pointer" }}
-          >
-            {isFirst && <Flame size={20} color="#f59e0b" style={{ marginBottom: 5 }} className="animate-bounce" />}
-            <Avatar name={f.name} size={isFirst ? 46 : 36} color={color} fontSize={isFirst ? "1.1rem" : "0.9rem"} />
-            <div style={{
-              marginTop: 6, marginBottom: 7,
-              fontWeight: isFirst ? 800 : 700,
-              fontSize: isFirst ? "0.88rem" : "0.75rem",
-              color, textAlign: "center",
-              maxWidth: "100%", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
-            }}>
-              {f.name.replace(" (You)", "")}
-            </div>
-            <div style={{
-              width: "100%", height,
-              background: gradient,
-              borderRadius: "10px 10px 0 0",
-              borderTop: `3px solid ${borderTop}`,
-              display: "flex", alignItems: "center", justifyContent: "center",
-              boxShadow: glow ? "0 0 20px rgba(245,158,11,0.18)" : "none",
-            }}>
-              <span style={{ fontSize: isFirst ? "2rem" : "1.4rem" }}>
-                {rank === 1 ? "🥇" : rank === 2 ? "🥈" : "🥉"}
-              </span>
-            </div>
-            <div style={{ marginTop: 6, display: "flex", alignItems: "baseline", gap: 3 }}>
-              <span style={{ fontWeight: 800, fontSize: isFirst ? "1.05rem" : "0.9rem", color }}>{f.score}</span>
-              <span style={{ fontSize: "0.62rem", color: "#777" }}>pts</span>
-            </div>
-            <div style={{ fontSize: "0.62rem", color: "#888", marginTop: 1 }}>{f.statusLabel}</div>
-          </div>
-        );
-      })}
-    </div>
-  );
-
-  // ── Squad banner ──────────────────────────────────────────────────────────
-  const SquadBanner = () => {
-    if (!squadStats || friends.length < 2) return null;
-    const tP = Math.max(squadStats.targetP, 1);
-    const tW = Math.max(squadStats.targetWater, 1);
-    const pPct = Math.min(100, (squadStats.p / tP) * 100);
-    const wPct = Math.min(100, (squadStats.water / tW) * 100);
-    return (
-      <div style={{
-        background: "linear-gradient(135deg,#1e1b4b,#312e81)",
-        border: "1px solid #4338ca", borderRadius: 18, padding: "14px 16px", marginBottom: 18,
-      }}>
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-            <Users size={15} color="#a5b4fc" />
-            <span style={{ fontWeight: 700, color: "#e0e7ff", fontSize: "0.85rem" }}>Squad Today</span>
-          </div>
-          {historicalStats && (
-            <button
-              onClick={openFaceoff}
-              style={{ background: "rgba(99,102,241,0.25)", border: "1px solid #6366f155", color: "#a5b4fc", borderRadius: 8, padding: "3px 10px", fontSize: "0.7rem", fontWeight: 700, cursor: "pointer" }}
-            >
-              All-Time Faceoff ⚔️
-            </button>
-          )}
-        </div>
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
-          {[
-            { label: "Protein", value: Math.round(squadStats.p), max: Math.round(tP), unit: "g", color: "#fbbf24", pct: pPct },
-            { label: "Hydration", value: +squadStats.water.toFixed(1), max: +tW.toFixed(1), unit: "L", color: "#60a5fa", pct: wPct },
-          ].map(({ label, value, max, unit, color, pct }) => (
-            <div key={label} style={{ background: "rgba(0,0,0,0.2)", borderRadius: 10, padding: "10px 12px" }}>
-              <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 5 }}>
-                <span style={{ fontSize: "0.72rem", color: "#c7d2fe" }}>{label}</span>
-                <span style={{ fontSize: "0.72rem", fontWeight: 700, color }}>{Math.round(pct)}%</span>
-              </div>
-              <div style={{ height: 5, background: "#1e293b", borderRadius: 99, overflow: "hidden" }}>
-                <div style={{ width: `${pct}%`, height: "100%", background: color, borderRadius: 99, transition: "width 0.8s ease" }} />
-              </div>
-              <div style={{ marginTop: 4, fontSize: "0.62rem", color: "#3a4a6a", textAlign: "right" }}>
-                {value} / {max}{unit}
-              </div>
-            </div>
-          ))}
-        </div>
-      </div>
-    );
-  };
-
-  // ── All-time faceoff modal ────────────────────────────────────────────────
-  const FaceoffModal = () => {
-    if (!showSquadModal || !historicalStats || friends.length < 2) return null;
-    const u1 = friends.find((f) => f.id === historicalStats.u1);
-    const u2 = friends.find((f) => f.id === historicalStats.u2);
-    if (!u1 || !u2) return null;
-    const w1 = historicalStats.wins[u1.id];
-    const w2 = historicalStats.wins[u2.id];
-    const lp1 = historicalStats.lifetimePoints?.[u1.id] ?? 0;
-    const lp2 = historicalStats.lifetimePoints?.[u2.id] ?? 0;
-    const ld1 = historicalStats.loggedDays?.[u1.id] ?? 0;
-    const ld2 = historicalStats.loggedDays?.[u2.id] ?? 0;
-    const avg1 = ld1 > 0 ? Math.round(lp1 / ld1) : 0;
-    const avg2 = ld2 > 0 ? Math.round(lp2 / ld2) : 0;
-    const totalW = w1 + w2 || 1;
-    const totalLP = lp1 + lp2 || 1;
-    const winLeader = w1 > w2 ? u1 : w2 > w1 ? u2 : null;
-    const ptLeader  = lp1 > lp2 ? u1 : lp2 > lp1 ? u2 : null;
-    const totalDays = historicalStats.totalDays ?? 0;
-
-    return (
-      <div className="modal-overlay" style={{ zIndex: 9999 }}>
-        <div className="modal-content">
-          {/* Header */}
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
-            <h3 style={{ margin: 0, display: "flex", alignItems: "center", gap: 8, color: "#e0e7ff", fontSize: "1rem" }}>
-              <Swords size={17} color="#f59e0b" /> All-Time Head-to-Head
-            </h3>
-            <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-              <button
-                onClick={refreshFaceoff}
-                disabled={faceoffLoading}
-                title="Refresh with latest data"
-                style={{ background: "none", border: "none", color: faceoffLoading ? "#3b82f6" : "#555", cursor: faceoffLoading ? "wait" : "pointer", display: "flex", alignItems: "center", padding: 4 }}
-              >
-                <RefreshCw size={14} className={faceoffLoading ? "animate-spin" : ""} />
-              </button>
-              <button onClick={() => setShowSquadModal(false)} style={{ background: "none", border: "none", color: "#555", cursor: "pointer" }}>
-                <X size={20} />
-              </button>
-            </div>
-          </div>
-          {faceoffLoading && (
-            <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 8, padding: "5px 8px", background: "rgba(59,130,246,0.08)", borderRadius: 8 }}>
-              <Loader2 size={11} className="animate-spin" color="#3b82f6" />
-              <span style={{ fontSize: "0.68rem", color: "#3b82f6" }}>Fetching latest data…</span>
-            </div>
-          )}
-          {totalDays > 0 && (
-            <div style={{ fontSize: "0.68rem", color: "#333", marginBottom: 18 }}>
-              Across <strong style={{ color: "#555" }}>{totalDays}</strong> tracked days
-            </div>
-          )}
-
-          {/* Player cards */}
-          <div style={{ display: "flex", alignItems: "stretch", justifyContent: "space-around", gap: 10, marginBottom: 20 }}>
-            {[{ user: u1, wins: w1, pts: lp1, avg: avg1, days: ld1 }, { user: u2, wins: w2, pts: lp2, avg: avg2, days: ld2 }].map(({ user, wins, pts, avg, days }) => (
-              <div key={user.id} style={{
-                flex: 1, textAlign: "center",
-                background: `linear-gradient(160deg, ${user.barColor}18, ${user.barColor}08)`,
-                border: `1.5px solid ${user.barColor}55`,
-                borderRadius: 16, padding: "16px 10px",
-                boxShadow: `0 0 20px ${user.barColor}12`,
-              }}>
-                <Avatar name={user.name} size={50} color={user.barColor} />
-                <div style={{ marginTop: 9, fontWeight: 800, color: "#fff", fontSize: "0.88rem" }}>
-                  {user.name.replace(" (You)", "")}
-                </div>
-                <div style={{ fontSize: "0.62rem", color: `${user.barColor}aa`, marginTop: 3, fontWeight: 600 }}>
-                  {days} days logged
-                </div>
-
-                {/* Wins */}
-                <div style={{
-                  marginTop: 12,
-                  background: "rgba(0,0,0,0.25)",
-                  borderRadius: 10, padding: "8px 6px",
-                }}>
-                  <div style={{ fontSize: "2.2rem", fontWeight: 900, color: user.barColor, lineHeight: 1 }}>{wins}</div>
-                  <div style={{ fontSize: "0.62rem", color: "#888", marginTop: 3, textTransform: "uppercase", letterSpacing: 0.8 }}>daily wins</div>
-                </div>
-
-                {/* Avg daily score */}
-                <div style={{
-                  marginTop: 8,
-                  background: `${user.barColor}22`,
-                  border: `1px solid ${user.barColor}44`,
-                  borderRadius: 10, padding: "9px 6px",
-                }}>
-                  <div style={{ lineHeight: 1 }}>
-                    <span style={{ fontSize: "1.5rem", fontWeight: 900, color: user.barColor }}>{avg}</span>
-                    <span style={{ fontSize: "0.7rem", fontWeight: 600, color: `${user.barColor}88` }}>/135</span>
-                  </div>
-                  <div style={{ fontSize: "0.62rem", color: "#999", marginTop: 3, textTransform: "uppercase", letterSpacing: 0.8 }}>avg daily score</div>
-                  <div style={{ fontSize: "0.65rem", color: `${user.barColor}bb`, marginTop: 4, fontWeight: 700 }}>
-                    {pts.toLocaleString()} <span style={{ fontWeight: 400, color: "#555" }}>total pts</span>
-                  </div>
-                </div>
-              </div>
-            ))}
-          </div>
-
-          {/* Wins bar */}
-          <div style={{ marginBottom: 10 }}>
-            <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 5 }}>
-              <span style={{ fontSize: "0.62rem", color: "#666", textTransform: "uppercase", letterSpacing: 1 }}>Daily wins</span>
-              <span style={{ fontSize: "0.62rem", color: "#555" }}>{w1} vs {w2}</span>
-            </div>
-            <div style={{ height: 8, borderRadius: 99, overflow: "hidden", display: "flex", background: "rgba(255,255,255,0.06)" }}>
-              <div style={{ width: `${(w1 / totalW) * 100}%`, background: u1.barColor, transition: "width 0.8s ease", boxShadow: `0 0 8px ${u1.barColor}66` }} />
-              <div style={{ width: `${(w2 / totalW) * 100}%`, background: u2.barColor, boxShadow: `0 0 8px ${u2.barColor}66` }} />
-            </div>
-          </div>
-
-          {/* Lifetime points bar */}
-          <div style={{ marginBottom: 18 }}>
-            <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 5 }}>
-              <span style={{ fontSize: "0.62rem", color: "#666", textTransform: "uppercase", letterSpacing: 1 }}>Lifetime points</span>
-              <span style={{ fontSize: "0.62rem", color: "#555" }}>{lp1.toLocaleString()} vs {lp2.toLocaleString()}</span>
-            </div>
-            <div style={{ height: 8, borderRadius: 99, overflow: "hidden", display: "flex", background: "rgba(255,255,255,0.06)" }}>
-              <div style={{ width: `${(lp1 / totalLP) * 100}%`, background: u1.barColor, transition: "width 0.8s ease", boxShadow: `0 0 8px ${u1.barColor}66` }} />
-              <div style={{ width: `${(lp2 / totalLP) * 100}%`, background: u2.barColor, boxShadow: `0 0 8px ${u2.barColor}66` }} />
-            </div>
-          </div>
-
-          {/* Crown verdict */}
-          <div style={{
-            textAlign: "center", fontSize: "0.88rem", color: "#e4e4e7", fontWeight: 700,
-            background: "rgba(255,255,255,0.04)", borderRadius: 10, padding: "10px 14px",
-            border: "1px solid rgba(255,255,255,0.07)",
-          }}>
-            {ptLeader
-              ? `${ptLeader.name.replace(" (You)", "")} leads in lifetime points 👑`
-              : winLeader
-                ? `${winLeader.name.replace(" (You)", "")} holds the most wins 👑`
-                : "Completely even — too close to call 🤝"}
-          </div>
-        </div>
-      </div>
-    );
-  };
-
-  // ── Friend detail modal ───────────────────────────────────────────────────
-  const FriendModal = () => {
-    if (!selectedFriend) return null;
-    const f = selectedFriend;
-    const totalLogs = friendLogs.reduce((s, l) => s + (l.calories || 0), 0);
-    return (
-      <div className="modal-overlay">
-        <div className="modal-content" style={{ maxHeight: "82vh", display: "flex", flexDirection: "column", padding: "0 0 28px", overflow: "hidden" }}>
-          {/* Header */}
-          <div style={{ padding: "18px 18px 14px", borderBottom: "1px solid rgba(255,255,255,0.06)", display: "flex", alignItems: "center", gap: 10, flexShrink: 0 }}>
-            <Avatar name={f.name} size={40} color={f.barColor} fontSize="1rem" />
-            <div style={{ flex: 1, minWidth: 0 }}>
-              <div style={{ fontWeight: 700, fontSize: "0.95rem", color: "#fff", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{f.name}</div>
-              <div style={{ fontSize: "0.72rem", color: f.barColor, fontWeight: 600 }}>{f.statusLabel}</div>
-            </div>
-            <div style={{ textAlign: "right", flexShrink: 0 }}>
-              <div style={{ fontWeight: 900, fontSize: "1.5rem", color: f.barColor, lineHeight: 1 }}>{f.score}</div>
-              <div style={{ fontSize: "0.6rem", color: "#333" }}>/ 135 pts</div>
-            </div>
-            <button onClick={closeLogs} style={{ background: "none", border: "none", color: "#333", cursor: "pointer", padding: 4, flexShrink: 0 }}>
-              <X size={18} />
-            </button>
-          </div>
-
-          <div style={{ overflowY: "auto", flex: 1, padding: "14px 18px" }}>
-            {/* Breakdown pills */}
-            <div style={{ display: "flex", gap: 6, marginBottom: 14 }}>
-              {[
-                { label: "Base", val: f.breakdown.base, color: "#3b82f6", bg: "rgba(59,130,246,0.1)" },
-                { label: "Bonus", val: `+${f.breakdown.bonus}`, color: "#22c55e", bg: "rgba(34,197,94,0.1)" },
-                { label: "Penalty", val: `-${f.breakdown.penalty}`, color: "#ef4444", bg: "rgba(239,68,68,0.1)" },
-              ].map(({ label, val, color, bg }) => (
-                <div key={label} style={{ flex: 1, background: bg, border: `1px solid ${color}33`, borderRadius: 10, padding: "8px 4px", textAlign: "center" }}>
-                  <div style={{ fontSize: "0.58rem", color: "#999", textTransform: "uppercase", letterSpacing: 0.8 }}>{label}</div>
-                  <div style={{ fontWeight: 800, fontSize: "1rem", color, marginTop: 2 }}>{val}</div>
-                </div>
-              ))}
-            </div>
-
-            {/* Macro tiles */}
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 7, marginBottom: 7 }}>
-              <StatTile label="Protein" value={f.stats.p} max={f.targets.p} unit="g" color="#3b82f6" />
-              <StatTile label="Carbs" value={f.stats.c} max={f.targets.c} unit="g" color="#f59e0b" />
-              <StatTile label="Fats" value={f.stats.f} max={f.targets.f} unit="g" color="#ef4444" />
-              <StatTile label="Fiber" value={f.stats.fib} max={f.targets.fib} unit="g" color="#a855f7" />
-            </div>
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 7, marginBottom: 14 }}>
-              <StatTile label="Calories" value={f.stats.cals} max={f.targets.cals} unit=" kcal" color="#f59e0b" />
-              <StatTile label="Water" value={f.stats.water} max={f.targets.water} unit="L" color="#60a5fa" />
-            </div>
-
-            {/* Achievement badges */}
-            {(f.achievements.proteinHit || f.achievements.waterHit || f.achievements.fiberHit || f.achievements.perfectScore) && (
-              <div style={{ display: "flex", flexWrap: "wrap", gap: 5, marginBottom: 14 }}>
-                {f.achievements.proteinHit && <span style={{ background: "rgba(59,130,246,0.12)", color: "#3b82f6", border: "1px solid rgba(59,130,246,0.25)", borderRadius: 7, padding: "2px 9px", fontSize: "0.7rem", fontWeight: 700 }}>💪 Protein Hit</span>}
-                {f.achievements.waterHit && <span style={{ background: "rgba(96,165,250,0.12)", color: "#60a5fa", border: "1px solid rgba(96,165,250,0.25)", borderRadius: 7, padding: "2px 9px", fontSize: "0.7rem", fontWeight: 700 }}>💧 Hydrated</span>}
-                {f.achievements.fiberHit && <span style={{ background: "rgba(168,85,247,0.12)", color: "#a855f7", border: "1px solid rgba(168,85,247,0.25)", borderRadius: 7, padding: "2px 9px", fontSize: "0.7rem", fontWeight: 700 }}>🌿 Fiber Hit</span>}
-                {f.achievements.perfectScore && <span style={{ background: "rgba(245,158,11,0.12)", color: "#f59e0b", border: "1px solid rgba(245,158,11,0.25)", borderRadius: 7, padding: "2px 9px", fontSize: "0.7rem", fontWeight: 700 }}>🏆 Perfect Day</span>}
-              </div>
-            )}
-
-            {/* Food log */}
-            <div style={{ fontSize: "0.65rem", fontWeight: 700, color: "#2a2a2a", textTransform: "uppercase", letterSpacing: 1, marginBottom: 8 }}>
-              Food Log {totalLogs > 0 && <span style={{ color: "#555", textTransform: "none", letterSpacing: 0, fontWeight: 400 }}>· {totalLogs} kcal</span>}
-            </div>
-
-            {logsLoading ? (
-              <div style={{ display: "flex", justifyContent: "center", padding: 24 }}>
-                <Loader2 className="animate-spin" color="#444" size={22} />
-              </div>
-            ) : friendLogs.length === 0 ? (
-              <div style={{ textAlign: "center", padding: 24, color: "#333" }}>
-                <Utensils size={28} style={{ opacity: 0.15, marginBottom: 8 }} />
-                <div style={{ fontSize: "0.82rem" }}>Nothing logged today.</div>
-              </div>
-            ) : (
-              <div style={{ display: "flex", flexDirection: "column", gap: 7 }}>
-                {friendLogs.map((log) => {
-                  const isWater = log.name === "Water";
-                  const pct = totalLogs > 0 ? Math.round((log.calories / totalLogs) * 100) : 0;
-                  return (
-                    <div key={log.id} style={{
-                      background: isWater ? "rgba(59,130,246,0.06)" : "#111116",
-                      border: isWater ? "1px solid rgba(59,130,246,0.18)" : "1px solid #1e1e26",
-                      borderRadius: 10, padding: "9px 12px",
-                      display: "flex", alignItems: "center", gap: 10,
-                    }}>
-                      <div style={{ background: "#1e1e26", color: "#444", borderRadius: 6, padding: "2px 6px", fontSize: "0.68rem", fontWeight: 700, flexShrink: 0 }}>{log.qty}×</div>
-                      <div style={{ flex: 1, minWidth: 0 }}>
-                        <div style={{ fontWeight: 600, fontSize: "0.85rem", textTransform: "capitalize", color: "#e4e4e7", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{log.name}</div>
-                        {!isWater && (
-                          <div style={{ display: "flex", gap: 5, marginTop: 3 }}>
-                            <span style={{ fontSize: "0.6rem", background: "rgba(59,130,246,0.1)", color: "#3b82f6", padding: "1px 4px", borderRadius: 4, fontWeight: 600 }}>P {log.protein}g</span>
-                            <span style={{ fontSize: "0.6rem", background: "rgba(245,158,11,0.1)", color: "#f59e0b", padding: "1px 4px", borderRadius: 4, fontWeight: 600 }}>C {log.carbs}g</span>
-                            <span style={{ fontSize: "0.6rem", background: "rgba(239,68,68,0.1)", color: "#ef4444", padding: "1px 4px", borderRadius: 4, fontWeight: 600 }}>F {log.fats}g</span>
-                            {log.fiber > 0 && (
-                              <span style={{ fontSize: "0.6rem", background: "rgba(16,185,129,0.1)", color: "#10b981", padding: "1px 4px", borderRadius: 4, fontWeight: 600 }}>Fib {log.fiber}g</span>
-                            )}
-                          </div>
-                        )}
-                      </div>
-                      <div style={{ textAlign: "right", flexShrink: 0 }}>
-                        <div style={{ fontWeight: 700, fontSize: "0.88rem", color: isWater ? "#60a5fa" : "#fff" }}>
-                          {isWater ? `${log.qty * 0.25}L` : log.calories}
-                        </div>
-                        {!isWater && pct > 0 && (
-                          <div style={{ fontSize: "0.58rem", color: "#aaa", background: "rgba(255,255,255,0.07)", borderRadius: 4, padding: "1px 3px", marginTop: 2 }}>{pct}%</div>
-                        )}
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            )}
-          </div>
-        </div>
-      </div>
-    );
-  };
-
-  // ── Scoring rules modal ───────────────────────────────────────────────────
-  const RulesModal = () => !showGlobalRules ? null : (
-    <div className="modal-overlay" style={{ zIndex: 9999 }}>
-      <div className="modal-content">
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 18 }}>
-          <h3 style={{ margin: 0, display: "flex", alignItems: "center", gap: 7, fontSize: "0.95rem" }}>
-            <Trophy size={16} color="#f59e0b" /> Scoring System
-          </h3>
-          <button onClick={() => setShowGlobalRules(false)} style={{ background: "none", border: "none", color: "#555", cursor: "pointer" }}>
-            <X size={20} />
-          </button>
-        </div>
-        <div style={{ background: "rgba(245,158,11,0.08)", border: "1px solid rgba(245,158,11,0.2)", borderRadius: 10, padding: "10px 14px", marginBottom: 14 }}>
-          <div style={{ fontSize: "0.65rem", color: "#888", marginBottom: 2 }}>Max Possible</div>
-          <div style={{ fontSize: "1.5rem", fontWeight: 900, color: "#f59e0b" }}>135 pts</div>
-        </div>
-        {[
-          { label: "Base Score (max 100)", color: "#3b82f6", items: ["Average % across all 6 daily goals, each capped at 100%"] },
-          { label: "Bonuses (+35 max)", color: "#22c55e", items: ["+15 pts — Hit 90%+ Protein", "+10 pts — Hit 90%+ Fiber", "+10 pts — Hit 90%+ Water"] },
-          { label: "Penalties (unlimited)", color: "#ef4444", items: ["−5 per 10% over Calories", "−5 per 10% over Fats", "−3 per 10% over Carbs"] },
-        ].map(({ label, color, items }) => (
-          <div key={label} style={{ marginBottom: 12 }}>
-            <div style={{ fontWeight: 700, color, fontSize: "0.78rem", marginBottom: 5 }}>{label}</div>
-            {items.map((item) => (
-              <div key={item} style={{ fontSize: "0.73rem", color: "#bbb", marginBottom: 2, paddingLeft: 8, borderLeft: `2px solid ${color}55` }}>{item}</div>
-            ))}
-          </div>
-        ))}
-      </div>
-    </div>
-  );
-
   // ─────────────────────────────────────────────────────────────────────────
   return (
     <div className="app-wrapper" style={{ paddingBottom: 80, gap: 0, padding: 0 }}>
-      <RulesModal />
-      <FriendModal />
-      <FaceoffModal />
+      <RulesModal
+        showGlobalRules={showGlobalRules}
+        setShowGlobalRules={setShowGlobalRules}
+      />
+      <FriendModal
+        selectedFriend={selectedFriend}
+        friendLogs={friendLogs}
+        logsLoading={logsLoading}
+        closeLogs={closeLogs}
+      />
+      <FaceoffModal
+        showSquadModal={showSquadModal}
+        setShowSquadModal={setShowSquadModal}
+        historicalStats={historicalStats}
+        friends={friends}
+        refreshFaceoff={refreshFaceoff}
+        faceoffLoading={faceoffLoading}
+      />
 
       {/* ── Sticky header ───────────────────────────────────────────────── */}
       <div style={{
@@ -1119,7 +574,12 @@ export default function SocialPage() {
               </div>
             ) : (
               <>
-                <SquadBanner />
+                <SquadBanner
+                  squadStats={squadStats}
+                  friends={friends}
+                  historicalStats={historicalStats}
+                  openFaceoff={openFaceoff}
+                />
 
                 {/* ── AI SQUAD COACH CARD ── */}
                 <div style={{
@@ -1186,7 +646,7 @@ export default function SocialPage() {
                   </div>
                 </div>
 
-                <Podium top3={friends.slice(0, 3)} />
+                <Podium top3={friends.slice(0, 3)} handleViewLogs={handleViewLogs} />
 
                 <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
                   {friends.map((friend, i) => {
