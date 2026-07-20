@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import TrafficPanel from "../components/admin/TrafficPanel";
+import LlmCostPanel from "../components/admin/LlmCostPanel";
 import {
   ArrowLeft,
   Users,
@@ -80,6 +81,7 @@ export default function AdminDashboard() {
   const [selectedUserId, setSelectedUserId] = useState(null);
   const [searchQuery,    setSearchQuery]    = useState("");
   const [activeTab,      setActiveTab]      = useState("overview");
+  const [globalView,     setGlobalView]     = useState("traffic");
 
   const safeRpc = async (fn) => {
     const { data, error } = await supabase.rpc(fn);
@@ -578,7 +580,30 @@ export default function AdminDashboard() {
               {/* Site-wide traffic lives here: every other panel on this page is
                   scoped to one signed-in user, so this is the only view that
                   covers anonymous visitors. */}
-              <TrafficPanel />
+              {/* Two site-wide views: where traffic comes from, and what
+                  serving it costs. */}
+              <div style={{ display: "flex", gap: 6, marginBottom: 12 }}>
+                {[
+                  { id: "traffic", label: "📈 Traffic" },
+                  { id: "cost", label: "💰 AI Cost" },
+                ].map((v) => (
+                  <button
+                    key={v.id}
+                    onClick={() => setGlobalView(v.id)}
+                    style={{
+                      padding: "9px 16px", minHeight: 38, borderRadius: 20, cursor: "pointer",
+                      fontSize: "0.8rem", fontWeight: 700,
+                      border: `1px solid ${globalView === v.id ? "#6366f1" : "var(--border)"}`,
+                      background: globalView === v.id ? "#6366f120" : "transparent",
+                      color: globalView === v.id ? "#818cf8" : "#71717a",
+                    }}
+                  >
+                    {v.label}
+                  </button>
+                ))}
+              </div>
+
+              {globalView === "traffic" ? <TrafficPanel /> : <LlmCostPanel />}
               <div className="chart-card desktop-only-msg" style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 10, color: "#666", padding: 18 }}>
                 <Users size={20} style={{ opacity: 0.3 }} />
                 <p style={{ margin: 0, fontSize: "0.85rem" }}>Select a user to view their full activity.</p>

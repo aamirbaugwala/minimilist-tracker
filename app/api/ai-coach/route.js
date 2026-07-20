@@ -1,6 +1,7 @@
 import { GoogleGenerativeAI } from "@google/generative-ai";
 import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
+import { recordLlmUsage } from "../../lib/llmCost";
 
 function getSupabaseForUser(accessToken) {
   return createClient(
@@ -115,6 +116,13 @@ Specific, simple food swaps or habits to fix the blocker starting tomorrow.
 
     const result = await model.generateContent(prompt);
     const text = result.response.text();
+    // Persist what this call cost. Awaited: serverless can freeze as soon as
+    // the response returns, which would drop a fire-and-forget insert.
+    await recordLlmUsage({
+      userId,
+      route: "coach",
+      usageMetadata: result.response?.usageMetadata,
+    });
 
     return NextResponse.json({ message: text });
 

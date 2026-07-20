@@ -32,6 +32,45 @@ function deviceFrom(ua = "") {
   return "desktop";
 }
 
+/**
+ * Order matters — these user-agent strings are nested by design:
+ * Edge contains "Chrome", Chrome contains "Safari", Opera contains both.
+ * Testing generic names first would misattribute nearly everything.
+ *
+ * Note: Brave deliberately does NOT identify itself and reports as Chrome, so
+ * Brave users land in the Chrome bucket. That's a limitation of any UA-based
+ * detection, GA included.
+ */
+function browserFrom(ua = "") {
+  if (/edg[ea]?\//i.test(ua)) return "Edge";
+  if (/opr\/|opera/i.test(ua)) return "Opera";
+  if (/samsungbrowser/i.test(ua)) return "Samsung Internet";
+  if (/firefox|fxios/i.test(ua)) return "Firefox";
+  if (/chrome|crios/i.test(ua)) return "Chrome";
+  if (/safari/i.test(ua)) return "Safari";
+  return "Other";
+}
+
+function osFrom(ua = "") {
+  if (/windows/i.test(ua)) return "Windows";
+  if (/android/i.test(ua)) return "Android";
+  if (/iphone|ipad|ipod|ios/i.test(ua)) return "iOS";
+  if (/mac os|macintosh/i.test(ua)) return "macOS";
+  if (/cros/i.test(ua)) return "ChromeOS";
+  if (/linux/i.test(ua)) return "Linux";
+  return "Other";
+}
+
+/** Vercel percent-encodes city names ("New%20Delhi"). */
+function decodeHeader(value) {
+  if (!value) return null;
+  try {
+    return decodeURIComponent(value);
+  } catch {
+    return value; // malformed encoding — keep the raw value rather than dropping it
+  }
+}
+
 function serviceClient() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -87,9 +126,13 @@ export async function POST(req) {
       utm_medium: clamp(utm?.medium, 120),
       utm_campaign: clamp(utm?.campaign, 120),
       device: deviceFrom(ua),
+      browser: browserFrom(ua),
+      os: osFrom(ua),
       display_mode: displayMode === "standalone" ? "standalone" : "browser",
-      // Vercel injects this at the edge; null when running locally.
+      // Vercel injects these at the edge; all null when running locally.
       country: clamp(req.headers.get("x-vercel-ip-country"), 8),
+      city: clamp(decodeHeader(req.headers.get("x-vercel-ip-city")), 120),
+      region: clamp(req.headers.get("x-vercel-ip-country-region"), 60),
       // Flagged rather than dropped, so excluded traffic stays auditable.
       is_bot: BOT_RE.test(ua),
     });

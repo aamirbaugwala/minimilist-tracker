@@ -25,6 +25,7 @@ import { GoogleGenerativeAI } from "@google/generative-ai";
 import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { cacheInvalidate } from "../../../lib/agentCache";
+import { recordLlmUsage } from "../../../lib/llmCost";
 
 function getSupabaseForUser(accessToken) {
   return createClient(
@@ -152,6 +153,13 @@ Rules:
     ]);
 
     const raw = result.response.text().trim();
+    // Persist what this call cost. Awaited: serverless can freeze as soon as
+    // the response returns, which would drop a fire-and-forget insert.
+    await recordLlmUsage({
+      userId,
+      route: "medical",
+      usageMetadata: result.response?.usageMetadata,
+    });
     const jsonStr = raw
       .replace(/^```json\s*/i, "")
       .replace(/^```\s*/i, "")

@@ -22,6 +22,7 @@
 
 import { GoogleGenerativeAI } from "@google/generative-ai";
 import { NextResponse } from "next/server";
+import { recordLlmUsage } from "../../../lib/llmCost";
 
 export async function POST(req) {
   try {
@@ -91,6 +92,13 @@ Allowed tags: high-protein, low-carb, vegetarian, vegan, dairy-free, gluten-free
     ]);
 
     const raw = result.response.text().trim();
+    // Persist what this call cost. Awaited: serverless can freeze as soon as
+    // the response returns, which would drop a fire-and-forget insert.
+    await recordLlmUsage({
+      userId,
+      route: "recipes",
+      usageMetadata: result.response?.usageMetadata,
+    });
 
     // Strip markdown code fences if model wraps in them anyway
     const jsonStr = raw.replace(/^```json\s*/i, "").replace(/^```\s*/i, "").replace(/```\s*$/i, "").trim();

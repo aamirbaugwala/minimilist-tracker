@@ -44,6 +44,18 @@ export async function POST(req) {
     } = await asUser.auth.getUser();
     if (authErr || !user) return new NextResponse(null, { status: 204 });
 
+    // Is this an admin? Asked through the USER's client so is_admin() sees
+    // their JWT. Their own browsing shouldn't count as traffic — it would
+    // inflate every metric on the very dashboard they're reading.
+    // If the function isn't installed yet, treat as a normal user.
+    let internal = false;
+    try {
+      const { data: adminFlag } = await asUser.rpc("is_admin");
+      internal = adminFlag === true;
+    } catch {
+      /* is_admin() not installed — carry on as a normal visitor */
+    }
+
     const db = createClient(url, service, { auth: { persistSession: false } });
 
     // When did this visitor first appear? Recorded on the link so we can measure
@@ -73,7 +85,19 @@ export async function POST(req) {
       .eq("visitor_id", visitorId)
       .is("user_id", null);
 
-    return new NextResponse(null, { status: 204 });
+    // For an admin, flag the WHOLE visitor history — including views already
+    // attributed — so past self-browsing is retroactively excluded, not just
+    // future hits.
+    if (internal) {
+      await db
+        .from("page_views")
+        .update({ is_internal: true })
+        .eq("visitor_id", visitorId);
+    }
+
+    // Told to the client so it can stop sending beacons altogether rather than
+    // writing rows that only get filtered out later.
+    return NextResponse.json({ internal });
   } catch (err) {
     console.error("[track/identify] failed:", err?.message);
     return new NextResponse(null, { status: 204 });

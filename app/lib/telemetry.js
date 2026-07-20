@@ -103,9 +103,17 @@ function displayMode() {
   return "browser";
 }
 
+const INTERNAL_KEY = "nt_internal";
+
+/** Once an admin has been identified, stop sending beacons from this browser. */
+const isInternal = () => safeGet("localStorage", INTERNAL_KEY) === "1";
+
 /** Record a pageview. Fire-and-forget: never awaited, never throws. */
 export function trackPageView(path) {
   if (typeof window === "undefined") return;
+  // Admin browsing isn't traffic. Skipping here avoids writing rows that would
+  // only be filtered out at query time anyway.
+  if (isInternal()) return;
   try {
     const { id: sessionId, isNew } = getSession();
     const { referrer, utm } = sessionAttribution(isNew);
@@ -136,7 +144,11 @@ export function trackPageView(path) {
   }
 }
 
-/** Link this browser's anonymous history to a signed-in user. Runs once per user. */
+/**
+ * Link this browser's anonymous history to a signed-in user. Runs once per user.
+ * The response says whether that user is an admin; if so we remember it and stop
+ * tracking this browser entirely.
+ */
 export function identify(accessToken) {
   if (typeof window === "undefined" || !accessToken) return;
   try {
@@ -145,7 +157,12 @@ export function identify(accessToken) {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ visitorId: getVisitorId(), accessToken }),
       keepalive: true,
-    }).catch(() => {});
+    })
+      .then((res) => (res.ok ? res.json() : null))
+      .then((body) => {
+        if (body?.internal) safeSet("localStorage", INTERNAL_KEY, "1");
+      })
+      .catch(() => {});
   } catch {
     /* ignore */
   }

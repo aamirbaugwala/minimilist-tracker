@@ -6,6 +6,7 @@ import { FLATTENED_DB } from "../../food-data";
 import { calculateTargets } from "../../lib/nutrition";
 import { checkRateLimit } from "../../lib/rateLimit";
 import { cacheGet, cacheSet, cacheInvalidate } from "../../lib/agentCache";
+import { recordLlmUsage, estimateCostUsd } from "../../lib/llmCost";
 
 // ─── INPUT SANITIZER ─────────────────────────────────────────────────────────
 function sanitizeMessage(msg) {
@@ -1112,15 +1113,23 @@ export async function POST(req) {
           inputTokens, outputTokens, totalTokens,
           cachedTokens,                                             // how many were cache hits
           cacheHitRate: inputTokens ? `${Math.round((cachedTokens / inputTokens) * 100)}%` : null,
-          estimatedCostUsd: totalTokens
-            ? Number((
-                (inputTokens - cachedTokens) * 0.000000075 +  // full price for uncached
-                cachedTokens                * 0.00000001875 +  // 25% price for cached hits
-                outputTokens               * 0.0000003
-              ).toFixed(6))
-            : null,
+          estimatedCostUsd: estimateCostUsd({
+            inputTokens: inputTokens ?? 0,
+            cachedTokens,
+            outputTokens: outputTokens ?? 0,
+          }),
           messageLength: message.length,
         }));
+
+        // Persist it. This was previously computed and then discarded into the
+        // log, so per-user spend could never be answered. Awaited on purpose:
+        // serverless can freeze the instant the response completes.
+        await recordLlmUsage({
+          userId,
+          route: "agent",
+          usageMetadata: usage,
+          latencyMs,
+        });
 
         // ── Stream the final text word-by-word ───────────────────────────
         // Split preserving whitespace so spacing and newlines render correctly
