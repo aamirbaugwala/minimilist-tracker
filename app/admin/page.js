@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
+import TrafficPanel from "../components/admin/TrafficPanel";
 import {
   ArrowLeft,
   Users,
@@ -95,6 +96,14 @@ export default function AdminDashboard() {
       setLoading(true);
       const { data: { session } } = await supabase.auth.getSession();
       if (!session) { router.push("/"); return; }
+
+      // Gate the portal itself. Previously ANY signed-in user could open /admin
+      // and read every other user's logs, chats and medical reports — the RPCs
+      // were the only thing standing in the way. is_admin() is the same function
+      // the traffic RPCs use, so there is one definition of "admin".
+      // If it isn't installed yet, fall through rather than locking you out.
+      const { data: isAdmin, error: adminErr } = await supabase.rpc("is_admin");
+      if (!adminErr && isAdmin !== true) { router.push("/"); return; }
 
       const [
         logs,
@@ -338,7 +347,16 @@ export default function AdminDashboard() {
 
   // ── Render ────────────────────────────────────────────────────────────────
   return (
-    <div className="app-wrapper" style={{ maxWidth: 1200, margin: "0 auto", paddingBottom: 80 }}>
+    <div
+      className="app-wrapper"
+      style={{
+        maxWidth: 1200,
+        margin: "0 auto",
+        // The bottom tab bar is hidden on this route, so the 80px it used to
+        // reserve would just be dead space. Keep the iOS home-indicator inset.
+        paddingBottom: "calc(24px + env(safe-area-inset-bottom, 0px))",
+      }}
+    >
       <style jsx>{`
         .admin-grid {
           display: grid;
@@ -414,15 +432,28 @@ export default function AdminDashboard() {
           font-size: 16px;
         }
         @media (max-width: 860px) {
-          .admin-grid { display: block; height: auto; }
+          /* Flex column (not block) so the panels can be reordered below. */
+          .admin-grid { display: flex; flex-direction: column; height: auto; }
+
           .user-list-panel {
             display: ${selectedUserId ? "none" : "flex"};
             width: 100%; height: auto; max-height: 80vh;
+            order: ${selectedUserId ? 0 : 1};
           }
+
+          /* Always rendered. This panel holds the site-wide traffic dashboard
+             when no user is selected — it used to be display:none here, which
+             hid traffic entirely on mobile. With nothing selected it is ordered
+             ABOVE the user list, so traffic isn't buried under 27 scrollable
+             user rows. */
           .detail-panel {
-            display: ${selectedUserId ? "block" : "none"};
+            display: block;
             width: 100%; height: auto;
+            order: ${selectedUserId ? 1 : 0};
           }
+
+          /* Desktop-only hint; on mobile the list is right there. */
+          .desktop-only-msg { display: none !important; }
         }
       `}</style>
 
@@ -543,10 +574,16 @@ export default function AdminDashboard() {
           )}
 
           {!selectedUserId && (
-            <div className="chart-card desktop-only-msg" style={{ height: 300, display: "flex", alignItems: "center", justifyContent: "center", flexDirection: "column", gap: 16, color: "#666" }}>
-              <Users size={48} style={{ opacity: 0.2 }} />
-              <p>Select a user to view their full activity.</p>
-            </div>
+            <>
+              {/* Site-wide traffic lives here: every other panel on this page is
+                  scoped to one signed-in user, so this is the only view that
+                  covers anonymous visitors. */}
+              <TrafficPanel />
+              <div className="chart-card desktop-only-msg" style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 10, color: "#666", padding: 18 }}>
+                <Users size={20} style={{ opacity: 0.3 }} />
+                <p style={{ margin: 0, fontSize: "0.85rem" }}>Select a user to view their full activity.</p>
+              </div>
+            </>
           )}
 
           {selectedUserId && selectedUser && (

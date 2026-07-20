@@ -65,8 +65,11 @@ export default function BottomNav() {
     return () => clearTimeout(timer);
   }, [pathname]);
 
-  // Hide when not authenticated or on the fullscreen voice page
-  if (!hasSession || pathname === "/voice") return null;
+  // Hide when not authenticated, and on screens that own the full viewport:
+  // /voice is fullscreen, /admin is a desktop-style portal with its own
+  // navigation where the app tab bar is just clutter.
+  const FULLSCREEN_ROUTES = ["/voice", "/admin"];
+  if (!hasSession || FULLSCREEN_ROUTES.includes(pathname)) return null;
 
   const moreRoutes = ["/recipes", "/medical"];
   const isMoreActive = moreRoutes.includes(pathname);

@@ -1,5 +1,6 @@
 import "./globals.css";
 import BottomNav from "./components/BottomNav";
+import Telemetry from "./components/Telemetry";
 
 export const metadata = {
   title: "NutriTrack",
@@ -27,6 +28,7 @@ export default function RootLayout({ children }) {
       <body>
         {children}
         <BottomNav />
+        <Telemetry />
       </body>
     </html>
   );

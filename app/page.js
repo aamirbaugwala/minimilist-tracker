@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect, useMemo } from "react";
+import { useRouter } from "next/navigation";
 import {
   Search,
   Plus,
@@ -30,6 +31,7 @@ import SettingsModal from "./components/SettingsModal";
 import FoodLogger from "./components/FoodLogger";
 import Timeline from "./components/Timeline";
 export default function Home() {
+  const router = useRouter();
   const {
     session,
     initializing,
@@ -578,6 +580,36 @@ export default function Home() {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [session]);
+
+  // Send admins to the portal instead of the tracker — but only ONCE per browser
+  // session. Redirecting on every mount would make the admin page's "Back to App"
+  // button bounce straight back here, trapping them in a loop.
+  //
+  // is_admin() is the same security-definer function the RPCs use, so there's a
+  // single source of truth for who counts as an admin. This redirect is
+  // convenience only; the real gate is server-side in the RPCs and RLS.
+  useEffect(() => {
+    if (!session) return;
+    try {
+      if (sessionStorage.getItem("nt_admin_routed")) return;
+    } catch {
+      return; // storage blocked — skip the redirect rather than loop
+    }
+    supabase
+      .rpc("is_admin")
+      .then(({ data }) => {
+        if (data !== true) return;
+        try {
+          sessionStorage.setItem("nt_admin_routed", "1");
+        } catch {
+          /* ignore */
+        }
+        router.push("/admin");
+      })
+      .catch(() => {
+        /* function may not exist yet — never block the app */
+      });
+  }, [session, router]);
 
   const closeWelcome = () => {
     localStorage.setItem("hasSeenWelcome", "true");
