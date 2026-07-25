@@ -80,27 +80,39 @@ function Table({ head, rows, empty }) {
 export default function LlmCostPanel() {
   const [days, setDays] = useState(30);
   const [loading, setLoading] = useState(true);
-  const [missing, setMissing] = useState(false);
+  const [problem, setProblem] = useState(null);
   const [data, setData] = useState({ summary: null, byRoute: [], byUser: [], daily: [] });
 
   useEffect(() => {
     let cancelled = false;
     (async () => {
       setLoading(true);
-      let notInstalled = false;
+      let issue = null;
 
       const rpc = async (fn, args) => {
         const { data: d, error } = await supabase.rpc(fn, args);
         if (!error) return d || [];
-        if (
+
+        const message = error.message || "";
+        // "missing" ONLY on function-not-found — never a bare /does not exist/,
+        // which also matches column/relation errors and would hide a real bug
+        // behind a "run the SQL" message (the trap the traffic panel hit).
+        const kind =
           error.code === "PGRST202" ||
           error.code === "42883" ||
-          /could not find the function/i.test(error.message || "")
-        ) {
-          notInstalled = true;
-        } else {
-          console.warn(`[llmCost] ${fn}:`, error.message);
+          /could not find the function/i.test(message)
+            ? "missing"
+            : /not authoris|not authoriz|permission denied/i.test(message)
+              ? "forbidden"
+              : "error";
+
+        if (!issue) issue = { kind, message, fns: [] };
+        issue.fns.push(fn);
+        if (kind === "error" && issue.kind !== "error") {
+          issue.kind = kind;
+          issue.message = message;
         }
+        console.warn(`[llmCost] ${fn}:`, message);
         return [];
       };
 
@@ -112,7 +124,7 @@ export default function LlmCostPanel() {
       ]);
 
       if (cancelled) return;
-      setMissing(notInstalled);
+      setProblem(issue);
       setData({
         summary: Array.isArray(summary) ? summary[0] : summary,
         byRoute,
@@ -133,14 +145,34 @@ export default function LlmCostPanel() {
     );
   }
 
-  if (missing) {
+  if (problem) {
+    const body =
+      problem.kind === "missing" ? (
+        <>
+          Run <code style={{ color: "#818cf8" }}>docs/llm-usage.sql</code> in the Supabase
+          SQL editor. Recording starts on the next AI call.
+        </>
+      ) : problem.kind === "forbidden" ? (
+        <>Your account isn&apos;t in the <code style={{ color: "#818cf8" }}>is_admin()</code> allowlist.</>
+      ) : (
+        <>
+          <code style={{ color: "#818cf8" }}>{problem.fns.join(", ")}</code> failed. Whatever
+          Postgres reported is shown below — it&apos;s the real cause.
+        </>
+      );
     return (
       <div style={{ ...card, textAlign: "center", padding: 24 }}>
         <DollarSign size={26} color="#3f3f46" style={{ marginBottom: 10 }} />
-        <div style={{ fontWeight: 700, color: "#a1a1aa" }}>Cost tracking not set up</div>
-        <div style={{ fontSize: "0.8rem", color: "#52525b", marginTop: 6, lineHeight: 1.6 }}>
-          Run <code style={{ color: "#818cf8" }}>docs/llm-usage.sql</code> in the Supabase
-          SQL editor. Recording starts on the next AI call.
+        <div style={{ fontWeight: 700, color: "#a1a1aa" }}>
+          {problem.kind === "missing" ? "Cost tracking not set up" : "Cost data unavailable"}
+        </div>
+        <div style={{ fontSize: "0.8rem", color: "#52525b", marginTop: 6, lineHeight: 1.6, maxWidth: 480, margin: "6px auto 0" }}>
+          {body}
+          {problem.message && (
+            <div style={{ marginTop: 10, color: "#fca5a5", fontSize: "0.74rem", wordBreak: "break-word" }}>
+              Postgres said: {problem.message}
+            </div>
+          )}
         </div>
       </div>
     );

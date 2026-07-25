@@ -199,6 +199,7 @@ begin
     select extract(epoch from (vi.linked_at - vi.first_seen_at)) / 86400.0 as gap
     from visitor_identities vi
     where vi.first_seen_at is not null and vi.linked_at >= cur_start
+      and vi.visitor_id not in (select pv.visitor_id from page_views pv where pv.is_internal)
   )
   select
     (select count(distinct c.vid) from cur c)::bigint,
@@ -354,13 +355,52 @@ begin
     where not is_bot and not is_internal and created_at >= since
   ),
   s as (
-    select distinct vi.user_id from visitor_identities vi
-    join v on v.visitor_id = vi.visitor_id
-    where vi.linked_at >= since
+    -- Canonical signup: one account, earliest link in window, internal excluded.
+    -- Identical definition to the Signups KPI, the daily chart and the
+    -- breakdown, so every "signup" number on the dashboard agrees.
+    select canon.uid as user_id from (
+      select vi.user_id as uid, min(vi.linked_at) as first_link
+      from visitor_identities vi
+      where vi.visitor_id not in (select pv.visitor_id from page_views pv where pv.is_internal)
+      group by vi.user_id
+      having min(vi.linked_at) >= since
+    ) canon
   )
   select (select count(*) from v),
          (select count(*) from s),
          (select count(distinct fl.user_id) from food_logs fl where fl.user_id in (select user_id from s));
+end; $$;
+
+-- Signups split into genuinely-new accounts vs returning users.
+--
+-- The problem this solves: "signup" in this system = the first time a browser
+-- (visitor_id) is linked to an account. When telemetry is freshly deployed,
+-- EVERY existing user re-identifies and looks like a brand-new signup, even
+-- though their account is months old. The truth lives in auth.users.created_at:
+--   new       = account CREATED inside the window
+--   returning = existing account that merely re-appeared in the window
+-- Counted per distinct ACCOUNT (not per device), internal visitors excluded.
+create or replace function get_signup_breakdown(days int default 30)
+returns table (new_users bigint, returning_users bigint, total bigint)
+language plpgsql stable security definer set search_path = public as $$
+declare since timestamptz := now() - (days * interval '1 day');
+begin
+  if not is_admin() then raise exception 'not authorised'; end if;
+  return query
+  with signed as (
+    -- accounts whose earliest (device-agnostic) link falls in the window
+    select vi.user_id as uid, min(vi.linked_at) as first_link
+    from visitor_identities vi
+    where vi.visitor_id not in (select pv.visitor_id from page_views pv where pv.is_internal)
+    group by vi.user_id
+    having min(vi.linked_at) >= since
+  )
+  select
+    count(*) filter (where u.created_at >= since)::bigint,
+    count(*) filter (where u.created_at <  since)::bigint,
+    count(*)::bigint
+  from signed s
+  join auth.users u on u.id = s.uid;
 end; $$;
 
 -- THE ONE THAT MATTERS: which acquisition source produces users who stick.
@@ -505,6 +545,7 @@ begin
            date_trunc('week', vi.linked_at)::date as cw
     from visitor_identities vi
     where vi.linked_at >= since
+      and vi.visitor_id not in (select pv.visitor_id from page_views pv where pv.is_internal)
     group by vi.user_id, date_trunc('week', vi.linked_at)::date
   ),
   logs as (

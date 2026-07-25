@@ -139,6 +139,185 @@ function Table({ head, rows, empty }) {
 }
 
 /**
+ * Daily visitors + signups. The bare-bars version couldn't answer "how many?"
+ * without hovering, and a lone green dot didn't say what it marked.
+ *
+ * This adds a labelled Y-axis with gridlines, a value on each bar (when the
+ * range is short enough not to crowd), an explicit signup count above signup
+ * days, and a one-line total — so the chart reads without interaction.
+ */
+function DailyChart({ rows }) {
+  const PLOT = 132;
+  const peak = Math.max(1, ...rows.map((r) => Number(r.visitors || 0)));
+  const mid = Math.round(peak / 2);
+  const labelEach = rows.length <= 16; // per-bar text would overlap beyond this
+
+  const totals = rows.reduce(
+    (a, r) => ({
+      visitors: a.visitors + Number(r.visitors || 0),
+      signups: a.signups + Number(r.signups || 0),
+      pageviews: a.pageviews + Number(r.pageviews || 0),
+    }),
+    { visitors: 0, signups: 0, pageviews: 0 },
+  );
+  const dom = (iso) => new Date(iso + "T00:00:00").getDate();
+
+  return (
+    <>
+      {/* Totals + legend */}
+      <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap", marginBottom: 12 }}>
+        <span style={{ fontSize: "0.78rem", color: "#a1a1aa" }}>
+          <strong style={{ color: "#e4e4e7" }}>{num(totals.visitors)}</strong> visitors
+          {" · "}
+          <strong style={{ color: "#4ade80" }}>{num(totals.signups)}</strong> signups
+          {" · "}
+          <strong style={{ color: "#e4e4e7" }}>{num(totals.pageviews)}</strong> views
+        </span>
+        <div style={{ marginLeft: "auto", display: "flex", gap: 12, fontSize: "0.66rem", color: "#52525b" }}>
+          <span style={{ display: "inline-flex", alignItems: "center", gap: 5 }}>
+            <span style={{ width: 9, height: 9, borderRadius: 2, background: "#6366f1" }} /> Visitors
+          </span>
+          <span style={{ display: "inline-flex", alignItems: "center", gap: 5 }}>
+            <span style={{ width: 8, height: 8, borderRadius: "50%", background: "#22c55e" }} /> Signups
+          </span>
+        </div>
+      </div>
+
+      <div style={{ display: "flex", gap: 8 }}>
+        {/* Y-axis */}
+        <div
+          style={{
+            display: "flex",
+            flexDirection: "column",
+            justifyContent: "space-between",
+            height: PLOT,
+            fontSize: "0.6rem",
+            color: "#3f3f46",
+            textAlign: "right",
+            minWidth: 20,
+            flexShrink: 0,
+          }}
+        >
+          <span>{peak}</span>
+          <span>{mid}</span>
+          <span>0</span>
+        </div>
+
+        {/* Plot (scrolls when there are many days) */}
+        <div style={{ flex: 1, overflowX: "auto", overflowY: "hidden" }}>
+          <div style={{ minWidth: rows.length * (labelEach ? 30 : 9) }}>
+            <div style={{ position: "relative", height: PLOT }}>
+              {/* gridlines */}
+              {[0, 0.5, 1].map((frac) => (
+                <div
+                  key={frac}
+                  style={{
+                    position: "absolute",
+                    left: 0,
+                    right: 0,
+                    bottom: `${frac * 100}%`,
+                    borderTop: "1px dashed #1f1f26",
+                  }}
+                />
+              ))}
+
+              {/* bars */}
+              <div style={{ position: "relative", display: "flex", alignItems: "flex-end", gap: 3, height: "100%" }}>
+                {rows.map((r) => {
+                  const v = Number(r.visitors || 0);
+                  const s = Number(r.signups || 0);
+                  return (
+                    <div
+                      key={r.day}
+                      title={`${r.day} · ${v} visitors · ${r.sessions ?? "?"} sessions · ${s} signups`}
+                      style={{
+                        flex: `0 1 ${labelEach ? 28 : 7}px`,
+                        maxWidth: labelEach ? 28 : 7,
+                        minWidth: 5,
+                        height: "100%",
+                        display: "flex",
+                        flexDirection: "column",
+                        alignItems: "center",
+                        justifyContent: "flex-end",
+                        gap: 2,
+                      }}
+                    >
+                      {/* signup count (or a dot when bars are too dense for text) */}
+                      {s > 0 &&
+                        (labelEach ? (
+                          <span
+                            style={{
+                              fontSize: "0.58rem",
+                              fontWeight: 800,
+                              color: "#0a0a0c",
+                              background: "#22c55e",
+                              borderRadius: 20,
+                              padding: "0 5px",
+                              lineHeight: 1.5,
+                              whiteSpace: "nowrap",
+                            }}
+                          >
+                            +{s}
+                          </span>
+                        ) : (
+                          <span style={{ width: 5, height: 5, borderRadius: "50%", background: "#22c55e", flexShrink: 0 }} />
+                        ))}
+
+                      {/* visitor count above the bar */}
+                      {labelEach && (
+                        <span style={{ fontSize: "0.58rem", color: v > 0 ? "#a1a1aa" : "#3f3f46", fontWeight: 600 }}>
+                          {v}
+                        </span>
+                      )}
+
+                      <div
+                        style={{
+                          width: "100%",
+                          height: `${Math.max(v > 0 ? 4 : 0, (v / peak) * 100)}%`,
+                          background: "linear-gradient(180deg,#818cf8,#4338ca)",
+                          borderRadius: "3px 3px 0 0",
+                        }}
+                      />
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* x-axis: day-of-month under each bar when there's room */}
+            {labelEach && (
+              <div style={{ display: "flex", gap: 3, marginTop: 5 }}>
+                {rows.map((r) => (
+                  <span
+                    key={r.day}
+                    style={{
+                      flex: "0 1 28px",
+                      maxWidth: 28,
+                      minWidth: 5,
+                      textAlign: "center",
+                      fontSize: "0.56rem",
+                      color: "#3f3f46",
+                    }}
+                  >
+                    {dom(r.day)}
+                  </span>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+
+      {/* full-date range caption */}
+      <div style={{ display: "flex", justifyContent: "space-between", fontSize: "0.62rem", color: "#3f3f46", marginTop: 7, paddingLeft: 28 }}>
+        <span>{rows[0]?.day}</span>
+        {rows.length > 1 && <span>{rows[rows.length - 1]?.day}</span>}
+      </div>
+    </>
+  );
+}
+
+/**
  * Turn the raw numbers into statements worth acting on. Only fires a card when
  * there's enough data to mean something — a 2-visitor sample shouldn't produce
  * confident advice.
@@ -250,6 +429,7 @@ function buildInsights({ k, sources, cohorts, entries, days }) {
 
 export default function TrafficPanel() {
   const [days, setDays] = useState(30);
+  const [view, setView] = useState("growth"); // Growth | Acquisition | Behaviour
   const [loading, setLoading] = useState(true);
   const [problem, setProblem] = useState(null);
   const [email, setEmail] = useState("");
@@ -268,6 +448,7 @@ export default function TrafficPanel() {
     retention: [],
     funnel: null,
     cohorts: [],
+    breakdown: null,
   });
 
   useEffect(() => {
@@ -314,6 +495,7 @@ export default function TrafficPanel() {
       const [
         kpis, overview, sources, pages, entries, exits,
         countries, cities, devices, browsers, engagement, retention, funnel, cohorts,
+        breakdown,
       ] = await Promise.all([
         rpc("get_traffic_kpis", { days }),
         rpc("get_traffic_overview", { days }),
@@ -329,6 +511,7 @@ export default function TrafficPanel() {
         rpc("get_retention_cohorts", { weeks: 8 }),
         rpc("get_signup_funnel", { days }),
         rpc("get_acquisition_cohorts", { days }),
+        rpc("get_signup_breakdown", { days }),
       ]);
 
       if (cancelled) return;
@@ -348,6 +531,7 @@ export default function TrafficPanel() {
         retention,
         funnel: Array.isArray(funnel) ? funnel[0] : funnel,
         cohorts,
+        breakdown: Array.isArray(breakdown) ? breakdown[0] : breakdown,
       });
       setLoading(false);
     })();
@@ -409,12 +593,12 @@ export default function TrafficPanel() {
   }
 
   const k = data.kpis;
+  const b = data.breakdown;
   const f = data.funnel || {};
   const visitors = Number(k?.visitors || 0);
   const signups = Number(k?.signups || 0);
   const convRate = pctOf(signups, visitors);
   const prevConv = pctOf(Number(k?.prev_signups || 0), Number(k?.prev_visitors || 0));
-  const peak = Math.max(1, ...data.overview.map((d) => Number(d.visitors || 0)));
   const insights = buildInsights({
     k,
     sources: data.sources,
@@ -456,9 +640,17 @@ export default function TrafficPanel() {
       {/* KPIs */}
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(140px, 1fr))", gap: 10, marginBottom: 12 }}>
         <Kpi label="Visitors" value={num(visitors)} d={delta(visitors, k?.prev_visitors)}
-             sub={`${num(k?.new_visitors)} new · ${num(k?.returning_visitors)} returning`} />
-        <Kpi label="Signups" value={num(signups)} d={delta(signups, k?.prev_signups)}
-             sub={k?.median_days_to_signup > 0 ? `median ${k.median_days_to_signup}d to convert` : "mostly first visit"} />
+             sub={`${num(k?.new_visitors)} first-time · ${num(k?.returning_visitors)} returning`} />
+        <Kpi
+          label="Signups"
+          value={num(signups)}
+          d={delta(signups, k?.prev_signups)}
+          sub={
+            b
+              ? `${num(b.new_users)} new account${Number(b.new_users) === 1 ? "" : "s"} · ${num(b.returning_users)} returning`
+              : "distinct accounts"
+          }
+        />
         <Kpi label="Conversion" value={`${convRate}%`} d={delta(convRate, prevConv)}
              sub="visitor → signup" />
         <Kpi label="Bounce" value={`${Number(k?.bounce_pct || 0)}%`}
@@ -466,32 +658,7 @@ export default function TrafficPanel() {
              sub={`${Number(k?.pages_per_session || 0)} pages/session`} />
       </div>
 
-      {/* Session depth. Duration is last-view minus first-view, so single-page
-          sessions read as 0 — the same limitation Universal Analytics had.
-          "over 30s" is the honest engagement proxy without heartbeat tracking. */}
-      {data.engagement && Number(data.engagement.total_sessions) > 0 && (
-        <Section icon={Clock} title="Session depth"
-                 hint="Duration spans first to last pageview, so single-page sessions count as 0s.">
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(120px, 1fr))", gap: 10 }}>
-            {[
-              { label: "Median session", value: `${Number(data.engagement.median_session_seconds)}s` },
-              { label: "Average session", value: `${Number(data.engagement.avg_session_seconds)}s` },
-              { label: "Pages / session", value: Number(data.engagement.avg_pages_per_session) },
-              {
-                label: "Engaged (>30s)",
-                value: `${pctOf(Number(data.engagement.sessions_over_30s), Number(data.engagement.total_sessions))}%`,
-              },
-            ].map((s) => (
-              <div key={s.label} style={{ background: "#111116", border: "1px solid var(--border)", borderRadius: 10, padding: "9px 11px" }}>
-                <div style={{ fontSize: "1.05rem", fontWeight: 800, color: "#e4e4e7" }}>{s.value}</div>
-                <div style={{ fontSize: "0.64rem", color: "#52525b", marginTop: 2 }}>{s.label}</div>
-              </div>
-            ))}
-          </div>
-        </Section>
-      )}
-
-      {/* Insights — the part that turns numbers into decisions */}
+      {/* Insights first — the "so what", kept above the fold. */}
       {insights.length > 0 && (
         <Section icon={Lightbulb} title="What the numbers say">
           <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
@@ -516,210 +683,233 @@ export default function TrafficPanel() {
         </Section>
       )}
 
-      {/* Daily traffic + signups */}
-      <Section icon={TrendingUp} title="Daily visitors">
-        {data.overview.length === 0 ? (
-          <div style={{ color: "#52525b", fontSize: "0.8rem" }}>No traffic recorded yet.</div>
-        ) : (
-          <>
-            {/* Legend and scale. Bars with neither are just coloured blocks —
-                there's no way to tell what a tall one means. */}
-            <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap", fontSize: "0.66rem", color: "#52525b", marginBottom: 9 }}>
-              <span style={{ display: "inline-flex", alignItems: "center", gap: 5 }}>
-                <span style={{ width: 9, height: 9, borderRadius: 2, background: "#6366f1" }} /> Visitors
-              </span>
-              <span style={{ display: "inline-flex", alignItems: "center", gap: 5 }}>
-                <span style={{ width: 7, height: 7, borderRadius: "50%", background: "#22c55e" }} /> Signup that day
-              </span>
-              <span style={{ marginLeft: "auto", color: "#3f3f46" }}>peak {peak}/day</span>
-            </div>
+      {/* Sub-navigation. The panel used to be a 15-section wall; three lenses
+          make it scannable, which matters most on a phone. */}
+      <div style={{ display: "flex", gap: 4, margin: "2px 0 14px", borderBottom: "1px solid var(--border)" }}>
+        {[
+          ["growth", "Growth"],
+          ["acquisition", "Acquisition"],
+          ["behaviour", "Behaviour"],
+        ].map(([id, label]) => (
+          <button
+            key={id}
+            onClick={() => setView(id)}
+            style={{
+              padding: "9px 12px",
+              marginBottom: -1,
+              minHeight: 40,
+              background: "none",
+              border: "none",
+              borderBottom: `2px solid ${view === id ? "#6366f1" : "transparent"}`,
+              color: view === id ? "#fff" : "#71717a",
+              fontSize: "0.82rem",
+              fontWeight: 700,
+              cursor: "pointer",
+            }}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
 
-            <div
-              style={{
-                display: "flex",
-                alignItems: "flex-end",
-                justifyContent: "flex-start",
-                gap: 3,
-                height: 96,
-                overflowX: "auto",
-                borderBottom: "1px solid #27272a",
-                paddingBottom: 2,
-              }}
+      {view === "growth" && (
+        <>
+          <Section icon={TrendingUp} title="Daily visitors">
+            {data.overview.length === 0 ? (
+              <div style={{ color: "#52525b", fontSize: "0.8rem" }}>No traffic recorded yet.</div>
+            ) : (
+              <DailyChart rows={data.overview} />
+            )}
+          </Section>
+
+          {b && Number(b.total) > 0 && (
+            <Section
+              icon={Users}
+              title="Who signed up"
+              hint="New = account created in this window. Returning = an existing account that re-appeared (a new device, or first tracking since telemetry launched)."
             >
-              {data.overview.map((d) => (
-                <div
-                  key={d.day}
-                  title={`${d.day} · ${d.visitors} visitors · ${d.signups} signups`}
-                  style={{
-                    // Capped width. With flex:"1 0 7px" a single day stretched
-                    // across the whole panel and read as one solid block rather
-                    // than a bar on a scale.
-                    flex: "0 1 26px",
-                    maxWidth: 26,
-                    minWidth: 6,
-                    height: "100%",
-                    display: "flex",
-                    flexDirection: "column",
-                    alignItems: "center",
-                    justifyContent: "flex-end",
-                    gap: 3,
-                  }}
-                >
-                  {Number(d.signups) > 0 && (
-                    <span style={{ width: 6, height: 6, borderRadius: "50%", background: "#22c55e", flexShrink: 0 }} />
-                  )}
-                  <div
-                    style={{
-                      width: "100%",
-                      height: `${Math.max(4, (Number(d.visitors) / peak) * 100)}%`,
-                      background: "linear-gradient(180deg,#818cf8,#4338ca)",
-                      borderRadius: "3px 3px 0 0",
-                    }}
-                  />
-                </div>
-              ))}
-            </div>
-
-            <div style={{ display: "flex", justifyContent: "space-between", fontSize: "0.62rem", color: "#3f3f46", marginTop: 5 }}>
-              <span>{data.overview[0]?.day}</span>
-              {data.overview.length > 1 && <span>{data.overview[data.overview.length - 1]?.day}</span>}
-            </div>
-          </>
-        )}
-      </Section>
-
-      {/* Funnel with explicit drop-off */}
-      <Section icon={Users} title="Visitor → signup → activated">
-        <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-          {[
-            { label: "Visited", value: Number(f.visitors || 0), of: null },
-            { label: "Signed up", value: Number(f.signups || 0), of: Number(f.visitors || 0) },
-            { label: "Logged a meal", value: Number(f.activated || 0), of: Number(f.signups || 0) },
-          ].map((step, i, arr) => {
-            const prev = i > 0 ? arr[i - 1].value : null;
-            const lost = prev !== null ? prev - step.value : 0;
-            const width = arr[0].value > 0 ? Math.max(6, (step.value / arr[0].value) * 100) : 6;
-            return (
-              <div key={step.label}>
-                <div style={{ display: "flex", justifyContent: "space-between", fontSize: "0.75rem", marginBottom: 3 }}>
-                  <span style={{ color: "#e4e4e7", fontWeight: 600 }}>{step.label}</span>
-                  <span style={{ color: "#a1a1aa" }}>
-                    {num(step.value)}
-                    {step.of !== null && step.of > 0 && (
-                      <span style={{ color: "#22c55e", fontWeight: 700 }}> · {pctOf(step.value, step.of)}%</span>
-                    )}
-                  </span>
-                </div>
-                <div style={{ height: 8, background: "#18181b", borderRadius: 99, overflow: "hidden" }}>
-                  <div style={{ width: `${width}%`, height: "100%", background: "linear-gradient(90deg,#6366f1,#8b5cf6)", borderRadius: 99 }} />
-                </div>
-                {lost > 0 && (
-                  <div style={{ fontSize: "0.66rem", color: "#ef4444", marginTop: 2 }}>
-                    −{num(lost)} dropped here
+              <div style={{ display: "flex", gap: 8 }}>
+                {[
+                  { label: "New accounts", value: Number(b.new_users), color: "#22c55e" },
+                  { label: "Returning", value: Number(b.returning_users), color: "#6366f1" },
+                ].map((x) => (
+                  <div key={x.label} style={{ flex: 1, background: "#111116", border: `1px solid ${x.color}30`, borderRadius: 10, padding: "11px 13px" }}>
+                    <div style={{ fontSize: "1.4rem", fontWeight: 800, color: x.color, lineHeight: 1.1 }}>
+                      {num(x.value)}
+                    </div>
+                    <div style={{ fontSize: "0.66rem", color: "#52525b", marginTop: 3 }}>
+                      {x.label}
+                      {Number(b.total) > 0 && ` · ${pctOf(x.value, Number(b.total))}%`}
+                    </div>
                   </div>
-                )}
+                ))}
               </div>
-            );
-          })}
-        </div>
-      </Section>
+            </Section>
+          )}
 
-      <Section icon={TrendingUp} title="Which sources produce users who stay"
-               hint="Signed up → ever logged → logged in the last 7 days.">
-        <Table
-          head={["Source", "Signups", "Activated", "Active 7d"]}
-          rows={data.cohorts.map((c) => [c.source, num(c.signups), num(c.activated), num(c.retained)])}
-          empty="No attributed signups yet."
-        />
-      </Section>
+          <Section icon={Users} title="Visitor → signup → activated">
+            <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+              {[
+                { label: "Visited", value: Number(f.visitors || 0), of: null },
+                { label: "Signed up", value: Number(f.signups || 0), of: Number(f.visitors || 0) },
+                { label: "Logged a meal", value: Number(f.activated || 0), of: Number(f.signups || 0) },
+              ].map((step, i, arr) => {
+                const prev = i > 0 ? arr[i - 1].value : null;
+                const lost = prev !== null ? prev - step.value : 0;
+                const width = arr[0].value > 0 ? Math.max(6, (step.value / arr[0].value) * 100) : 6;
+                return (
+                  <div key={step.label}>
+                    <div style={{ display: "flex", justifyContent: "space-between", fontSize: "0.75rem", marginBottom: 3 }}>
+                      <span style={{ color: "#e4e4e7", fontWeight: 600 }}>{step.label}</span>
+                      <span style={{ color: "#a1a1aa" }}>
+                        {num(step.value)}
+                        {step.of !== null && step.of > 0 && (
+                          <span style={{ color: "#22c55e", fontWeight: 700 }}> · {pctOf(step.value, step.of)}%</span>
+                        )}
+                      </span>
+                    </div>
+                    <div style={{ height: 8, background: "#18181b", borderRadius: 99, overflow: "hidden" }}>
+                      <div style={{ width: `${width}%`, height: "100%", background: "linear-gradient(90deg,#6366f1,#8b5cf6)", borderRadius: 99 }} />
+                    </div>
+                    {lost > 0 && (
+                      <div style={{ fontSize: "0.66rem", color: "#ef4444", marginTop: 2 }}>
+                        −{num(lost)} dropped here
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          </Section>
 
-      {/* Weekly retention triangle — the clearest read on habit formation */}
-      {data.retention.length > 0 && (
-        <Section
-          icon={Users}
-          title="Weekly retention"
-          hint="Of the people who signed up that week, how many were still logging N weeks later."
-        >
-          <Table
-            head={["Signup week", "Users", "Wk 0", "Wk 1", "Wk 2", "Wk 3"]}
-            rows={data.retention.map((r) => [
-              r.cohort_week,
-              num(r.users),
-              `${pctOf(Number(r.w0), Number(r.users))}%`,
-              `${pctOf(Number(r.w1), Number(r.users))}%`,
-              `${pctOf(Number(r.w2), Number(r.users))}%`,
-              `${pctOf(Number(r.w3), Number(r.users))}%`,
-            ])}
-            empty="No cohorts yet."
-          />
-        </Section>
+          {data.retention.length > 0 && (
+            <Section
+              icon={Users}
+              title="Weekly retention"
+              hint="Of the people who signed up that week, how many were still logging N weeks later."
+            >
+              <Table
+                head={["Signup week", "Users", "Wk 0", "Wk 1", "Wk 2", "Wk 3"]}
+                rows={data.retention.map((r) => [
+                  r.cohort_week,
+                  num(r.users),
+                  `${pctOf(Number(r.w0), Number(r.users))}%`,
+                  `${pctOf(Number(r.w1), Number(r.users))}%`,
+                  `${pctOf(Number(r.w2), Number(r.users))}%`,
+                  `${pctOf(Number(r.w3), Number(r.users))}%`,
+                ])}
+                empty="No cohorts yet."
+              />
+            </Section>
+          )}
+
+          <Section icon={TrendingUp} title="Which sources produce users who stay"
+                   hint="Signed up → ever logged → logged in the last 7 days.">
+            <Table
+              head={["Source", "Signups", "Activated", "Active 7d"]}
+              rows={data.cohorts.map((c) => [c.source, num(c.signups), num(c.activated), num(c.retained)])}
+              empty="No attributed signups yet."
+            />
+          </Section>
+        </>
       )}
 
-      <Section icon={LogIn} title="Entry pages" hint="Where sessions start, and how many leave immediately.">
-        <Table
-          head={["Path", "Entries", "Bounce", "Signups"]}
-          rows={data.entries.map((e) => [e.path, num(e.entries), `${e.bounce_pct}%`, num(e.signups)])}
-          empty="No entry data yet."
-        />
-      </Section>
+      {view === "acquisition" && (
+        <>
+          <Section icon={Globe} title="Traffic sources">
+            <Table
+              head={["Source", "Visitors", "Signups", "Conv."]}
+              rows={data.sources.map((so) => [
+                so.source, num(so.visitors), num(so.signups), `${pctOf(Number(so.signups), Number(so.visitors))}%`,
+              ])}
+              empty="No sources recorded yet."
+            />
+          </Section>
 
-      <Section icon={LogOut} title="Exit pages" hint="The last page of each session — where people leave from.">
-        <Table
-          head={["Path", "Exits", "Exit rate"]}
-          rows={data.exits.map((e) => [e.path, num(e.exits), `${e.exit_pct}%`])}
-          empty="No exit data yet."
-        />
-      </Section>
+          <Section icon={LogIn} title="Entry pages" hint="Where sessions start, and how many leave immediately.">
+            <Table
+              head={["Path", "Entries", "Bounce", "Signups"]}
+              rows={data.entries.map((e) => [e.path, num(e.entries), `${e.bounce_pct}%`, num(e.signups)])}
+              empty="No entry data yet."
+            />
+          </Section>
 
-      <Section icon={Globe} title="Traffic sources">
-        <Table
-          head={["Source", "Visitors", "Signups", "Conv."]}
-          rows={data.sources.map((s) => [
-            s.source, num(s.visitors), num(s.signups), `${pctOf(Number(s.signups), Number(s.visitors))}%`,
-          ])}
-          empty="No sources recorded yet."
-        />
-      </Section>
+          <Section icon={MapPin} title="Countries">
+            <Table
+              head={["Country", "Visitors", "Signups"]}
+              rows={data.countries.map((c) => [c.country, num(c.visitors), num(c.signups)])}
+              empty="No geography yet — production only."
+            />
+          </Section>
 
-      <Section icon={MapPin} title="Countries">
-        <Table
-          head={["Country", "Visitors", "Signups"]}
-          rows={data.countries.map((c) => [c.country, num(c.visitors), num(c.signups)])}
-          empty="No geography yet — Vercel only injects this in production."
-        />
-      </Section>
+          <Section icon={MapPin} title="Cities">
+            <Table
+              head={["City", "Region", "Visitors"]}
+              rows={data.cities.map((c) => [c.city, c.region || c.country || "—", num(c.visitors)])}
+              empty="No city data yet — needs Cloudflare's visitor-location transform enabled."
+            />
+          </Section>
+        </>
+      )}
 
-      <Section icon={MapPin} title="Cities">
-        <Table
-          head={["City", "Region", "Visitors"]}
-          rows={data.cities.map((c) => [c.city, c.region || c.country || "—", num(c.visitors)])}
-          empty="No city data yet — production only."
-        />
-      </Section>
+      {view === "behaviour" && (
+        <>
+          {data.engagement && Number(data.engagement.total_sessions) > 0 && (
+            <Section icon={Clock} title="Session depth"
+                     hint="Duration spans first to last pageview, so single-page sessions count as 0s.">
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(120px, 1fr))", gap: 10 }}>
+                {[
+                  { label: "Median session", value: `${Number(data.engagement.median_session_seconds)}s` },
+                  { label: "Average session", value: `${Number(data.engagement.avg_session_seconds)}s` },
+                  { label: "Pages / session", value: Number(data.engagement.avg_pages_per_session) },
+                  {
+                    label: "Engaged (>30s)",
+                    value: `${pctOf(Number(data.engagement.sessions_over_30s), Number(data.engagement.total_sessions))}%`,
+                  },
+                ].map((x) => (
+                  <div key={x.label} style={{ background: "#111116", border: "1px solid var(--border)", borderRadius: 10, padding: "9px 11px" }}>
+                    <div style={{ fontSize: "1.05rem", fontWeight: 800, color: "#e4e4e7" }}>{x.value}</div>
+                    <div style={{ fontSize: "0.64rem", color: "#52525b", marginTop: 2 }}>{x.label}</div>
+                  </div>
+                ))}
+              </div>
+            </Section>
+          )}
 
-      <Section icon={Smartphone} title="Devices & installed PWA">
-        <Table
-          head={["Device", "Mode", "Visitors"]}
-          rows={data.devices.map((d) => [d.device, d.display_mode, num(d.visitors)])}
-          empty="No device data yet."
-        />
-      </Section>
+          <Section icon={LogOut} title="Exit pages" hint="The last page of each session — where people leave from.">
+            <Table
+              head={["Path", "Exits", "Exit rate"]}
+              rows={data.exits.map((e) => [e.path, num(e.exits), `${e.exit_pct}%`])}
+              empty="No exit data yet."
+            />
+          </Section>
 
-      <Section icon={Monitor} title="Browser & OS" hint="Brave reports itself as Chrome, so it lands in that bucket.">
-        <Table
-          head={["Browser", "OS", "Visitors"]}
-          rows={data.browsers.map((b) => [b.browser, b.os, num(b.visitors)])}
-          empty="Recorded from now on — existing rows predate this."
-        />
-      </Section>
+          <Section icon={Globe} title="Top pages">
+            <Table
+              head={["Path", "Views", "Visitors"]}
+              rows={data.pages.map((pg) => [pg.path, num(pg.views), num(pg.visitors)])}
+              empty="No pageviews recorded yet."
+            />
+          </Section>
 
-      <Section icon={Globe} title="Top pages">
-        <Table
-          head={["Path", "Views", "Visitors"]}
-          rows={data.pages.map((p) => [p.path, num(p.views), num(p.visitors)])}
-          empty="No pageviews recorded yet."
-        />
-      </Section>
+          <Section icon={Smartphone} title="Devices & installed PWA">
+            <Table
+              head={["Device", "Mode", "Visitors"]}
+              rows={data.devices.map((d) => [d.device, d.display_mode, num(d.visitors)])}
+              empty="No device data yet."
+            />
+          </Section>
+
+          <Section icon={Monitor} title="Browser & OS" hint="Brave reports itself as Chrome, so it lands in that bucket.">
+            <Table
+              head={["Browser", "OS", "Visitors"]}
+              rows={data.browsers.map((br) => [br.browser, br.os, num(br.visitors)])}
+              empty="Recorded from now on — existing rows predate this."
+            />
+          </Section>
+        </>
+      )}
+
     </div>
   );
 }

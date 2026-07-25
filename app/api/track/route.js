@@ -71,6 +71,45 @@ function decodeHeader(value) {
   }
 }
 
+/**
+ * Geo from whichever edge is actually serving the request.
+ *
+ * Production runs on Cloudflare (via @opennextjs/cloudflare), where the
+ * x-vercel-ip-* headers are NEVER set — that was silently leaving country/city
+ * empty (or, on a Vercel preview, reflecting the wrong hop). Cloudflare sets
+ * `cf-ipcountry` on every request from the TRUE client IP at its edge, so it's
+ * authoritative for real visitors. City/region need the "Add visitor location
+ * headers" Managed Transform enabled in the Cloudflare dashboard, which adds
+ * cf-ipcity / cf-region.
+ *
+ * Order: Cloudflare first (the production platform), Vercel headers as a
+ * fallback for preview deploys. All header reads — never an origin IP — so a
+ * proxy between the user and the edge can't be mistaken for the user.
+ *
+ * Caveat worth stating: if a visitor reaches the edge THROUGH a VPN or proxy of
+ * their own, the geo is that proxy's location. No server-side code can recover
+ * the real location in that case — it's genuinely not in the request.
+ */
+function geoFrom(headers) {
+  const h = (name) => headers.get(name) || null;
+
+  // "XX" and "T1" (Tor) are Cloudflare's placeholders for "unknown".
+  const cfCountry = h("cf-ipcountry");
+  const country =
+    cfCountry && cfCountry !== "XX" && cfCountry !== "T1"
+      ? cfCountry
+      : h("x-vercel-ip-country");
+
+  const city = decodeHeader(h("cf-ipcity")) || decodeHeader(h("x-vercel-ip-city"));
+  const region = h("cf-region") || h("x-vercel-ip-country-region");
+
+  return {
+    country: clamp(country, 8),
+    city: clamp(city, 120),
+    region: clamp(region, 60),
+  };
+}
+
 function serviceClient() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -103,6 +142,7 @@ export async function POST(req) {
     }
 
     const ua = req.headers.get("user-agent") || "";
+    const geo = geoFrom(req.headers);
 
     // Referrer -> bare host. Ignore our own domain: internal navigation isn't a
     // referral, and counting it would drown out real acquisition sources.
@@ -129,10 +169,10 @@ export async function POST(req) {
       browser: browserFrom(ua),
       os: osFrom(ua),
       display_mode: displayMode === "standalone" ? "standalone" : "browser",
-      // Vercel injects these at the edge; all null when running locally.
-      country: clamp(req.headers.get("x-vercel-ip-country"), 8),
-      city: clamp(decodeHeader(req.headers.get("x-vercel-ip-city")), 120),
-      region: clamp(req.headers.get("x-vercel-ip-country-region"), 60),
+      // Cloudflare (prod) or Vercel (preview) edge geo; all null when local.
+      country: geo.country,
+      city: geo.city,
+      region: geo.region,
       // Flagged rather than dropped, so excluded traffic stays auditable.
       is_bot: BOT_RE.test(ua),
     });
