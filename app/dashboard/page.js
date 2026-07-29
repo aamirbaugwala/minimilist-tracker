@@ -483,7 +483,7 @@ export default function UserDashboard() {
   return (
     <div
       className="app-wrapper"
-      style={{ maxWidth: 1000, margin: "0 auto", padding: 20 }}
+      style={{ maxWidth: 1000, margin: "0 auto", padding: "calc(20px + env(safe-area-inset-top, 0px)) 20px 20px" }}
     >
       {/* Chart-grid, scrollbar and keyframe styles live in globals.css.
           They cannot be a <style jsx> block here: styled-jsx is component-scoped,

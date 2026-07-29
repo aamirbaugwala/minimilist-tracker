@@ -326,7 +326,7 @@ export default function NotificationsPage() {
         .notifications-root {
           max-width: 760px;
           margin: 0 auto;
-          padding: 10px 14px 110px;
+          padding: calc(10px + env(safe-area-inset-top, 0px)) 14px 110px;
         }
         .header {
           display: flex;

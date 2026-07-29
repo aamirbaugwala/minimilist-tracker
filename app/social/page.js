@@ -444,7 +444,7 @@ export default function SocialPage() {
       <div style={{
         position: "sticky", top: 0, zIndex: 50,
         background: "rgba(8,8,10,0.92)", backdropFilter: "blur(14px)",
-        borderBottom: "1px solid #111116", padding: "13px 16px",
+        borderBottom: "1px solid #111116", padding: "calc(13px + env(safe-area-inset-top, 0px)) 16px 13px",
         display: "flex", alignItems: "center", gap: 8,
       }}>
         <button

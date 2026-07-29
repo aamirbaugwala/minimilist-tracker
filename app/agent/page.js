@@ -591,7 +591,7 @@ export default function AgentPage() {
       {/* ── HEADER ── */}
       <div
         style={{
-          padding: "14px 16px",
+          padding: "calc(14px + env(safe-area-inset-top, 0px)) 16px 14px",
           borderBottom: "1px solid #1f1f22",
           display: "flex",
           alignItems: "center",

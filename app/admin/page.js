@@ -354,8 +354,10 @@ export default function AdminDashboard() {
       style={{
         maxWidth: 1200,
         margin: "0 auto",
-        // The bottom tab bar is hidden on this route, so the 80px it used to
-        // reserve would just be dead space. Keep the iOS home-indicator inset.
+        // Clear the notch/status bar at the top (viewportFit:"cover")...
+        paddingTop: "calc(24px + env(safe-area-inset-top, 0px))",
+        // ...and keep the iOS home-indicator inset at the bottom (the tab bar
+        // is hidden on this route, so the 80px it reserved would be dead space).
         paddingBottom: "calc(24px + env(safe-area-inset-bottom, 0px))",
       }}
     >

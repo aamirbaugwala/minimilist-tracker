@@ -98,7 +98,7 @@ export default function MedicalTrendsPage() {
           background: "#09090bee",
           backdropFilter: "blur(12px)",
           borderBottom: "1px solid var(--border)",
-          padding: "13px 16px",
+          padding: "calc(13px + env(safe-area-inset-top, 0px)) 16px 13px",
           display: "flex",
           alignItems: "center",
           gap: 11,

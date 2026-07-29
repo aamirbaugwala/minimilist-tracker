@@ -43,6 +43,15 @@ import {
   computeQuests,
   completedQuestIds,
 } from "./lib/gamification";
+
+// The user's LOCAL calendar day (YYYY-MM-DD). Using toISOString() gives the UTC
+// day, so anyone east/west of UTC can log a meal that then vanishes from
+// "today" once UTC rolls over. Write and read must use the same local key.
+const localDateKey = (d = new Date()) => {
+  const dt = d instanceof Date ? d : new Date(d);
+  return `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, "0")}-${String(dt.getDate()).padStart(2, "0")}`;
+};
+
 export default function Home() {
   const router = useRouter();
   const {
@@ -58,6 +67,8 @@ export default function Home() {
   const [loading, setLoading] = useState(true);
   const [logs, setLogs] = useState([]);
   const [showAuth, setShowAuth] = useState(false);
+  // Surfaces a real save failure instead of swallowing it into the console.
+  const [saveError, setSaveError] = useState("");
 
   // ── Phase 1/3: reward + game state ──────────────────────────────────────────
   const [floats, setFloats] = useState([]); // floating +kcal / +XP bursts
@@ -453,7 +464,7 @@ export default function Home() {
     if (!session) return;
 
     if (!isBackground) setLoading(true);
-    const todayKey = new Date().toISOString().slice(0, 10);
+    const todayKey = localDateKey(); // must match handleLocalAdd's write key
 
     const { data, error } = await supabase
       .from("food_logs")
@@ -587,10 +598,8 @@ export default function Home() {
     }
 
     const uniqueDates = [...new Set(data.map((item) => item.date))];
-    const today = new Date().toISOString().slice(0, 10);
-    const yesterday = new Date(Date.now() - 86400000)
-      .toISOString()
-      .slice(0, 10);
+    const today = localDateKey();
+    const yesterday = localDateKey(new Date(Date.now() - 86400000));
 
     if (uniqueDates[0] !== today && uniqueDates[0] !== yesterday) {
       setStreak(0);
@@ -854,12 +863,11 @@ export default function Home() {
     setQuery("");
   };
 
-  // ── Per-row persistence (Phase 0) ───────────────────────────────────────────
-  // A just-added row starts with a temp id and reconciles to its DB id in the
-  // background. resolveRowId() lets a later edit/delete wait for that reconcile
-  // so it never targets a temp id.
+  // ── Per-row persistence ─────────────────────────────────────────────────────
+  // Rows carry a real UUID from creation, so a delete/edit/undo just needs to
+  // wait for any in-flight insert of that id to finish, then act on the same id.
   const resolveRowId = (id) =>
-    pendingRef.current[id] ? pendingRef.current[id] : Promise.resolve(id);
+    Promise.resolve(pendingRef.current[id]).then(() => id, () => id);
 
   // Per-unit macros for a food (from the item, or looked up in COMBINED_DB).
   const perUnitMacros = (item) => {
@@ -898,7 +906,17 @@ export default function Home() {
         title: `Level ${levelFromXp(next).level}!`,
       });
     }
-    supabase.rpc("add_xp", { amount: delta }).catch(() => {});
+    // Fire-and-forget. supabase.rpc() returns a *thenable*, not a Promise, so
+    // .catch() doesn't exist and calling it THROWS — which used to abort the
+    // caller (handleLocalAdd) before it inserted the food. Await it inside a
+    // try/catch instead so a missing add_xp RPC can never break logging.
+    (async () => {
+      try {
+        await supabase.rpc("add_xp", { amount: delta });
+      } catch {
+        /* XP is best-effort (e.g. gamification.sql not run) */
+      }
+    })();
   };
 
   // ── Reward burst + Undo toast (Phase 1) ─────────────────────────────────────
@@ -919,23 +937,31 @@ export default function Home() {
     toastTimer.current = setTimeout(() => setToast(null), 3400);
   };
 
-  // Insert one food_logs row. If the DB doesn't have the `meal` column yet
-  // (docs/meal-column.sql not run), the first insert fails with PGRST204
-  // ("column not found in schema cache"); retry WITHOUT meal so a log is never
-  // silently lost — grouping just falls back to time-of-day until the column
-  // exists. Returns the Supabase { data, error } result.
-  const insertFoodLog = async (insert) => {
-    const res = await supabase.from("food_logs").insert(insert).select().single();
-    const mealColumnMissing =
-      res.error &&
-      insert.meal !== undefined &&
-      (res.error.code === "PGRST204" || /meal/i.test(res.error.message || ""));
-    if (mealColumnMissing) {
-      const withoutMeal = { ...insert };
-      delete withoutMeal.meal;
-      return supabase.from("food_logs").insert(withoutMeal).select().single();
+  // Insert a fully-formed food_logs row (its id is a client UUID, so it IS the
+  // DB id — no reconciliation needed). Returns the Postgres error, or null on
+  // success. Retries once on a transient failure; the retry is idempotent
+  // because a duplicate id → PK conflict (23505), which means the first attempt
+  // actually landed, so we treat it as success. Falls back to inserting without
+  // `meal` if that column hasn't been migrated yet (PGRST204).
+  const insertFoodLog = async (row) => {
+    const attempt = async () => {
+      let { error } = await supabase.from("food_logs").insert(row);
+      if (error && (error.code === "PGRST204" || /meal/i.test(error.message || ""))) {
+        const withoutMeal = { ...row };
+        delete withoutMeal.meal;
+        ({ error } = await supabase.from("food_logs").insert(withoutMeal));
+      }
+      return error;
+    };
+    let error = await attempt();
+    if (error) {
+      await new Promise((r) => setTimeout(r, 600));
+      error = await attempt();
+      if (error && (error.code === "23505" || /duplicate|unique/i.test(error.message || ""))) {
+        error = null; // the first attempt saved after all
+      }
     }
-    return res;
+    return error;
   };
 
   // ── Add (append-only) ───────────────────────────────────────────────────────
@@ -944,18 +970,20 @@ export default function Home() {
   const handleLocalAdd = (itemsToAdd) => {
     if (!session) return;
     const createdAt = new Date().toISOString();
-    const dateKey = createdAt.slice(0, 10);
-    const idSet = new Set();
+    const dateKey = localDateKey(); // local calendar day, not UTC
+    setSaveError("");
 
     // File everything in this batch under the meal the user has selected.
     const meal = selectedMeal || defaultMeal(createdAt);
+    const newId = () =>
+      typeof crypto !== "undefined" && crypto.randomUUID
+        ? crypto.randomUUID()
+        : "id_" + Date.now() + "_" + Math.random().toString(36).slice(2);
     const rows = itemsToAdd.map((item) => {
       const quantity = Number(item.qty) || 1;
       const base = perUnitMacros(item);
-      const tempId = "tmp_" + Math.random().toString(36).slice(2);
-      idSet.add(tempId);
       return {
-        id: tempId,
+        id: newId(), // real UUID — becomes the DB primary key directly
         name: item.name,
         qty: quantity,
         calories: Math.round(base.calories * quantity),
@@ -969,41 +997,44 @@ export default function Home() {
         user_id: session.user.id,
       };
     });
+    const idSet = new Set(rows.map((r) => r.id));
 
     // optimistic — newest first
     setLogs((prev) => [...rows.slice().reverse(), ...prev]);
 
-    const kcal = rows.reduce((s, r) => s + r.calories, 0);
-    const xp = rows.reduce((s, r) => s + xpForLog(r), 0);
-    const label = rows.length === 1 ? rows[0].name : `${rows.length} items`;
-    fireReward(kcal, xp, label, idSet);
-    awardXp(xp);
-    if (typeof navigator !== "undefined" && navigator.vibrate) {
-      try { navigator.vibrate(16); } catch { /* ignore */ }
+    // Presentation side-effects are wrapped so a throw here can NEVER skip the
+    // DB insert below (the original data-loss bug: awardXp threw before persist).
+    try {
+      const kcal = rows.reduce((s, r) => s + r.calories, 0);
+      const xp = rows.reduce((s, r) => s + xpForLog(r), 0);
+      const label = rows.length === 1 ? rows[0].name : `${rows.length} items`;
+      fireReward(kcal, xp, label, idSet);
+      awardXp(xp);
+      if (typeof navigator !== "undefined" && navigator.vibrate) {
+        try { navigator.vibrate(16); } catch { /* ignore */ }
+      }
+    } catch (rewardErr) {
+      console.error("Reward side-effect failed (logging continues):", rewardErr);
     }
 
-    // persist each row; swap temp id → real id on success, roll back on failure
+    // Persist each row. The id is already the final DB id, so there is nothing
+    // to reconcile — on success we just clear the pending marker; on failure we
+    // roll the row back and surface the reason. pendingRef lets a delete/undo
+    // that fires before the insert finishes wait for it (same id throughout).
     rows.forEach((row) => {
-      const { id: tempId, ...insert } = row;
-      const p = insertFoodLog(insert)
-        .then(({ data, error }) => {
-          if (error || !data) throw error || new Error("insert failed");
-          idSet.delete(tempId);
-          idSet.add(data.id);
-          setLogs((prev) =>
-            prev.map((l) => (l.id === tempId ? { ...l, id: data.id } : l)),
-          );
-          delete pendingRef.current[tempId];
-          return data.id;
+      const p = insertFoodLog(row)
+        .then((error) => {
+          if (error) throw error;
+          delete pendingRef.current[row.id];
         })
         .catch((err) => {
-          // Surface the reason instead of failing silently, then roll back the
-          // optimistic row so the UI matches what actually persisted.
-          console.error("Could not save food log:", err?.message || err);
-          setLogs((prev) => prev.filter((l) => l.id !== tempId));
-          delete pendingRef.current[tempId];
+          const msg = err?.message || err?.error_description || String(err);
+          console.error("Could not save food log:", err);
+          setSaveError(`Couldn't save "${row.name}": ${msg}`);
+          setLogs((prev) => prev.filter((l) => l.id !== row.id));
+          delete pendingRef.current[row.id];
         });
-      pendingRef.current[tempId] = p;
+      pendingRef.current[row.id] = p;
     });
   };
 
@@ -2214,6 +2245,35 @@ export default function Home() {
           </button>
         </div>
       </header>
+
+      {saveError && (
+        <div style={{ padding: "10px 20px 0" }}>
+          <div
+            style={{
+              display: "flex",
+              alignItems: "flex-start",
+              gap: 10,
+              background: "rgba(239,68,68,0.1)",
+              border: "1px solid rgba(239,68,68,0.35)",
+              borderRadius: 12,
+              padding: "10px 12px",
+              fontSize: "0.78rem",
+              color: "#fca5a5",
+              lineHeight: 1.45,
+            }}
+          >
+            <span style={{ flex: 1 }}>
+              <b style={{ color: "#ef4444" }}>Log didn&apos;t save.</b> {saveError}
+            </span>
+            <button
+              onClick={() => setSaveError("")}
+              style={{ background: "none", border: "none", color: "#fca5a5", cursor: "pointer", fontWeight: 800, flexShrink: 0 }}
+            >
+              ✕
+            </button>
+          </div>
+        </div>
+      )}
 
       <StatsBoard
         conditions={conditions}

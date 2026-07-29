@@ -369,7 +369,7 @@ export default function RecipesPage() {
         position: "sticky", top: 0, zIndex: 10,
         background: "#09090bdd", backdropFilter: "blur(12px)",
         borderBottom: "1px solid var(--border)",
-        padding: "14px 16px",
+        padding: "calc(14px + env(safe-area-inset-top, 0px)) 16px 14px",
         display: "flex", alignItems: "center", gap: 12,
       }}>
         <button

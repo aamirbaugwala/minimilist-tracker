@@ -3,126 +3,125 @@
 import { useEffect, useRef, useState, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import { supabase } from "../supabase";
+import { defaultMeal } from "../lib/mealPeriod";
 import { ArrowLeft } from "lucide-react";
 
-// States
-// IDLE      → tap orb → RECORDING
-// RECORDING → tap orb → THINKING  (send transcript to AI)
-// THINKING  → AI streaming → SPEAKING
+// IDLE      → tap coach → RECORDING
+// RECORDING → tap coach → THINKING (transcribe → voice-log / agent)
+// THINKING  → reply ready → SPEAKING
 // SPEAKING  → TTS finishes or tap → IDLE
 const S = { IDLE: "idle", RECORDING: "recording", THINKING: "thinking", SPEAKING: "speaking" };
 
-// ── ANIMATED ORB ──────────────────────────────────────────────────────────────
-function VoiceOrb({ stateRef, audioLevelRef, size }) {
-  const canvasRef = useRef(null);
-  const animRef   = useRef(null);
+// ── AI COACH AVATAR ─────────────────────────────────────────────────────────
+// A friendly face: eyes that blink, a mouth that "talks" (equalizer bars), and
+// an aura whose colour tracks state. Bars react to the mic while listening and
+// animate while speaking, so it reads as a coach actually talking to you.
+function CoachAvatar({ state, size = 190 }) {
+  const face = Math.round(size * 0.6);
+  const eye = Math.max(9, Math.round(face * 0.11));
+  const barW = Math.max(5, Math.round(face * 0.055));
 
-  useEffect(() => {
-    const canvas = canvasRef.current;
-    if (!canvas) return;
+  return (
+    <div
+      className={`coach is-${state}`}
+      style={{ width: size, height: size, "--face": `${face}px`, "--eye": `${eye}px`, "--barW": `${barW}px` }}
+    >
+      <span className="aura a1" />
+      <span className="aura a2" />
+      <span className="aura a3" />
+      <div className="face">
+        <div className="eyes">
+          <span className="eye" />
+          <span className="eye" />
+        </div>
+        <div className="mouth">
+          {[0, 1, 2, 3, 4].map((i) => (
+            <span key={i} className="bar" style={{ "--i": i }} />
+          ))}
+        </div>
+      </div>
 
-    const DPR    = window.devicePixelRatio || 1;
-    const PX     = Math.round(size * DPR);
-    canvas.width  = PX;
-    canvas.height = PX;
-
-    const ctx    = canvas.getContext("2d");
-    const W = PX, H = PX, cx = W / 2, cy = H / 2;
-    const BASE_R = Math.min(W, H) * 0.30;
-
-    // recording reuses the "listening" look (red, spiky)
-    const PALETTE = {
-      idle:      { core: "#4f46e5", mid: "#1e1b4b", glow: "#6366f1" },
-      recording: { core: "#dc2626", mid: "#3b0000", glow: "#ef4444" },
-      thinking:  { core: "#d97706", mid: "#451a03", glow: "#f59e0b" },
-      speaking:  { core: "#16a34a", mid: "#052e16", glow: "#22c55e" },
-    };
-
-    let startTime = null;
-    const draw = (ts) => {
-      if (!startTime) startTime = ts;
-      const t     = (ts - startTime) / 1000;
-      const state = stateRef.current      || "idle";
-      const level = audioLevelRef.current || 0;
-      const pal   = PALETTE[state]         || PALETTE.idle;
-
-      ctx.clearRect(0, 0, W, H);
-
-      // Glow halos
-      for (let i = 3; i >= 1; i--) {
-        const ringR = BASE_R * (1 + i * 0.55);
-        const alpha = Math.round((0.10 / i) * 255).toString(16).padStart(2, "0");
-        const g     = ctx.createRadialGradient(cx, cy, BASE_R * 0.2, cx, cy, ringR);
-        g.addColorStop(0, pal.glow + "00");
-        g.addColorStop(1, pal.glow + alpha);
-        ctx.beginPath(); ctx.arc(cx, cy, ringR, 0, Math.PI * 2);
-        ctx.fillStyle = g; ctx.fill();
-      }
-
-      // Organic blob
-      const N = 100, pts = [];
-      for (let i = 0; i < N; i++) {
-        const a = (i / N) * Math.PI * 2;
-        let r = BASE_R;
-        if (state === "idle") {
-          r += Math.sin(t * 1.2 + a * 2) * BASE_R * 0.05 + Math.sin(t * 0.7) * BASE_R * 0.06;
-        } else if (state === "recording") {
-          const amp = Math.max(level * 2.5, 0.35);
-          r += Math.sin(a * 5 + t * 5)   * BASE_R * 0.24 * amp
-             + Math.sin(a * 8 - t * 3.5) * BASE_R * 0.12 * amp
-             + Math.sin(t * 3)            * BASE_R * 0.04;
-        } else if (state === "thinking") {
-          r += Math.sin(a * 4 + t * 6) * BASE_R * 0.11 + Math.sin(a * 9 - t * 5) * BASE_R * 0.06;
-        } else if (state === "speaking") {
-          r += Math.sin(a * 3 + t * 8) * BASE_R * 0.20 + Math.cos(a * 6 - t * 6) * BASE_R * 0.10;
+      <style>{`
+        .coach { position: relative; display: grid; place-items: center; touch-action: manipulation; }
+        .coach .face {
+          position: relative; width: var(--face); height: var(--face); border-radius: 50%;
+          display: flex; flex-direction: column; align-items: center; justify-content: center;
+          gap: calc(var(--face) * 0.12);
+          background: radial-gradient(circle at 38% 30%, #7c8bff, #4736b0 62%, #241a5e);
+          box-shadow: 0 22px 60px -14px rgba(79,70,229,0.65), inset 0 -10px 26px rgba(0,0,0,0.38), inset 0 6px 18px rgba(255,255,255,0.18);
+          transition: background .5s ease, box-shadow .5s ease;
         }
-        pts.push({ x: cx + Math.cos(a) * r, y: cy + Math.sin(a) * r });
-      }
-      ctx.beginPath();
-      ctx.moveTo((pts[0].x + pts[N - 1].x) / 2, (pts[0].y + pts[N - 1].y) / 2);
-      for (let i = 0; i < N; i++) {
-        const p0 = pts[i], p1 = pts[(i + 1) % N];
-        ctx.quadraticCurveTo(p0.x, p0.y, (p0.x + p1.x) / 2, (p0.y + p1.y) / 2);
-      }
-      ctx.closePath();
+        .coach.is-recording .face { background: radial-gradient(circle at 38% 30%, #fb7fa0, #b41d48 62%, #6b0f2c); box-shadow: 0 22px 60px -14px rgba(244,63,94,0.6), inset 0 -10px 26px rgba(0,0,0,0.4), inset 0 6px 18px rgba(255,255,255,0.2); }
+        .coach.is-thinking  .face { background: radial-gradient(circle at 38% 30%, #fcd34d, #b45309 62%, #7c3d06); box-shadow: 0 22px 60px -14px rgba(245,158,11,0.55), inset 0 -10px 26px rgba(0,0,0,0.4), inset 0 6px 18px rgba(255,255,255,0.2); }
+        .coach.is-speaking  .face { background: radial-gradient(circle at 38% 30%, #5eead4, #0f766e 62%, #064e43); box-shadow: 0 22px 60px -14px rgba(16,185,129,0.55), inset 0 -10px 26px rgba(0,0,0,0.4), inset 0 6px 18px rgba(255,255,255,0.2); }
 
-      const fill = ctx.createRadialGradient(cx - BASE_R * 0.22, cy - BASE_R * 0.28, 0, cx, cy, BASE_R * 1.1);
-      fill.addColorStop(0,   pal.core + "ff");
-      fill.addColorStop(0.5, pal.core + "dd");
-      fill.addColorStop(1,   pal.mid  + "cc");
-      ctx.shadowBlur = 50; ctx.shadowColor = pal.glow;
-      ctx.fillStyle = fill; ctx.fill(); ctx.shadowBlur = 0;
+        .coach .eyes { display: flex; gap: calc(var(--face) * 0.2); }
+        .coach .eye {
+          width: var(--eye); height: var(--eye); border-radius: 50%;
+          background: rgba(255,255,255,0.95); box-shadow: 0 0 10px rgba(255,255,255,0.55);
+          animation: coach-blink 4.2s infinite; transform-origin: center;
+        }
+        .coach.is-thinking .eye { animation: coach-blink 4.2s infinite, coach-look 1.6s ease-in-out infinite; }
 
-      const shine = ctx.createRadialGradient(cx - BASE_R * 0.30, cy - BASE_R * 0.32, 0, cx - BASE_R * 0.12, cy - BASE_R * 0.12, BASE_R * 0.60);
-      shine.addColorStop(0, "rgba(255,255,255,0.32)"); shine.addColorStop(1, "rgba(255,255,255,0)");
-      ctx.fillStyle = shine; ctx.fill();
+        .coach .mouth { display: flex; align-items: center; gap: calc(var(--barW) * 0.55); height: calc(var(--face) * 0.32); }
+        .coach .bar {
+          width: var(--barW); border-radius: 999px; background: rgba(255,255,255,0.92);
+          height: calc(var(--barW) * 0.9); box-shadow: 0 0 8px rgba(255,255,255,0.35);
+          transition: height .12s ease;
+        }
+        /* idle: gentle breathing */
+        .coach.is-idle .bar { animation: coach-idle 3.2s ease-in-out infinite; animation-delay: calc(var(--i) * 0.12s); }
+        /* speaking: lively talk */
+        .coach.is-speaking .bar { animation: coach-talk .55s ease-in-out infinite; animation-delay: calc(var(--i) * 0.09s); }
+        /* thinking: soft uniform pulse */
+        .coach.is-thinking .bar { animation: coach-think 1s ease-in-out infinite; animation-delay: calc(var(--i) * 0.08s); }
+        /* recording/listening: a lively bounce */
+        .coach.is-recording .bar { animation: coach-listen .5s ease-in-out infinite; animation-delay: calc(var(--i) * 0.08s); }
 
-      animRef.current = requestAnimationFrame(draw);
-    };
-    animRef.current = requestAnimationFrame(draw);
-    return () => cancelAnimationFrame(animRef.current);
-  }, [size]); // eslint-disable-line react-hooks/exhaustive-deps
+        .coach .aura { position: absolute; border-radius: 50%; pointer-events: none; }
+        .coach .aura.a1 { width: 76%; height: 76%; }
+        .coach .aura.a2 { width: 92%; height: 92%; }
+        .coach .aura.a3 { width: 108%; height: 108%; }
+        .coach .aura { box-shadow: 0 0 0 1px rgba(124,139,255,0.16); animation: coach-aura 3.4s ease-in-out infinite; }
+        .coach .aura.a2 { animation-delay: .5s; } .coach .aura.a3 { animation-delay: 1s; }
+        .coach.is-recording .aura { box-shadow: 0 0 0 1px rgba(244,63,94,0.22); animation-duration: 1.5s; }
+        .coach.is-speaking  .aura { box-shadow: 0 0 0 1px rgba(16,185,129,0.22); animation-duration: 2s; }
+        .coach.is-thinking  .aura { box-shadow: 0 0 0 1px rgba(245,158,11,0.22); }
 
-  return <canvas ref={canvasRef} style={{ display: "block", width: size, height: size, pointerEvents: "none", touchAction: "none" }} />;
+        @keyframes coach-blink { 0%,92%,100% { transform: scaleY(1); } 95% { transform: scaleY(0.1); } }
+        @keyframes coach-look  { 0%,100% { transform: translateX(0); } 50% { transform: translateX(18%); } }
+        @keyframes coach-idle  { 0%,100% { height: calc(var(--barW) * 0.9); } 50% { height: calc(var(--barW) * 1.6); } }
+        @keyframes coach-talk  { 0%,100% { height: calc(var(--barW) * 0.8); } 50% { height: calc(var(--face) * 0.26); } }
+        @keyframes coach-listen{ 0%,100% { height: calc(var(--barW) * 0.9); } 50% { height: calc(var(--face) * 0.22); } }
+        @keyframes coach-think { 0%,100% { height: calc(var(--barW) * 0.8); opacity: .55; } 50% { height: calc(var(--barW) * 1.5); opacity: 1; } }
+        @keyframes coach-aura  { 0%,100% { transform: scale(1); opacity: .5; } 50% { transform: scale(1.06); opacity: .9; } }
+
+        @media (prefers-reduced-motion: reduce) {
+          .coach .eye, .coach .bar, .coach .aura { animation: none !important; }
+        }
+      `}</style>
+    </div>
+  );
 }
 
-// ── MAIN PAGE ─────────────────────────────────────────────────────────────────
+// ── MAIN PAGE ────────────────────────────────────────────────────────────────
 export default function VoicePage() {
   const router = useRouter();
 
-  const [voiceState,  setVoiceState]  = useState(S.IDLE);
-  const [error,       setError]       = useState("");
-  const [orbSize,     setOrbSize]     = useState(240);
-  const [debugOpen,   setDebugOpen]   = useState(false);
-  const [debugLogs,   setDebugLogs]   = useState([]);
+  const [voiceState, setVoiceState] = useState(S.IDLE);
+  const [error, setError] = useState("");
+  const [avatarSize, setAvatarSize] = useState(190);
+  const [messages, setMessages] = useState([]); // { role: "user"|"coach", text }
+  const [debugOpen, setDebugOpen] = useState(false);
+  const [debugLogs, setDebugLogs] = useState([]);
 
-  // ── Refs ──────────────────────────────────────────────────────────────────
-  const voiceStateRef    = useRef(S.IDLE);
-  const orbStateRef      = useRef(S.IDLE);
-  const sessionRef       = useRef(null);
+  const voiceStateRef = useRef(S.IDLE);
+  const avatarStateRef = useRef(S.IDLE);
+  const sessionRef = useRef(null);
   const speechUnlockedRef = useRef(false);
   const audioPlaybackRef = useRef(null);
-  const audioUrlRef      = useRef("");
+  const audioUrlRef = useRef("");
+  const scrollRef = useRef(null);
 
   const addDebugLog = useCallback((message) => {
     const now = new Date();
@@ -133,14 +132,21 @@ export default function VoicePage() {
     });
   }, []);
 
+  const pushMessage = useCallback((role, text) => {
+    if (!text) return;
+    setMessages((prev) => [...prev.slice(-8), { role, text }]);
+  }, []);
+
+  useEffect(() => {
+    scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" });
+  }, [messages]);
+
   const unlockSpeech = useCallback(() => {
     if (speechUnlockedRef.current || !("speechSynthesis" in window)) return;
     try {
       const synth = window.speechSynthesis;
       const warmup = new SpeechSynthesisUtterance(" ");
       warmup.volume = 0;
-      warmup.rate = 1;
-      warmup.pitch = 1;
       synth.cancel();
       synth.speak(warmup);
       synth.cancel();
@@ -151,32 +157,28 @@ export default function VoicePage() {
     }
   }, [addDebugLog]);
 
-  // MediaRecorder (all platforms)
   const mediaRecorderRef = useRef(null);
-  const audioChunksRef   = useRef([]);
-  const micStreamRef     = useRef(null); // kept alive for session
+  const audioChunksRef = useRef([]);
+  const micStreamRef = useRef(null);
 
-  // Audio level visualisation
-  const audioCtxRef      = useRef(null);
-  const animFrameRef     = useRef(null);
-  const orbLevelRef      = useRef(0);
+  const audioCtxRef = useRef(null);
+  const animFrameRef = useRef(null);
+  const levelRef = useRef(0);
+  const recognitionRef = useRef(null); // native SpeechRecognition, when available
 
-  // Sync React state + orb ref atomically
   const setVS = useCallback((s) => {
     voiceStateRef.current = s;
-    orbStateRef.current   = s;
+    avatarStateRef.current = s;
     setVoiceState(s);
   }, []);
 
-  // ── Responsive orb ────────────────────────────────────────────────────────
   useEffect(() => {
-    const update = () => setOrbSize(Math.round(Math.min(Math.min(window.innerWidth, window.innerHeight) * 0.50, 250)));
+    const update = () => setAvatarSize(Math.round(Math.min(Math.min(window.innerWidth, window.innerHeight) * 0.42, 200)));
     update();
     window.addEventListener("resize", update);
     return () => window.removeEventListener("resize", update);
   }, []);
 
-  // ── Auth ──────────────────────────────────────────────────────────────────
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session: s } }) => {
       if (!s) { router.replace("/"); return; }
@@ -184,25 +186,18 @@ export default function VoicePage() {
     });
   }, [router]);
 
-  // ── Debug diagnostics (important for iOS/PWA) ─────────────────────────────
   useEffect(() => {
     if (typeof window === "undefined") return;
     const params = new URLSearchParams(window.location.search);
     if (params.get("debug") === "1") setDebugOpen(true);
-
     const logRuntime = () => {
       const standalone = window.matchMedia?.("(display-mode: standalone)")?.matches || window.navigator?.standalone;
-      const voicesCount = window.speechSynthesis?.getVoices?.().length ?? 0;
-      addDebugLog(`Runtime: secure=${window.isSecureContext} standalone=${Boolean(standalone)} media=${Boolean(navigator.mediaDevices?.getUserMedia)} speech=${Boolean(window.speechSynthesis)} voices=${voicesCount}`);
-      addDebugLog(`UA: ${navigator.userAgent}`);
+      addDebugLog(`Runtime: secure=${window.isSecureContext} standalone=${Boolean(standalone)} media=${Boolean(navigator.mediaDevices?.getUserMedia)} speech=${Boolean(window.speechSynthesis)}`);
     };
-
     logRuntime();
-    document.addEventListener("visibilitychange", logRuntime);
-    return () => document.removeEventListener("visibilitychange", logRuntime);
   }, [addDebugLog]);
 
-  // ── Audio level monitor ───────────────────────────────────────────────────
+  // ── Audio level monitor (drives the coach's mouth while listening) ──────────
   const startAudioMonitor = useCallback((stream) => {
     const AC = window.AudioContext || window.webkitAudioContext;
     if (!AC) return;
@@ -213,7 +208,7 @@ export default function VoicePage() {
       const buf = new Uint8Array(analyser.frequencyBinCount);
       const tick = () => {
         analyser.getByteFrequencyData(buf);
-        orbLevelRef.current  = buf.reduce((a, b) => a + b, 0) / buf.length / 128;
+        levelRef.current = buf.reduce((a, b) => a + b, 0) / buf.length / 128;
         animFrameRef.current = requestAnimationFrame(tick);
       };
       tick();
@@ -225,43 +220,37 @@ export default function VoicePage() {
   const stopAudioMonitor = useCallback(() => {
     cancelAnimationFrame(animFrameRef.current);
     try { audioCtxRef.current?.close(); } catch {}
-    orbLevelRef.current = 0;
+    levelRef.current = 0;
   }, []);
 
-  // ── Release mic stream ────────────────────────────────────────────────────
   const stopMic = useCallback(() => {
     stopAudioMonitor();
     micStreamRef.current?.getTracks().forEach((t) => t.stop());
     micStreamRef.current = null;
   }, [stopAudioMonitor]);
 
-  // ── Cleanup on unmount ────────────────────────────────────────────────────
   useEffect(() => () => {
     try {
       audioPlaybackRef.current?.pause();
       if (audioUrlRef.current) URL.revokeObjectURL(audioUrlRef.current);
       audioUrlRef.current = "";
     } catch {}
+    try { recognitionRef.current?.abort(); } catch {}
     stopMic();
     window.speechSynthesis?.cancel();
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // ── Server TTS playback (cross-device fallback) ──────────────────────────
+  // ── Server TTS playback ────────────────────────────────────────────────────
   const speakViaServerAudio = useCallback(async (text) => {
     try {
-      addDebugLog(`Server TTS request started (${text.length} chars)`);
       const r = await fetch("/api/tts", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ text, voiceName: "Kore" }),
       });
-
       const payload = await r.json().catch(() => ({}));
-      if (!r.ok) {
-        throw new Error(payload?.detail || payload?.error || `HTTP ${r.status}`);
-      }
-
+      if (!r.ok) throw new Error(payload?.detail || payload?.error || `HTTP ${r.status}`);
       const audioBase64 = payload?.audioBase64;
       const mimeType = payload?.mimeType || "audio/wav";
       if (!audioBase64) throw new Error("No audio payload returned");
@@ -269,48 +258,21 @@ export default function VoicePage() {
       const binary = atob(audioBase64);
       const bytes = new Uint8Array(binary.length);
       for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
-
       const blob = new Blob([bytes], { type: mimeType });
       if (audioUrlRef.current) URL.revokeObjectURL(audioUrlRef.current);
       const objectUrl = URL.createObjectURL(blob);
       audioUrlRef.current = objectUrl;
 
       let audio = audioPlaybackRef.current;
-      if (!audio) {
-        audio = new Audio();
-        audio.preload = "auto";
-        audio.playsInline = true;
-        audioPlaybackRef.current = audio;
-      }
-
-      audio.src = objectUrl;
-      audio.volume = 1;
+      if (!audio) { audio = new Audio(); audio.preload = "auto"; audio.playsInline = true; audioPlaybackRef.current = audio; }
+      audio.src = objectUrl; audio.volume = 1;
       setVS(S.SPEAKING);
-      addDebugLog(`Server TTS audio ready (${mimeType}, ${blob.size} bytes)`);
-
       await audio.play();
-      addDebugLog("Server TTS playback started");
-
       await new Promise((resolve, reject) => {
-        const onEnd = () => {
-          cleanup();
-          resolve();
-        };
-        const onError = () => {
-          cleanup();
-          reject(new Error("audio playback error"));
-        };
-        const cleanup = () => {
-          audio.onended = null;
-          audio.onerror = null;
-        };
-        audio.onended = onEnd;
-        audio.onerror = onError;
+        audio.onended = () => { audio.onended = null; audio.onerror = null; resolve(); };
+        audio.onerror = () => { audio.onended = null; audio.onerror = null; reject(new Error("audio playback error")); };
       });
-
-      addDebugLog("Server TTS playback ended");
-      setError("");
-      setVS(S.IDLE);
+      setError(""); setVS(S.IDLE);
       return true;
     } catch (e) {
       addDebugLog(`Server TTS failed: ${e?.message || "unknown"}`);
@@ -318,166 +280,58 @@ export default function VoicePage() {
     }
   }, [addDebugLog, setVS]);
 
-  // ── TTS: speak AI response, then return to IDLE ───────────────────────────
   const speakResponse = useCallback(async (fullText) => {
-    if (!fullText.trim()) {
-      addDebugLog("Skipping TTS: empty text");
-      setVS(S.IDLE);
-      return;
-    }
+    if (!fullText.trim()) { setVS(S.IDLE); return; }
+    const clean = fullText.replace(/\*\*([^*]+)\*\*/g, "$1").replace(/[•\-]\s/g, "").replace(/#{1,6}\s/g, "").trim();
 
-    // Strip markdown so TTS reads cleanly.
-    const clean = fullText
-      .replace(/\*\*([^*]+)\*\*/g, "$1")
-      .replace(/[•\-]\s/g, "")
-      .replace(/#{1,6}\s/g, "")
-      .trim();
-
-    // Prefer server-generated audio for consistent playback across devices.
     const serverSpoken = await speakViaServerAudio(clean);
     if (serverSpoken) return;
 
     if (!("speechSynthesis" in window)) {
-      addDebugLog("Skipping browser TTS: speechSynthesis unavailable and server TTS failed");
-      setError("Voice output unavailable right now. Please retry when network is stable.");
+      setError("Voice output unavailable right now.");
       setVS(S.IDLE);
       return;
     }
-
     const sentences = clean.match(/[^.!?\n]+[.!?\n]*/g) || [clean];
-    const synth = window.speechSynthesis;
-    synth.cancel();
-    synth.resume();
-    addDebugLog(`TTS start requested (${fullText.length} chars)`);
-
-    // Try to get voices; wait up to 1s if they're loading (Brave workaround).
+    const synth = window.speechSynthesis; synth.cancel(); synth.resume();
     const voices = await new Promise((resolve) => {
       const existing = synth.getVoices();
-      if (existing.length) {
-        console.log("[voice] Voices already loaded:", existing.length);
-        addDebugLog(`Voices already loaded: ${existing.length}`);
-        return resolve(existing);
-      }
-      
-      let resolved = false;
-      // iOS may take longer to load voices - increase timeout to 2s
-      const timeoutId = setTimeout(() => {
-        resolved = true;
-        const voicesFinal = synth.getVoices();
-        console.log("[voice] Timeout reached. Voices available:", voicesFinal.length);
-        addDebugLog(`Voice load timeout. Voices available: ${voicesFinal.length}`);
-        resolve(voicesFinal);
-      }, 2000);
-      
-      synth.onvoiceschanged = () => {
-        if (!resolved) {
-          resolved = true;
-          clearTimeout(timeoutId);
-          const voicesLoaded = synth.getVoices();
-          console.log("[voice] onvoiceschanged fired. Voices available:", voicesLoaded.length);
-          addDebugLog(`onvoiceschanged fired. Voices available: ${voicesLoaded.length}`);
-          if (voicesLoaded.length > 0) {
-            voicesLoaded.forEach((v, i) => console.log(`  [${i}] ${v.name} (${v.lang})`));
-          }
-          resolve(voicesLoaded);
-        }
-      };
+      if (existing.length) return resolve(existing);
+      const to = setTimeout(() => resolve(synth.getVoices()), 2000);
+      synth.onvoiceschanged = () => { clearTimeout(to); resolve(synth.getVoices()); };
     });
-
-    // If no voices available (iOS/Brave limitation), show helpful error
-    if (!voices.length) {
-      const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent);
-      const isBrave = /Brave/.test(navigator.userAgent);
-      
-      console.error("[voice] No voices found! User agent:", navigator.userAgent.slice(0, 100));
-      addDebugLog("No voices found from getVoices(). Using browser default voice fallback.");
-      
-      if (isIOS) {
-        setError("iOS issue: No voices loaded. Try: 1) Reload the app, 2) Check volume isn't muted, 3) Reinstall PWA. Voice may work in Safari app instead.");
-      } else if (isBrave) {
-        setError("Brave disabled TTS. Try Firefox or Chrome for voice chat.");
-      } else {
-        setError("TTS unavailable. Check browser voice settings or try a different browser.");
-      }
-    }
-
-    const preferredVoice = voices.length > 0
-      ? (voices.find((voice) => /en(-|_)?(IN|US|GB)?/i.test(voice.lang) && !/google translate/i.test(voice.name))
-         || voices.find((voice) => /female|google|microsoft|samantha|alex|zira|david/i.test(voice.name))
-         || voices[0])
+    const preferredVoice = voices.length
+      ? (voices.find((v) => /en(-|_)?(IN|US|GB)?/i.test(v.lang) && !/google translate/i.test(v.name)) || voices[0])
       : null;
-
-    console.log("[voice] Selected voice:", preferredVoice?.name, "(" + preferredVoice?.lang + ")");
-    addDebugLog(`Selected voice: ${preferredVoice?.name || "default"} (${preferredVoice?.lang || "n/a"})`);
     setVS(S.SPEAKING);
-
     let idx = 0;
     const speakNext = () => {
-      if (idx >= sentences.length) {
-        setVS(S.IDLE);
-        setError(""); // clear any voice warning once done
-        return;
-      }
-
-      const s = sentences[idx].trim();
-      idx++;
-      if (!s) { speakNext(); return; }
-
+      if (idx >= sentences.length) { setVS(S.IDLE); setError(""); return; }
+      const s = sentences[idx].trim(); idx++;
+      if (!s) return speakNext();
       const utt = new SpeechSynthesisUtterance(s);
-      utt.rate = 1.02;
-      utt.pitch = 1.0;
-      utt.volume = 1.0;
-      if (preferredVoice) {
-        utt.voice = preferredVoice;
-        utt.lang = preferredVoice.lang || "en-US";
-      } else {
-        // No voice selection; browser will use default (or fail).
-        utt.lang = "en-US";
-      }
-
-      let started = false;
-      utt.onstart = () => { started = true; setVS(S.SPEAKING); };
-      utt.onend   = speakNext;
-      utt.onerror = (event) => {
-        console.error("[voice] TTS error:", event.error);
-        addDebugLog(`TTS error: ${event.error || "unknown"}`);
-        if (!started) {
-          setError("Text-to-speech failed. Try Firefox or Chrome. Brave requires explicit voice configuration.");
-        }
-        setVS(S.IDLE);
-      };
-
+      utt.rate = 1.02; utt.pitch = 1.0; utt.volume = 1.0;
+      if (preferredVoice) { utt.voice = preferredVoice; utt.lang = preferredVoice.lang || "en-US"; } else utt.lang = "en-US";
+      utt.onend = speakNext;
+      utt.onerror = () => { setVS(S.IDLE); };
       synth.speak(utt);
     };
-
     speakNext();
-  }, [setVS, addDebugLog, speakViaServerAudio]);
+  }, [setVS, speakViaServerAudio]);
 
-  // ── Call agent API (streaming), then speak full response ─────────────────
-  const sendToAgent = useCallback(async (text) => {
-    if (!text?.trim() || !sessionRef.current) return;
-    setVS(S.THINKING);
-    addDebugLog(`Sending transcript to /api/agent (${text.length} chars)`);
-
+  // ── Send a food-related QUESTION to the full agent (streaming) ──────────────
+  const askAgent = useCallback(async (text) => {
     let fullResponse = "";
     try {
       const res = await fetch("/api/agent", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          message: text,
-          userId: sessionRef.current.user.id,
-          accessToken: sessionRef.current.access_token,
-          voiceMode: true,
-        }),
+        body: JSON.stringify({ message: text, userId: sessionRef.current.user.id, accessToken: sessionRef.current.access_token, voiceMode: true }),
       });
       if (!res.ok) throw new Error("api error");
-      addDebugLog(`Agent response stream opened: HTTP ${res.status}`);
-
-      const reader  = res.body.getReader();
+      const reader = res.body.getReader();
       const decoder = new TextDecoder();
       let sseBuf = "";
-
       while (true) {
         const { done, value } = await reader.read();
         if (done) break;
@@ -485,334 +339,307 @@ export default function VoicePage() {
         const lines = sseBuf.split("\n\n"); sseBuf = lines.pop() ?? "";
         for (const line of lines) {
           if (!line.startsWith("data: ")) continue;
-          try {
-            const ev = JSON.parse(line.slice(6));
-            if (ev.type === "chunk") {
-              fullResponse += ev.text;
-            }
-          } catch {}
+          try { const ev = JSON.parse(line.slice(6)); if (ev.type === "chunk") fullResponse += ev.text; } catch {}
         }
       }
     } catch {
-      addDebugLog("Agent call failed");
-      fullResponse = fullResponse || "Sorry, I couldn't reach the server. Please try again.";
+      fullResponse = "Sorry, I couldn't reach the server. Please try again.";
+    }
+    return fullResponse || "Sorry, I didn't get that.";
+  }, []);
+
+  // ── Route a transcript: deterministic logging first, agent for questions ────
+  const processTranscript = useCallback(async (text) => {
+    pushMessage("user", text);
+    setVS(S.THINKING);
+
+    let reply = "";
+    try {
+      const res = await fetch("/api/voice-log", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          transcript: text,
+          userId: sessionRef.current.user.id,
+          accessToken: sessionRef.current.access_token,
+          meal: defaultMeal(),
+          date: (() => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`; })(),
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      addDebugLog(`voice-log intent=${data.intent} logged=${(data.logged || []).length} unmatched=${(data.unmatched || []).length}`);
+
+      if (data.intent === "question") {
+        reply = await askAgent(text); // real answer needs live data + tools
+      } else {
+        reply = data.spokenReply || "Done.";
+      }
+    } catch (e) {
+      addDebugLog(`voice-log failed: ${e?.message || "unknown"}`);
+      reply = "Something went wrong. Please try again.";
     }
 
-    addDebugLog(`Agent reply ready (${fullResponse.length} chars)`);
-    await speakResponse(fullResponse);
-  }, [setVS, speakResponse, addDebugLog]);
+    pushMessage("coach", reply);
+    await speakResponse(reply);
+  }, [pushMessage, setVS, askAgent, speakResponse, addDebugLog]);
 
-  // ── Acquire mic (shared setup) ────────────────────────────────────────────
+  // ── Native speech recognition (accurate, real-time) — primary path ──────────
+  // Same engine the AI Coach uses (en-IN). Auto-submits when you pause; tapping
+  // the coach mid-listen force-stops it. Returns false when unavailable (iOS),
+  // so the caller can fall back to recording a clip + Gemini transcription.
+  const startWebSpeech = useCallback(() => {
+    const SR =
+      typeof window !== "undefined" && (window.SpeechRecognition || window.webkitSpeechRecognition);
+    if (!SR) return false;
+
+    let rec;
+    try { rec = new SR(); } catch { return false; }
+    rec.lang = "en-IN";
+    rec.continuous = false;
+    rec.interimResults = false;
+    let done = false;
+
+    rec.onresult = (e) => {
+      done = true;
+      recognitionRef.current = null;
+      const transcript = (e.results?.[0]?.[0]?.transcript || "").trim();
+      addDebugLog(`SpeechRecognition result (${transcript.length} chars)`);
+      if (transcript) processTranscript(transcript);
+      else { setError("I didn't catch that — tap the coach and speak."); setVS(S.IDLE); }
+    };
+    rec.onerror = (e) => {
+      done = true;
+      recognitionRef.current = null;
+      addDebugLog(`SpeechRecognition error: ${e.error}`);
+      if (e.error === "not-allowed" || e.error === "service-not-allowed")
+        setError("Microphone access denied. Allow it in your browser settings.");
+      else if (e.error === "no-speech") setError("I didn't hear anything — tap and speak.");
+      else if (e.error !== "aborted") setError("Voice recognition hiccup — try again.");
+      setVS(S.IDLE);
+    };
+    rec.onend = () => {
+      if (!done) { recognitionRef.current = null; setVS(S.IDLE); }
+    };
+
+    try {
+      rec.start();
+      recognitionRef.current = rec;
+      addDebugLog("SpeechRecognition started (en-IN)");
+      return true;
+    } catch {
+      recognitionRef.current = null;
+      return false;
+    }
+  }, [processTranscript, setVS, addDebugLog]);
+
+  // ── Mic ─────────────────────────────────────────────────────────────────────
   const acquireMic = useCallback(async () => {
     if (micStreamRef.current) return true;
-
-    if (!window.isSecureContext) {
-      setError("Microphone requires HTTPS. Open the app on a secure origin (https://) or localhost in development.");
-      addDebugLog("Mic blocked: insecure context");
-      return false;
-    }
-
-    if (!navigator.mediaDevices?.getUserMedia) {
-      setError("Microphone API unavailable in this browser. Please open the app in Safari or Chrome with microphone support enabled.");
-      addDebugLog("Mic blocked: getUserMedia unavailable");
-      return false;
-    }
-
+    if (!window.isSecureContext) { setError("Microphone requires HTTPS."); return false; }
+    if (!navigator.mediaDevices?.getUserMedia) { setError("Microphone unavailable in this browser."); return false; }
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
       micStreamRef.current = stream;
       startAudioMonitor(stream);
-      addDebugLog("Mic acquired successfully");
       return true;
     } catch (e) {
-      addDebugLog(`Mic acquire failed: ${e.name || "Error"} ${e.message || ""}`);
-      setError(
-        e.name === "NotAllowedError"
-          ? "Microphone access denied. On iOS: Settings → Safari → Microphone → Allow."
-          : "Could not access microphone: " + (e.message || e.name || "unknown error")
-      );
+      setError(e.name === "NotAllowedError" ? "Microphone access denied. Allow it in your browser settings." : "Could not access microphone: " + (e.message || e.name || "unknown"));
       return false;
     }
-  }, [startAudioMonitor, addDebugLog]);
+  }, [startAudioMonitor]);
 
-  // ── Record audio for later transcription ──────────────────────────────────
   const startRecording = useCallback(async () => {
-    if (typeof MediaRecorder === "undefined") {
-      setError("Voice recording not supported in this browser. Please use a modern browser with MediaRecorder support.");
-      addDebugLog("MediaRecorder unsupported");
-      return false;
-    }
-
+    // Prefer native recognition (accurate); fall back to recording a clip.
+    if (startWebSpeech()) return true;
+    if (typeof MediaRecorder === "undefined") { setError("Voice recording not supported in this browser."); return false; }
     const ok = await acquireMic();
     if (!ok) return false;
-
     const MIME_PREFS = ["audio/mp4", "audio/webm", "audio/ogg"];
-    const mimeType   = MIME_PREFS.find((t) => {
-      try { return MediaRecorder.isTypeSupported(t); } catch { return false; }
-    }) || "";
-
+    const mimeType = MIME_PREFS.find((t) => { try { return MediaRecorder.isTypeSupported(t); } catch { return false; } }) || "";
     let recorder;
-    try {
-      recorder = new MediaRecorder(micStreamRef.current, mimeType ? { mimeType } : {});
-      addDebugLog(`Recorder started with mimeType=${mimeType || "default"}`);
-    } catch {
-      recorder = new MediaRecorder(micStreamRef.current);
-      addDebugLog("Recorder started with browser default mimeType");
-    }
-
-    audioChunksRef.current   = [];
+    try { recorder = new MediaRecorder(micStreamRef.current, mimeType ? { mimeType } : {}); }
+    catch { recorder = new MediaRecorder(micStreamRef.current); }
+    audioChunksRef.current = [];
     recorder.ondataavailable = (e) => { if (e.data.size > 0) audioChunksRef.current.push(e.data); };
     mediaRecorderRef.current = recorder;
     recorder.start();
     return true;
-  }, [acquireMic, addDebugLog]);
+  }, [acquireMic, startWebSpeech]);
 
-  // ── Stop recording + transcribe audio ────────────────────────────────────
   const stopRecordingAndGetText = useCallback(async () => {
     const recorder = mediaRecorderRef.current;
     if (!recorder || recorder.state !== "recording") return null;
-
     return new Promise((resolve) => {
       recorder.onstop = async () => {
         const usedMime = recorder.mimeType || "audio/mp4";
-        const blob     = new Blob(audioChunksRef.current, { type: usedMime });
-        addDebugLog(`Recording stopped. blob=${blob.size} bytes mime=${usedMime}`);
+        const blob = new Blob(audioChunksRef.current, { type: usedMime });
         if (blob.size < 500) { resolve(null); return; }
-
         const base64 = await new Promise((res) => {
           const fr = new FileReader();
           fr.onload = () => res(fr.result.split(",")[1]);
           fr.readAsDataURL(blob);
         });
-
         try {
-          const r    = await fetch("/api/transcribe", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
+          const r = await fetch("/api/transcribe", {
+            method: "POST", headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ audioBase64: base64, mimeType: usedMime }),
           });
           const data = await r.json();
-          addDebugLog(`Transcribe API: HTTP ${r.status}, textLen=${(data.text || "").length}`);
           resolve((data.text || "").trim() || null);
-        } catch {
-          addDebugLog("Transcribe request failed");
-          resolve(null);
-        }
+        } catch { resolve(null); }
       };
       recorder.stop();
     });
-  }, [addDebugLog]);
+  }, []);
 
-  // ── Orb tap handler ───────────────────────────────────────────────────────
-  const handleOrbTap = useCallback(async () => {
+  const handleTap = useCallback(async () => {
     unlockSpeech();
     const s = voiceStateRef.current;
-
     if (s === S.IDLE) {
       setError("");
       setVS(S.RECORDING);
-
       const ok = await startRecording();
-
       if (!ok) setVS(S.IDLE);
-
     } else if (s === S.RECORDING) {
+      // Native recognition: stop() forces a final result (onresult handles it).
+      if (recognitionRef.current) {
+        try { recognitionRef.current.stop(); } catch { /* ignore */ }
+        return;
+      }
+      // Fallback (recorded clip): transcribe via Gemini.
       setVS(S.THINKING);
       const text = await stopRecordingAndGetText();
-
       if (!text) {
-        addDebugLog("No transcript returned from recording");
-        setError("Nothing was captured. Tap the orb, speak, then tap again to send.");
+        setError("I didn't catch that. Tap the coach, speak, then tap again.");
         setVS(S.IDLE);
         return;
       }
-      addDebugLog(`Transcript captured (${text.length} chars)`);
-      await sendToAgent(text);
-
+      await processTranscript(text);
     } else if (s === S.SPEAKING) {
       window.speechSynthesis?.cancel();
+      try { audioPlaybackRef.current?.pause(); } catch {}
       setVS(S.IDLE);
     }
-    // THINKING: ignore tap
-  }, [setVS, startRecording, stopRecordingAndGetText, sendToAgent, unlockSpeech, addDebugLog]);
+    // THINKING: ignore
+  }, [setVS, startRecording, stopRecordingAndGetText, processTranscript, unlockSpeech]);
 
-  // ── End session button ────────────────────────────────────────────────────
   const endSession = useCallback(() => {
+    try { recognitionRef.current?.abort(); recognitionRef.current = null; } catch {}
     try { mediaRecorderRef.current?.stop(); } catch {}
-    try {
-      audioPlaybackRef.current?.pause();
-      if (audioPlaybackRef.current) audioPlaybackRef.current.currentTime = 0;
-    } catch {}
+    try { audioPlaybackRef.current?.pause(); if (audioPlaybackRef.current) audioPlaybackRef.current.currentTime = 0; } catch {}
     window.speechSynthesis?.cancel();
     stopMic();
     setVS(S.IDLE);
-    addDebugLog("Session ended manually");
-  }, [setVS, stopMic, addDebugLog]);
+  }, [setVS, stopMic]);
 
-  const runTtsDebug = useCallback(() => {
-    unlockSpeech();
-    speakResponse("This is a voice output test from your nutrition coach.");
-  }, [unlockSpeech, speakResponse]);
+  const runTtsDebug = useCallback(() => { unlockSpeech(); speakResponse("This is a voice test from your nutrition coach."); }, [unlockSpeech, speakResponse]);
 
-  // ── Display helpers ───────────────────────────────────────────────────────
-  const orbLabel = {
-    idle:      "TAP TO\nSTART",
-    recording: "TAP TO\nSEND",
-    thinking:  "",
-    speaking:  "TAP TO\nSTOP",
-  }[voiceState] ?? "";
-
+  // ── Display helpers ─────────────────────────────────────────────────────────
   const statusText = {
-    idle:      "Tap the orb to start recording",
-    recording: "Recording… tap orb to send",
-    thinking:  "Thinking…",
-    speaking:  "Speaking… tap orb to stop",
+    idle: messages.length ? "Tap the coach to keep talking" : "Tap the coach and tell me what you ate",
+    recording: "Listening… speak, then pause (or tap)",
+    thinking: "Working on it…",
+    speaking: "Speaking… tap to stop",
   }[voiceState];
 
-  const statusColor = {
-    idle: "#444", recording: "#ef4444", thinking: "#f59e0b", speaking: "#22c55e",
-  }[voiceState];
-
-  const dotPulse  = voiceState !== S.IDLE;
-  const statusBadge = { idle: "Ready", recording: "Recording", thinking: "Thinking", speaking: "Speaking" }[voiceState];
+  const statusColor = { idle: "#7c8bff", recording: "#f43f5e", thinking: "#f59e0b", speaking: "#10b981" }[voiceState];
+  const statusBadge = { idle: "Ready", recording: "Listening", thinking: "Thinking", speaking: "Speaking" }[voiceState];
+  const dotPulse = voiceState !== S.IDLE;
 
   return (
     <div style={{
       height: "100dvh",
-      background: "radial-gradient(ellipse at 50% 55%, #0e0e1f 0%, #060609 100%)",
+      background: "radial-gradient(ellipse at 50% 30%, #12122a 0%, #060609 60%)",
       color: "#fff", display: "flex", flexDirection: "column",
       fontFamily: "system-ui, -apple-system, sans-serif",
-      WebkitUserSelect: "none", userSelect: "none",
-      WebkitTapHighlightColor: "transparent",
+      WebkitUserSelect: "none", userSelect: "none", WebkitTapHighlightColor: "transparent",
     }}>
-
       {/* HEADER */}
-      <div style={{ padding: "max(env(safe-area-inset-top,0px),14px) 20px 12px", display: "flex", alignItems: "center", justifyContent: "space-between", flexShrink: 0 }}>
-        <button onPointerDown={() => { endSession(); router.back(); }} style={{
-          background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.10)", color: "#aaa",
-          cursor: "pointer", padding: "8px 14px", borderRadius: 20, display: "flex", alignItems: "center", gap: 7, fontSize: "0.8rem", touchAction: "manipulation",
-        }}>
+      <div style={{ padding: "max(env(safe-area-inset-top,0px),14px) 20px 10px", display: "flex", alignItems: "center", justifyContent: "space-between", flexShrink: 0 }}>
+        <button onPointerDown={() => { endSession(); router.back(); }} style={{ background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.10)", color: "#aaa", cursor: "pointer", padding: "8px 14px", borderRadius: 20, display: "flex", alignItems: "center", gap: 7, fontSize: "0.8rem", touchAction: "manipulation" }}>
           <ArrowLeft size={15} /> Back
         </button>
-
-        <div style={{ display: "flex", alignItems: "center", gap: 7, padding: "7px 16px", background: "rgba(255,255,255,0.04)", border: `1px solid ${statusColor}44`, borderRadius: 20, fontSize: "0.78rem", color: statusColor, transition: "all 0.3s", minWidth: 100, justifyContent: "center" }}>
-          <div style={{ width: 7, height: 7, borderRadius: "50%", background: statusColor, flexShrink: 0, boxShadow: dotPulse ? `0 0 8px ${statusColor}` : "none", animation: dotPulse ? "vp-pulse 1.2s ease-in-out infinite" : "none" }} />
+        <div style={{ display: "flex", alignItems: "center", gap: 7, padding: "7px 16px", background: "rgba(255,255,255,0.04)", border: `1px solid ${statusColor}44`, borderRadius: 20, fontSize: "0.78rem", color: statusColor, transition: "all 0.3s", minWidth: 104, justifyContent: "center" }}>
+          <div style={{ width: 7, height: 7, borderRadius: "50%", background: statusColor, boxShadow: dotPulse ? `0 0 8px ${statusColor}` : "none", animation: dotPulse ? "vp-pulse 1.2s ease-in-out infinite" : "none" }} />
           {statusBadge}
         </div>
-
         <div style={{ width: 68 }} />
       </div>
 
-      {/* CENTER CONTENT */}
-      <div style={{ flex: 1, minHeight: 0, display: "flex", alignItems: "center", justifyContent: "center", padding: "8px 18px max(env(safe-area-inset-bottom,0px),22px)" }}>
-        <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 14, width: "100%", maxWidth: 420 }}>
-          {/* STATUS LINE */}
-          <div style={{
-            textAlign: "center", fontSize: "0.82rem", color: statusColor,
-            padding: "5px 24px", minHeight: 34, transition: "color 0.3s", flexShrink: 0,
-            fontStyle: "normal", lineHeight: 1.4,
-          }}>
-            {statusText}
-          </div>
-
+      {/* COACH + STATUS */}
+      <div style={{ flexShrink: 0, display: "flex", flexDirection: "column", alignItems: "center", gap: 10, padding: "6px 18px 4px" }}>
         <div
-          onPointerDown={voiceState === S.THINKING ? undefined : handleOrbTap}
+          onPointerDown={voiceState === S.THINKING ? undefined : handleTap}
           role="button"
-          aria-label={orbLabel}
-          style={{
-            position: "relative",
-            cursor: voiceState === S.THINKING ? "default" : "pointer",
-            borderRadius: "50%",
-            touchAction: "manipulation",
-            WebkitTapHighlightColor: "transparent",
-            userSelect: "none",
-            opacity: voiceState === S.THINKING ? 0.82 : 1,
-            transition: "opacity 0.2s",
-          }}
+          aria-label="Talk to your coach"
+          style={{ cursor: voiceState === S.THINKING ? "default" : "pointer", opacity: voiceState === S.THINKING ? 0.9 : 1, transition: "opacity 0.2s" }}
         >
-          <VoiceOrb key={orbSize} stateRef={orbStateRef} audioLevelRef={orbLevelRef} size={orbSize} />
-
-          <div style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center", pointerEvents: "none" }}>
-            {voiceState === S.THINKING
-              ? <div style={{ width: 28, height: 28, borderRadius: "50%", border: "2.5px solid transparent", borderTopColor: "#f59e0b", animation: "vp-spin 0.9s linear infinite" }} />
-              : orbLabel
-                ? <span style={{ fontSize: "0.60rem", fontWeight: 800, color: "rgba(255,255,255,0.85)", letterSpacing: "0.10em", textShadow: "0 0 14px rgba(0,0,0,0.95)", textAlign: "center", lineHeight: 1.5, whiteSpace: "pre" }}>{orbLabel}</span>
-                : null}
-          </div>
+          <CoachAvatar state={voiceState} size={avatarSize} />
         </div>
-
-        {error && (
-          <div style={{ fontSize: "0.78rem", color: "#ef4444", background: "#1f0505", border: "1px solid #3f1010", padding: "10px 18px", borderRadius: 12, maxWidth: 300, textAlign: "center", lineHeight: 1.5, margin: "0 16px" }}>
-            {error}
-          </div>
-        )}
-
-        {voiceState !== S.IDLE && (
-          <button onPointerDown={endSession} style={{ background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.09)", color: "#555", cursor: "pointer", padding: "9px 22px", borderRadius: 22, fontSize: "0.78rem", touchAction: "manipulation", WebkitTapHighlightColor: "transparent" }}>
-            End conversation
-          </button>
-        )}
-
+        <div style={{ textAlign: "center", fontSize: "0.85rem", color: statusColor, minHeight: 22, transition: "color 0.3s" }}>
+          {statusText}
         </div>
       </div>
 
-      <button
-        onPointerDown={() => setDebugOpen((v) => !v)}
-        style={{
-          position: "fixed",
-          right: 14,
-          bottom: "max(14px, env(safe-area-inset-bottom,0px))",
-          zIndex: 70,
-          background: "#b91c1c",
-          color: "#fff",
-          border: "1px solid #ef4444",
-          borderRadius: 999,
-          padding: "8px 12px",
-          fontSize: "0.75rem",
-          fontWeight: 800,
-          letterSpacing: "0.04em",
-          boxShadow: "0 10px 24px rgba(0,0,0,0.35)",
-          touchAction: "manipulation",
-          WebkitTapHighlightColor: "transparent",
-        }}
-      >
+      {/* CONVERSATION */}
+      <div ref={scrollRef} style={{ flex: 1, minHeight: 0, overflowY: "auto", padding: "8px 16px 8px", display: "flex", flexDirection: "column", gap: 10 }}>
+        {messages.length === 0 && !error && (
+          <div style={{ margin: "auto", textAlign: "center", color: "#5b5b6b", fontSize: "0.85rem", lineHeight: 1.6, maxWidth: 280 }}>
+            Say something like<br />
+            <span style={{ color: "#8b8ba3" }}>“I had two rotis, dal and a bowl of rice”</span><br />
+            or ask <span style={{ color: "#8b8ba3" }}>“how many calories do I have left?”</span>
+          </div>
+        )}
+        {messages.map((m, i) => (
+          <div key={i} style={{ display: "flex", justifyContent: m.role === "user" ? "flex-end" : "flex-start" }}>
+            <div style={{
+              maxWidth: "82%", padding: "10px 14px", borderRadius: 16, fontSize: "0.9rem", lineHeight: 1.5,
+              borderBottomRightRadius: m.role === "user" ? 4 : 16, borderBottomLeftRadius: m.role === "user" ? 16 : 4,
+              background: m.role === "user" ? "rgba(124,139,255,0.16)" : "rgba(16,185,129,0.12)",
+              border: `1px solid ${m.role === "user" ? "rgba(124,139,255,0.3)" : "rgba(16,185,129,0.28)"}`,
+              color: "#e8e8f0",
+            }}>
+              {m.role === "coach" && <span style={{ display: "block", fontSize: "0.6rem", fontWeight: 800, letterSpacing: "0.08em", textTransform: "uppercase", color: "#10b981", marginBottom: 3 }}>Coach</span>}
+              {m.text}
+            </div>
+          </div>
+        ))}
+        {error && (
+          <div style={{ margin: "6px auto 0", fontSize: "0.78rem", color: "#ef4444", background: "#1f0505", border: "1px solid #3f1010", padding: "10px 16px", borderRadius: 12, maxWidth: 320, textAlign: "center", lineHeight: 1.5 }}>
+            {error}
+          </div>
+        )}
+      </div>
+
+      {/* CONTROLS */}
+      {voiceState !== S.IDLE && (
+        <div style={{ flexShrink: 0, display: "flex", justifyContent: "center", padding: "0 18px max(env(safe-area-inset-bottom,0px),16px)" }}>
+          <button onPointerDown={endSession} style={{ background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.09)", color: "#777", cursor: "pointer", padding: "9px 22px", borderRadius: 22, fontSize: "0.78rem", touchAction: "manipulation" }}>
+            End conversation
+          </button>
+        </div>
+      )}
+
+      {/* DEBUG */}
+      <button onPointerDown={() => setDebugOpen((v) => !v)} style={{ position: "fixed", right: 14, bottom: "max(14px, env(safe-area-inset-bottom,0px))", zIndex: 70, background: "#b91c1c", color: "#fff", border: "1px solid #ef4444", borderRadius: 999, padding: "8px 12px", fontSize: "0.72rem", fontWeight: 800, touchAction: "manipulation" }}>
         DEBUG
       </button>
-
       {debugOpen && (
-        <div style={{
-          position: "fixed",
-          left: 12,
-          right: 12,
-          bottom: "max(58px, calc(env(safe-area-inset-bottom,0px) + 48px))",
-          maxHeight: "40dvh",
-          background: "rgba(8,10,20,0.96)",
-          border: "1px solid rgba(239,68,68,0.65)",
-          borderRadius: 12,
-          zIndex: 80,
-          display: "flex",
-          flexDirection: "column",
-          overflow: "hidden",
-          boxShadow: "0 18px 40px rgba(0,0,0,0.45)",
-        }}>
+        <div style={{ position: "fixed", left: 12, right: 12, bottom: "max(58px, calc(env(safe-area-inset-bottom,0px) + 48px))", maxHeight: "40dvh", background: "rgba(8,10,20,0.96)", border: "1px solid rgba(239,68,68,0.65)", borderRadius: 12, zIndex: 80, display: "flex", flexDirection: "column", overflow: "hidden" }}>
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, padding: "10px 12px", borderBottom: "1px solid rgba(239,68,68,0.30)" }}>
-            <strong style={{ fontSize: "0.76rem", letterSpacing: "0.05em", color: "#fca5a5" }}>VOICE DEBUG</strong>
+            <strong style={{ fontSize: "0.76rem", color: "#fca5a5" }}>VOICE DEBUG</strong>
             <div style={{ display: "flex", gap: 8 }}>
               <button onPointerDown={runTtsDebug} style={{ background: "rgba(255,255,255,0.08)", color: "#f1f5f9", border: "1px solid rgba(255,255,255,0.18)", borderRadius: 8, padding: "5px 8px", fontSize: "0.72rem" }}>Test TTS</button>
               <button onPointerDown={() => setDebugLogs([])} style={{ background: "rgba(255,255,255,0.08)", color: "#f1f5f9", border: "1px solid rgba(255,255,255,0.18)", borderRadius: 8, padding: "5px 8px", fontSize: "0.72rem" }}>Clear</button>
             </div>
           </div>
-          <div style={{ overflowY: "auto", padding: "10px 12px 14px", fontFamily: "ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace", fontSize: "0.69rem", color: "#e2e8f0", lineHeight: 1.5 }}>
-            {debugLogs.length ? debugLogs.map((line, idx) => <div key={idx}>{line}</div>) : <div style={{ color: "#94a3b8" }}>No logs yet. Tap orb once to start diagnostics.</div>}
+          <div style={{ overflowY: "auto", padding: "10px 12px 14px", fontFamily: "ui-monospace, Menlo, monospace", fontSize: "0.69rem", color: "#e2e8f0", lineHeight: 1.5 }}>
+            {debugLogs.length ? debugLogs.map((line, idx) => <div key={idx}>{line}</div>) : <div style={{ color: "#94a3b8" }}>No logs yet.</div>}
           </div>
         </div>
       )}
 
-      <style>{`
-        @keyframes vp-pulse { 0%,100%{opacity:1;transform:scale(1)} 50%{opacity:0.4;transform:scale(1.2)} }
-        @keyframes vp-dots  { 0%,80%,100%{opacity:0.2} 40%{opacity:1} }
-        @keyframes vp-spin  { to{transform:rotate(360deg)} }
-      `}</style>
+      <style>{`@keyframes vp-pulse { 0%,100%{opacity:1;transform:scale(1)} 50%{opacity:0.4;transform:scale(1.2)} }`}</style>
     </div>
   );
 }

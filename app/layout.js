@@ -1,6 +1,7 @@
 import "./globals.css";
 import BottomNav from "./components/BottomNav";
 import Telemetry from "./components/Telemetry";
+import SwCleanup from "./components/SwCleanup";
 
 export const metadata = {
   title: "NutriTrack",
@@ -29,6 +30,7 @@ export default function RootLayout({ children }) {
   return (
     <html lang="en">
       <body>
+        <SwCleanup />
         {children}
         <BottomNav />
         <Telemetry />
