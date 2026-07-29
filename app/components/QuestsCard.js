@@ -84,14 +84,33 @@ export default function QuestsCard({ quests }) {
               </div>
               <div
                 style={{
-                  fontSize: "0.68rem",
-                  fontWeight: 700,
-                  color: q.done ? "#22c55e" : "#555",
+                  display: "flex",
+                  flexDirection: "column",
+                  alignItems: "flex-end",
+                  gap: 3,
                   flexShrink: 0,
-                  fontVariantNumeric: "tabular-nums",
                 }}
               >
-                {q.done ? "✓ Done" : `${q.current}/${q.max}${q.unit || ""}`}
+                <div
+                  style={{
+                    fontSize: "0.72rem",
+                    fontWeight: 800,
+                    color: q.done ? "#22c55e" : "#d4d4d8",
+                    fontVariantNumeric: "tabular-nums",
+                  }}
+                >
+                  {q.done ? "✓" : `${q.current}/${q.max}${q.unit || ""}`}
+                </div>
+                <div
+                  style={{
+                    fontSize: "0.58rem",
+                    fontWeight: 800,
+                    letterSpacing: 0.2,
+                    color: q.done ? "#22c55e" : "#a78bfa",
+                  }}
+                >
+                  +{q.xp} XP
+                </div>
               </div>
             </div>
           );

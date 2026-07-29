@@ -919,6 +919,25 @@ export default function Home() {
     toastTimer.current = setTimeout(() => setToast(null), 3400);
   };
 
+  // Insert one food_logs row. If the DB doesn't have the `meal` column yet
+  // (docs/meal-column.sql not run), the first insert fails with PGRST204
+  // ("column not found in schema cache"); retry WITHOUT meal so a log is never
+  // silently lost — grouping just falls back to time-of-day until the column
+  // exists. Returns the Supabase { data, error } result.
+  const insertFoodLog = async (insert) => {
+    const res = await supabase.from("food_logs").insert(insert).select().single();
+    const mealColumnMissing =
+      res.error &&
+      insert.meal !== undefined &&
+      (res.error.code === "PGRST204" || /meal/i.test(res.error.message || ""));
+    if (mealColumnMissing) {
+      const withoutMeal = { ...insert };
+      delete withoutMeal.meal;
+      return supabase.from("food_logs").insert(withoutMeal).select().single();
+    }
+    return res;
+  };
+
   // ── Add (append-only) ───────────────────────────────────────────────────────
   // Each item becomes its own food_logs row with a real created_at, so meal-time
   // grouping is accurate and Undo just deletes the batch. No Save step.
@@ -966,11 +985,7 @@ export default function Home() {
     // persist each row; swap temp id → real id on success, roll back on failure
     rows.forEach((row) => {
       const { id: tempId, ...insert } = row;
-      const p = supabase
-        .from("food_logs")
-        .insert(insert)
-        .select()
-        .single()
+      const p = insertFoodLog(insert)
         .then(({ data, error }) => {
           if (error || !data) throw error || new Error("insert failed");
           idSet.delete(tempId);
@@ -981,7 +996,10 @@ export default function Home() {
           delete pendingRef.current[tempId];
           return data.id;
         })
-        .catch(() => {
+        .catch((err) => {
+          // Surface the reason instead of failing silently, then roll back the
+          // optimistic row so the UI matches what actually persisted.
+          console.error("Could not save food log:", err?.message || err);
           setLogs((prev) => prev.filter((l) => l.id !== tempId));
           delete pendingRef.current[tempId];
         });
@@ -1085,9 +1103,11 @@ export default function Home() {
     for (const q of quests) {
       if (q.done && !questPrevRef.current.has(q.id)) {
         setCelebration({ id: Date.now(), kind: "quest", icon: q.icon, title: q.title });
+        if (q.xp) awardXp(q.xp); // bonus XP for finishing the goal
       }
     }
     questPrevRef.current = doneNow;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [quests]);
 
   const level = useMemo(() => levelFromXp(totalXp), [totalXp]);
@@ -2031,7 +2051,10 @@ export default function Home() {
       <header
         className="header-row"
         style={{
-          padding: "14px 20px 12px",
+          // viewportFit:"cover" lets the page draw under the status bar/notch,
+          // so the sticky header must pad the top inset or it hides behind the
+          // iOS clock/battery (the bottom nav already pads its own inset).
+          padding: "calc(14px + env(safe-area-inset-top, 0px)) 20px 12px",
           borderBottom: "1px solid #1a1a1e",
           width: "100%",
           display: "flex",

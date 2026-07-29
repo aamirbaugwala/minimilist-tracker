@@ -44,31 +44,45 @@ export function didLevelUp(prevXp, gain) {
  * @param {object} totals  today's running totals { calories, protein, fiber, water, ... }
  * @param {object} targets calculateTargets() output { p, fib, water, ... }
  * @param {number} mealCount number of non-water logs today
- * @returns {Array} [{ id, icon, title, current, max, unit, done }]
+ * @returns {Array} [{ id, icon, title, current, max, unit, xp, done }]
+ *
+ * Goals are concrete and health-driving (protein / hydration / fibre / a full
+ * day of meals) rather than abstract, and each carries a bonus XP reward so
+ * finishing one is worth coming back for.
  */
 export function computeQuests({ totals = {}, targets = {}, mealCount = 0 }) {
+  const proteinTarget = Math.round(targets.p || 150);
+  const fibreTarget = Math.round(targets.fib || 30);
+  // Hydration target is in litres; a "glass" is 0.25 L (matches the water card).
+  const glassTarget = Math.max(1, Math.round((targets.water || 2.5) / 0.25));
+
   const q = [
-    {
-      id: "meals",
-      icon: "🍽",
-      title: "Log 3 meals",
-      current: Math.min(mealCount, 3),
-      max: 3,
-    },
+
     {
       id: "protein",
       icon: "💪",
       title: "Hit your protein goal",
-      current: Math.min(Math.round(totals.protein || 0), Math.round(targets.p || 150)),
-      max: Math.round(targets.p || 150),
+      current: Math.min(Math.round(totals.protein || 0), proteinTarget),
+      max: proteinTarget,
       unit: "g",
+      xp: 60,
     },
     {
-      id: "rainbow",
-      icon: "🌈",
-      title: "Rainbow day — all 4 macros",
-      current: ["protein", "carbs", "fats", "fiber"].filter((k) => (totals[k] || 0) > 0).length,
-      max: 4,
+      id: "hydrate",
+      icon: "💧",
+      title: "Finish your water",
+      current: Math.min(Math.round(totals.water || 0), glassTarget),
+      max: glassTarget,
+      xp: 40,
+    },
+    {
+      id: "fibre",
+      icon: "🥗",
+      title: "Reach your fibre goal",
+      current: Math.min(Math.round(totals.fiber || 0), fibreTarget),
+      max: fibreTarget,
+      unit: "g",
+      xp: 40,
     },
   ];
   return q.map((x) => ({ ...x, done: x.current >= x.max }));
