@@ -3,23 +3,13 @@
 import { Utensils, Loader2, Edit3, Trash2 } from "lucide-react";
 import { calculateTargets } from "../lib/nutrition";
 
-// ── Meal period helper ──────────────────────────────────────────────────────
-// Returns { label, icon, order } from a created_at ISO string or "now"
-function getMealPeriod(createdAt) {
-  const h = createdAt ? new Date(createdAt).getHours() : new Date().getHours();
-  if (h >= 5 && h < 11) return { label: "Breakfast", icon: "☀️", order: 0 };
-  if (h >= 11 && h < 15) return { label: "Lunch", icon: "🌤️", order: 1 };
-  if (h >= 15 && h < 18) return { label: "Snacks", icon: "🍵", order: 2 };
-  if (h >= 18 && h < 22) return { label: "Dinner", icon: "🌙", order: 3 };
-  return { label: "Late Night", icon: "🌑", order: 4 };
-}
+import { defaultMeal, mealMeta } from "../lib/mealPeriod";
 
 export default function Timeline({
   logs,
   loading,
   totals,
   userProfile,
-  hasUnsavedChanges,
   openEditModal,
   deleteLog,
 }) {
@@ -64,21 +54,20 @@ export default function Timeline({
               </span>
             )}
           </div>
-          {hasUnsavedChanges && (
-            <span
-              style={{
-                background: "rgba(245,158,11,0.1)",
-                border: "1px solid rgba(245,158,11,0.25)",
-                color: "#f59e0b",
-                fontSize: "0.7rem",
-                fontWeight: 700,
-                padding: "2px 10px",
-                borderRadius: 10,
-              }}
-            >
-              Unsaved
-            </span>
-          )}
+          {/* Auto-saved (Phase 0): every log persists instantly — no Save button. */}
+          <span
+            style={{
+              display: "inline-flex",
+              alignItems: "center",
+              gap: 4,
+              color: "#22c55e",
+              fontSize: "0.66rem",
+              fontWeight: 700,
+            }}
+          >
+            <span style={{ width: 6, height: 6, borderRadius: "50%", background: "#22c55e" }} />
+            Auto-saved
+          </span>
         </div>
 
         {/* Calorie budget bar */}
@@ -147,13 +136,16 @@ export default function Timeline({
           </div>
         ) : (
           (() => {
-            /* Group logs by meal period */
+            /* Group logs by the meal the user filed them under. Older logs
+               (no meal stored) fall back to their time-of-day bucket. */
             const groups = {};
             logs.forEach((log) => {
-              const period = getMealPeriod(log.created_at);
-              if (!groups[period.label])
-                groups[period.label] = { ...period, items: [] };
-              groups[period.label].items.push(log);
+              const label = log.meal || defaultMeal(log.created_at);
+              if (!groups[label]) {
+                const meta = mealMeta(label);
+                groups[label] = { label, icon: meta.icon, order: meta.order, items: [] };
+              }
+              groups[label].items.push(log);
             });
             const sortedGroups = Object.values(groups).sort(
               (a, b) => a.order - b.order,
@@ -209,7 +201,7 @@ export default function Timeline({
                       style={{
                         background: isWater
                           ? "rgba(59,130,246,0.07)"
-                          : "#111116",
+                          : "linear-gradient(180deg, #15151b, #0f0f13)",
                         border: isWater
                           ? "1px solid rgba(59,130,246,0.2)"
                           : "1px solid #1e1e26",

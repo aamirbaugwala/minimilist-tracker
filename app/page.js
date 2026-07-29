@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useRef } from "react";
 import { useRouter } from "next/navigation";
 import {
   Search,
@@ -14,22 +14,35 @@ import {
   Target,
   KeyRound,
   Settings,
-  Zap,
-  Award,
-  Battery,
   PlusCircle,
   Scale,
 } from "lucide-react";
 import { FOOD_CATEGORIES, FLATTENED_DB } from "./food-data";
 import { supabase } from "./supabase";
 import { calculateTargets } from "./lib/nutrition";
-import { deriveConditions } from "./lib/conditions";
+import {
+  deriveConditions,
+  conditionsFromProfile,
+  mergeConditions,
+} from "./lib/conditions";
+import OnboardingModal from "./components/OnboardingModal";
 import { useAuth } from "./hooks/useAuth";
 import StatsBoard from "./components/StatsBoard";
 import AuthScreen from "./components/AuthScreen";
 import SettingsModal from "./components/SettingsModal";
 import FoodLogger from "./components/FoodLogger";
 import Timeline from "./components/Timeline";
+import RewardLayer from "./components/RewardLayer";
+import QuestsCard from "./components/QuestsCard";
+import CaptureBar from "./components/CaptureBar";
+import { defaultMeal } from "./lib/mealPeriod";
+import {
+  xpForLog,
+  levelFromXp,
+  didLevelUp,
+  computeQuests,
+  completedQuestIds,
+} from "./lib/gamification";
 export default function Home() {
   const router = useRouter();
   const {
@@ -44,10 +57,20 @@ export default function Home() {
   } = useAuth();
   const [loading, setLoading] = useState(true);
   const [logs, setLogs] = useState([]);
-  const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
-  // Add this with your other UI states in the Home component
   const [showAuth, setShowAuth] = useState(false);
-  const [isSaving, setIsSaving] = useState(false);
+
+  // ── Phase 1/3: reward + game state ──────────────────────────────────────────
+  const [floats, setFloats] = useState([]); // floating +kcal / +XP bursts
+  const [toast, setToast] = useState(null); // { name } — auto-save + undo
+  const [celebration, setCelebration] = useState(null); // quest / level-up
+  const [totalXp, setTotalXp] = useState(0);
+  const totalXpRef = useRef(0);
+  const lastAddRef = useRef(null); // last batch, for Undo
+  const pendingRef = useRef({}); // tempId -> Promise<realId> (insert reconcile)
+  const floatSeq = useRef(0);
+  const toastTimer = useRef(null);
+  const questPrevRef = useRef(null); // completed quest ids, to detect new ones
+
   const [totals, setTotals] = useState({
     calories: 0,
     protein: 0,
@@ -67,8 +90,6 @@ export default function Home() {
   const [isSettingGoal, setIsSettingGoal] = useState(false);
   const [settingsTab, setSettingsTab] = useState("profile");
   const [showPasswordSetup, setShowPasswordSetup] = useState(false);
-  const [showWelcome, setShowWelcome] = useState(false);
-  const [welcomeStep, setWelcomeStep] = useState(1);
 
   // --- EDIT LOG STATE ---
   const [isEditingLog, setIsEditingLog] = useState(false);
@@ -78,7 +99,9 @@ export default function Home() {
   // --- CUSTOM FOODS & MANUAL ENTRY STATE ---
   const [customFoods, setCustomFoods] = useState([]);
   // Derived from the user's blood work; empty when they have no reports.
-  const [conditions, setConditions] = useState([]);
+  // Conditions from blood reports; merged with self-reported ones below.
+  const [biomarkerConditions, setBiomarkerConditions] = useState([]);
+  const [showOnboarding, setShowOnboarding] = useState(false);
   const [isManualEntryOpen, setIsManualEntryOpen] = useState(false);
   const [manualFood, setManualFood] = useState({
     name: "",
@@ -103,6 +126,14 @@ export default function Home() {
     goal: "lose",
     target_calories: "",
   });
+
+  // Blood-report conditions + self-reported ones, merged. Recomputes when either
+  // the reports load or the user edits their health profile, so targets stay live.
+  const conditions = useMemo(
+    () => mergeConditions(biomarkerConditions, conditionsFromProfile(userProfile)),
+    [biomarkerConditions, userProfile],
+  );
+
   const [newPassword, setNewPassword] = useState("");
   const [username, setUsername] = useState("");
   const [mealBuilderItems, setMealBuilderItems] = useState([]);
@@ -113,6 +144,9 @@ export default function Home() {
   // UI & Auth
   const [qty, setQty] = useState(1);
   const [query, setQuery] = useState("");
+  // Which meal new logs are filed under (user's explicit choice); starts on the
+  // sensible one for the current time.
+  const [selectedMeal, setSelectedMeal] = useState(() => defaultMeal());
   const [activeCategory, setActiveCategory] = useState("Recent");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -445,7 +479,6 @@ export default function Home() {
         return { ...log, fiber: 0 };
       });
       setLogs(enrichedLogs);
-      setHasUnsavedChanges(false);
     }
 
     const { data: history } = await supabase
@@ -510,8 +543,21 @@ export default function Home() {
         if (seededName) setUsername(seededName);
       }
 
+      // First run: no profile, or no weight yet → auto-open the goal setter.
+      if (!profile || !profile.weight) setShowOnboarding(true);
+
       const { data: custom } = await supabase.from("custom_foods").select("*");
       if (custom) setCustomFoods(custom);
+
+      // Lifetime XP for the level bar (Phase 3). Absent row → level 1.
+      const { data: gam } = await supabase
+        .from("user_gamification")
+        .select("total_xp")
+        .eq("user_id", session.user.id)
+        .maybeSingle();
+      const xp = gam?.total_xp || 0;
+      setTotalXp(xp);
+      totalXpRef.current = xp;
 
       // Blood work drives target adjustments (see lib/conditions.js). Only the
       // columns needed to resolve markers — the analysis text is large and
@@ -521,7 +567,7 @@ export default function Home() {
         .from("medical_reports")
         .select("flags, report_date, created_at")
         .eq("user_id", session.user.id);
-      setConditions(deriveConditions(medical || []));
+      setBiomarkerConditions(deriveConditions(medical || []));
     }
   };
 
@@ -570,10 +616,8 @@ export default function Home() {
   useEffect(() => {
     if (session) {
       fetchData();
-      fetchUserData();
+      fetchUserData(); // opens onboarding automatically for incomplete profiles
       calculateStreak();
-      const hasSeen = localStorage.getItem("hasSeenWelcome");
-      if (!hasSeen) setShowWelcome(true);
     } else {
       setLogs([]);
       setLoading(false);
@@ -611,9 +655,42 @@ export default function Home() {
       });
   }, [session, router]);
 
-  const closeWelcome = () => {
-    localStorage.setItem("hasSeenWelcome", "true");
-    setShowWelcome(false);
+  // Persist the first-run goal setter: profile (incl. health fields) + a
+  // goal_history snapshot so past days keep their original targets.
+  const completeOnboarding = async (draft) => {
+    if (!session) return;
+    const payload = {
+      user_id: session.user.id,
+      weight: draft.weight ? Number(draft.weight) : null,
+      height: draft.height ? Number(draft.height) : null,
+      age: draft.age ? Number(draft.age) : null,
+      gender: draft.gender,
+      activity: draft.activity,
+      goal: draft.goal,
+      calorie_adjustment: Number(draft.calorie_adjustment ?? 0),
+      protein_priority: draft.protein_priority || "balanced",
+      health_conditions: draft.health_conditions || [],
+      dietary_pattern: draft.dietary_pattern || null,
+      allergies: draft.allergies || [],
+      updated_at: new Date(),
+    };
+    const { error } = await supabase
+      .from("user_profiles")
+      .upsert(payload, { onConflict: "user_id" });
+    if (error) {
+      alert("Could not save your setup — please try again.");
+      return;
+    }
+    await supabase.from("goal_history").insert({
+      user_id: session.user.id,
+      goal: draft.goal,
+      activity: draft.activity,
+      calorie_adjustment: Number(draft.calorie_adjustment ?? 0),
+      protein_priority: draft.protein_priority || "balanced",
+      effective_from: new Date().toISOString().slice(0, 10),
+    });
+    setUserProfile((prev) => ({ ...prev, ...payload }));
+    setShowOnboarding(false);
   };
 
   const saveGoal = async () => {
@@ -777,74 +854,159 @@ export default function Home() {
     setQuery("");
   };
 
-  const handleLocalAdd = (itemsToAdd) => {
-    setHasUnsavedChanges(true);
-    setLogs((currentLogs) => {
-      let updatedLogs = [...currentLogs];
-      itemsToAdd.forEach((newItem) => {
-        const foodName = newItem.name;
-        const quantity = Number(newItem.qty);
-        let baseData = {
-          calories: newItem.calories || 0,
-          protein: newItem.protein || 0,
-          carbs: newItem.carbs || 0,
-          fats: newItem.fats || 0,
-          fiber: newItem.fiber || 0,
-        };
+  // ── Per-row persistence (Phase 0) ───────────────────────────────────────────
+  // A just-added row starts with a temp id and reconciles to its DB id in the
+  // background. resolveRowId() lets a later edit/delete wait for that reconcile
+  // so it never targets a temp id.
+  const resolveRowId = (id) =>
+    pendingRef.current[id] ? pendingRef.current[id] : Promise.resolve(id);
 
-        if (foodName !== "Water" && baseData.calories === 0 && !newItem.isWeb) {
-          let dbData = COMBINED_DB[foodName.toLowerCase()];
-          if (!dbData) {
-            const key = Object.keys(COMBINED_DB).find((k) =>
-              k.includes(foodName.toLowerCase()),
-            );
-            if (key) dbData = COMBINED_DB[key];
-          }
-          if (dbData) baseData = dbData;
-        }
+  // Per-unit macros for a food (from the item, or looked up in COMBINED_DB).
+  const perUnitMacros = (item) => {
+    let base = {
+      calories: item.calories || 0,
+      protein: item.protein || 0,
+      carbs: item.carbs || 0,
+      fats: item.fats || 0,
+      fiber: item.fiber || 0,
+    };
+    if (item.name !== "Water" && base.calories === 0 && !item.isWeb) {
+      let db = COMBINED_DB[item.name.toLowerCase()];
+      if (!db) {
+        const key = Object.keys(COMBINED_DB).find((k) =>
+          k.includes(item.name.toLowerCase()),
+        );
+        if (key) db = COMBINED_DB[key];
+      }
+      if (db) base = db;
+    }
+    return base;
+  };
 
-        const existingIndex = updatedLogs.findIndex((l) => l.name === foodName);
-        if (existingIndex !== -1) {
-          const existingLog = updatedLogs[existingIndex];
-          const newQty = Number(existingLog.qty) + quantity;
-          updatedLogs[existingIndex] = {
-            ...existingLog,
-            qty: newQty,
-            calories: Math.round(baseData.calories * newQty),
-            protein: Math.round(baseData.protein * newQty),
-            carbs: Math.round(baseData.carbs * newQty),
-            fats: Math.round(baseData.fats * newQty),
-            fiber: Math.round(baseData.fiber * newQty),
-          };
-        } else {
-          updatedLogs = [
-            {
-              id: Math.random(),
-              name: foodName,
-              qty: quantity,
-              calories: Math.round(baseData.calories * quantity),
-              protein: Math.round(baseData.protein * quantity),
-              carbs: Math.round(baseData.carbs * quantity),
-              fats: Math.round(baseData.fats * quantity),
-              fiber: Math.round(baseData.fiber * quantity),
-              date: new Date().toISOString().slice(0, 10),
-              user_id: session.user.id,
-            },
-            ...updatedLogs,
-          ];
-        }
+  // ── XP (Phase 3) — optimistic, atomic in the DB, with level-up celebration ──
+  const awardXp = (delta) => {
+    if (!delta || !session) return;
+    const prev = totalXpRef.current;
+    const next = Math.max(0, prev + delta);
+    totalXpRef.current = next;
+    setTotalXp(next);
+    if (delta > 0 && didLevelUp(prev, delta)) {
+      setCelebration({
+        id: Date.now(),
+        kind: "level",
+        icon: "⬆️",
+        title: `Level ${levelFromXp(next).level}!`,
       });
-      return updatedLogs;
+    }
+    supabase.rpc("add_xp", { amount: delta }).catch(() => {});
+  };
+
+  // ── Reward burst + Undo toast (Phase 1) ─────────────────────────────────────
+  const fireReward = (kcal, xp, label, idSet) => {
+    const base = ++floatSeq.current;
+    // Water and other 0-kcal logs shouldn't flash "+0" — show just the XP,
+    // centered, in that case.
+    const bursts = kcal > 0
+      ? [
+          { id: base + "a", text: `+${kcal}`, color: "#fff", dx: -34 },
+          { id: base + "b", text: `+${xp} XP`, color: "#a78bfa", dx: 22 },
+        ]
+      : [{ id: base + "b", text: `+${xp} XP`, color: "#a78bfa", dx: -18 }];
+    setFloats((f) => [...f, ...bursts]);
+    lastAddRef.current = { idSet, xp, label };
+    setToast({ name: label });
+    clearTimeout(toastTimer.current);
+    toastTimer.current = setTimeout(() => setToast(null), 3400);
+  };
+
+  // ── Add (append-only) ───────────────────────────────────────────────────────
+  // Each item becomes its own food_logs row with a real created_at, so meal-time
+  // grouping is accurate and Undo just deletes the batch. No Save step.
+  const handleLocalAdd = (itemsToAdd) => {
+    if (!session) return;
+    const createdAt = new Date().toISOString();
+    const dateKey = createdAt.slice(0, 10);
+    const idSet = new Set();
+
+    // File everything in this batch under the meal the user has selected.
+    const meal = selectedMeal || defaultMeal(createdAt);
+    const rows = itemsToAdd.map((item) => {
+      const quantity = Number(item.qty) || 1;
+      const base = perUnitMacros(item);
+      const tempId = "tmp_" + Math.random().toString(36).slice(2);
+      idSet.add(tempId);
+      return {
+        id: tempId,
+        name: item.name,
+        qty: quantity,
+        calories: Math.round(base.calories * quantity),
+        protein: Math.round(base.protein * quantity),
+        carbs: Math.round(base.carbs * quantity),
+        fats: Math.round(base.fats * quantity),
+        fiber: Math.round((base.fiber || 0) * quantity),
+        meal,
+        date: dateKey,
+        created_at: createdAt,
+        user_id: session.user.id,
+      };
+    });
+
+    // optimistic — newest first
+    setLogs((prev) => [...rows.slice().reverse(), ...prev]);
+
+    const kcal = rows.reduce((s, r) => s + r.calories, 0);
+    const xp = rows.reduce((s, r) => s + xpForLog(r), 0);
+    const label = rows.length === 1 ? rows[0].name : `${rows.length} items`;
+    fireReward(kcal, xp, label, idSet);
+    awardXp(xp);
+    if (typeof navigator !== "undefined" && navigator.vibrate) {
+      try { navigator.vibrate(16); } catch { /* ignore */ }
+    }
+
+    // persist each row; swap temp id → real id on success, roll back on failure
+    rows.forEach((row) => {
+      const { id: tempId, ...insert } = row;
+      const p = supabase
+        .from("food_logs")
+        .insert(insert)
+        .select()
+        .single()
+        .then(({ data, error }) => {
+          if (error || !data) throw error || new Error("insert failed");
+          idSet.delete(tempId);
+          idSet.add(data.id);
+          setLogs((prev) =>
+            prev.map((l) => (l.id === tempId ? { ...l, id: data.id } : l)),
+          );
+          delete pendingRef.current[tempId];
+          return data.id;
+        })
+        .catch(() => {
+          setLogs((prev) => prev.filter((l) => l.id !== tempId));
+          delete pendingRef.current[tempId];
+        });
+      pendingRef.current[tempId] = p;
     });
   };
 
+  const undoLastAdd = () => {
+    const last = lastAddRef.current;
+    if (!last) return;
+    const ids = [...last.idSet]; // snapshot; may be temp or reconciled
+    const idsSet = new Set(ids);
+    setLogs((prev) => prev.filter((l) => !idsSet.has(l.id)));
+    ids.forEach((id) => {
+      resolveRowId(id)
+        .then((realId) => supabase.from("food_logs").delete().eq("id", realId))
+        .catch(() => {});
+    });
+    awardXp(-last.xp);
+    lastAddRef.current = null;
+    setToast(null);
+  };
+
   const addFood = (foodName, overrideQty = null, explicitMacros = null) => {
-    const item = {
-      name: foodName,
-      qty: overrideQty || qty,
-      ...explicitMacros,
-    };
-    handleLocalAdd([item]);
+    handleLocalAdd([{ name: foodName, qty: overrideQty || qty, ...explicitMacros }]);
     if (!overrideQty && foodName !== "Water") {
       setQty(1);
       setQuery("");
@@ -853,9 +1015,12 @@ export default function Home() {
   const loadMeal = (meal) => {
     handleLocalAdd(meal.items);
   };
+
   const deleteLog = (id) => {
-    setHasUnsavedChanges(true);
     setLogs((prev) => prev.filter((l) => l.id !== id));
+    resolveRowId(id)
+      .then((realId) => supabase.from("food_logs").delete().eq("id", realId))
+      .catch(() => {});
   };
 
   const openEditModal = (log) => {
@@ -871,61 +1036,82 @@ export default function Home() {
     if (newQ <= 0) {
       deleteLog(currentLogToEdit.id);
       setIsEditingLog(false);
+      setCurrentLogToEdit(null);
       return;
     }
 
-    const oldQ = currentLogToEdit.qty;
-    const ratio = newQ / oldQ;
-
-    setLogs((prevLogs) =>
-      prevLogs.map((log) => {
-        if (log.id === currentLogToEdit.id) {
-          return {
-            ...log,
-            qty: newQ,
-            calories: Math.round(log.calories * ratio),
-            protein: Math.round(log.protein * ratio),
-            carbs: Math.round(log.carbs * ratio),
-            fats: Math.round(log.fats * ratio),
-            fiber: Math.round((log.fiber || 0) * ratio),
-          };
-        }
-        return log;
-      }),
+    const ratio = newQ / currentLogToEdit.qty;
+    const patch = {
+      qty: newQ,
+      calories: Math.round(currentLogToEdit.calories * ratio),
+      protein: Math.round(currentLogToEdit.protein * ratio),
+      carbs: Math.round(currentLogToEdit.carbs * ratio),
+      fats: Math.round(currentLogToEdit.fats * ratio),
+      fiber: Math.round((currentLogToEdit.fiber || 0) * ratio),
+    };
+    setLogs((prev) =>
+      prev.map((l) => (l.id === currentLogToEdit.id ? { ...l, ...patch } : l)),
     );
+    resolveRowId(currentLogToEdit.id)
+      .then((realId) => supabase.from("food_logs").update(patch).eq("id", realId))
+      .catch(() => {});
 
-    setHasUnsavedChanges(true);
     setIsEditingLog(false);
     setCurrentLogToEdit(null);
   };
 
-  const saveChanges = async () => {
-    if (!session) return;
-    setIsSaving(true);
-    const todayKey = new Date().toISOString().slice(0, 10);
-    try {
-      await supabase
-        .from("food_logs")
-        .delete()
-        .eq("user_id", session.user.id)
-        .eq("date", todayKey);
-      const OMIT = new Set(["id", "created_at"]);
-      const cleanLogs = logs.map((log) => ({
-        ...Object.fromEntries(
-          Object.entries(log).filter(([k]) => !OMIT.has(k)),
-        ),
-        user_id: session.user.id,
-        date: todayKey,
-      }));
-      if (cleanLogs.length > 0)
-        await supabase.from("food_logs").insert(cleanLogs);
-      setHasUnsavedChanges(false);
-      await fetchData(true);
-    } catch {
-      alert("Save failed");
-    } finally {
-      setIsSaving(false);
+  // ── Daily quests (Phase 3) — derived from today's logs; reset at midnight ──
+  const mealCount = useMemo(
+    () => logs.filter((l) => l.name !== "Water").length,
+    [logs],
+  );
+  const quests = useMemo(
+    () =>
+      computeQuests({
+        totals,
+        targets: calculateTargets(userProfile, conditions),
+        mealCount,
+      }),
+    [totals, userProfile, conditions, mealCount],
+  );
+  // Celebrate a quest the moment it flips to complete — but not the ones already
+  // complete when the page loads.
+  useEffect(() => {
+    const doneNow = completedQuestIds(quests);
+    if (questPrevRef.current === null) {
+      questPrevRef.current = doneNow;
+      return;
     }
+    for (const q of quests) {
+      if (q.done && !questPrevRef.current.has(q.id)) {
+        setCelebration({ id: Date.now(), kind: "quest", icon: q.icon, title: q.title });
+      }
+    }
+    questPrevRef.current = doneNow;
+  }, [quests]);
+
+  const level = useMemo(() => levelFromXp(totalXp), [totalXp]);
+
+  // ── Capture shortcuts (Phase 2) ─────────────────────────────────────────────
+  const handleVoice = () => router.push("/voice");
+  const handleSearchFocus = () => {
+    const sec = document.querySelector(".command-center");
+    if (sec) sec.scrollIntoView({ behavior: "smooth", block: "start" });
+    const input = document.querySelector(".command-center input");
+    if (input) setTimeout(() => input.focus(), 300);
+  };
+  const handleSnap = (file) => {
+    // Hand the photo to the AI Coach, which identifies items and logs them.
+    const reader = new FileReader();
+    reader.onload = () => {
+      try {
+        sessionStorage.setItem("nt_meal_photo", String(reader.result));
+      } catch {
+        /* storage blocked — the coach still opens */
+      }
+      router.push("/agent?photo=1");
+    };
+    reader.readAsDataURL(file);
   };
 
   const openMealBuilder = (mealToEdit = null) => {
@@ -1161,7 +1347,13 @@ export default function Home() {
       className="app-wrapper"
       style={{
         minHeight: "100vh",
-        paddingBottom: 100,
+        // Kill the .app-wrapper CSS *horizontal* padding (sections own their
+        // own 20px sides) so the sticky header reaches the screen edges and
+        // content isn't double-inset — but keep a real vertical gap so the
+        // stacked cards breathe instead of sitting wall-to-wall.
+        padding: 0,
+        gap: 14,
+        paddingBottom: "calc(100px + env(safe-area-inset-bottom, 0px))",
         width: "100%",
         overflowX: "hidden",
         position: "relative",
@@ -1417,166 +1609,13 @@ export default function Home() {
         </div>
       )}
 
-      {/* WELCOME MODAL */}
-      {showWelcome && (
-        <div className="modal-overlay" style={{ zIndex: 10000 }}>
-          <div
-            className="modal-content"
-            style={{
-              maxWidth: 350,
-              width: "90%",
-              textAlign: "center",
-              border: "1px solid #333",
-              background: "#18181b",
-              padding: 30,
-            }}
-          >
-            {welcomeStep === 1 && (
-              <div className="animate-fadeIn">
-                <div
-                  style={{
-                    background: "rgba(245, 158, 11, 0.1)",
-                    padding: 20,
-                    borderRadius: "50%",
-                    width: 80,
-                    height: 80,
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "center",
-                    margin: "0 auto 20px",
-                  }}
-                >
-                  <Battery size={40} color="#f59e0b" />
-                </div>
-                <h2 style={{ margin: "0 0 10px 0", fontSize: "1.6rem" }}>
-                  Food is Fuel ⛽️
-                </h2>
-                <p style={{ color: "#aaa", lineHeight: 1.6, marginBottom: 30 }}>
-                  Think of your body as a high-performance engine. Calories are
-                  just the energy unit to keep it running.
-                </p>
-                <button
-                  onClick={() => setWelcomeStep(2)}
-                  style={{
-                    width: "100%",
-                    padding: 14,
-                    background: "var(--brand)",
-                    border: "none",
-                    color: "#fff",
-                    borderRadius: 12,
-                    fontWeight: 700,
-                    cursor: "pointer",
-                  }}
-                >
-                  Next
-                </button>
-              </div>
-            )}
-            {welcomeStep === 2 && (
-              <div className="animate-fadeIn">
-                <div
-                  style={{
-                    background: "rgba(59, 130, 246, 0.1)",
-                    padding: 20,
-                    borderRadius: "50%",
-                    width: 80,
-                    height: 80,
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "center",
-                    margin: "0 auto 20px",
-                  }}
-                >
-                  <Zap size={40} color="#3b82f6" />
-                </div>
-                <h2 style={{ margin: "0 0 10px 0", fontSize: "1.6rem" }}>
-                  Your Daily Budget 💳
-                </h2>
-                <p style={{ color: "#aaa", lineHeight: 1.6, marginBottom: 30 }}>
-                  We gave you a specific <b>Calorie Target</b>. Spend it wisely
-                  on Protein, Carbs, and Fats to win the day!
-                </p>
-                <button
-                  onClick={() => setWelcomeStep(3)}
-                  style={{
-                    width: "100%",
-                    padding: 14,
-                    background: "var(--brand)",
-                    border: "none",
-                    color: "#fff",
-                    borderRadius: 12,
-                    fontWeight: 700,
-                    cursor: "pointer",
-                  }}
-                >
-                  Next
-                </button>
-              </div>
-            )}
-            {welcomeStep === 3 && (
-              <div className="animate-fadeIn">
-                <div
-                  style={{
-                    background: "rgba(34, 197, 94, 0.1)",
-                    padding: 20,
-                    borderRadius: "50%",
-                    width: 80,
-                    height: 80,
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "center",
-                    margin: "0 auto 20px",
-                  }}
-                >
-                  <Award size={40} color="#22c55e" />
-                </div>
-                <h2 style={{ margin: "0 0 10px 0", fontSize: "1.6rem" }}>
-                  Your Mission 🎯
-                </h2>
-                <p style={{ color: "#aaa", lineHeight: 1.6, marginBottom: 30 }}>
-                  Consistency is the only cheat code. Hit your numbers, log
-                  everyday, and watch your body change.
-                </p>
-                <button
-                  onClick={closeWelcome}
-                  style={{
-                    width: "100%",
-                    padding: 14,
-                    background: "#22c55e",
-                    border: "none",
-                    color: "#000",
-                    borderRadius: 12,
-                    fontWeight: 700,
-                    cursor: "pointer",
-                  }}
-                >
-                  Let&apos;s Go!
-                </button>
-              </div>
-            )}
-            <div
-              style={{
-                display: "flex",
-                justifyContent: "center",
-                gap: 8,
-                marginTop: 20,
-              }}
-            >
-              {[1, 2, 3].map((s) => (
-                <div
-                  key={s}
-                  style={{
-                    width: 8,
-                    height: 8,
-                    borderRadius: "50%",
-                    background: s === welcomeStep ? "#fff" : "#333",
-                    transition: "0.3s",
-                  }}
-                ></div>
-              ))}
-            </div>
-          </div>
-        </div>
+      {/* FIRST-RUN ONBOARDING / GOAL SETTER */}
+      {showOnboarding && (
+        <OnboardingModal
+          initialProfile={userProfile}
+          username={username}
+          onComplete={completeOnboarding}
+        />
       )}
 
       {/* PASSWORD & USERNAME MODAL */}
@@ -2008,7 +2047,7 @@ export default function Home() {
         }}
       >
         {/* Left: branding + greeting */}
-        <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 12, minWidth: 0, flex: 1 }}>
           <div
             style={{
               width: 40,
@@ -2023,13 +2062,16 @@ export default function Home() {
           >
             <Flame size={20} color="#fff" fill="#fff" />
           </div>
-          <div>
+          <div style={{ minWidth: 0 }}>
             <div
               style={{
                 fontSize: "1rem",
                 fontWeight: 800,
                 color: "#fff",
                 lineHeight: 1.1,
+                overflow: "hidden",
+                textOverflow: "ellipsis",
+                whiteSpace: "nowrap",
               }}
             >
               {username ? `Hey, ${username} 👋` : "NutriTrack"}
@@ -2040,6 +2082,7 @@ export default function Home() {
                 alignItems: "center",
                 gap: 8,
                 marginTop: 2,
+                flexWrap: "wrap",
               }}
             >
               <div className="date-badge" style={{ fontSize: "0.7rem" }}>
@@ -2063,12 +2106,49 @@ export default function Home() {
                   <Flame size={11} fill="#f59e0b" color="#f59e0b" /> {streak}d
                 </div>
               )}
+              {/* Level + XP (Phase 3) */}
+              <div
+                title={`${level.into}/${level.needed} XP`}
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 5,
+                  background: "rgba(139,92,246,0.12)",
+                  border: "1px solid rgba(139,92,246,0.25)",
+                  borderRadius: 10,
+                  padding: "1px 8px",
+                  fontSize: "0.72rem",
+                  color: "#a78bfa",
+                  fontWeight: 800,
+                }}
+              >
+                LV {level.level}
+                <span
+                  style={{
+                    width: 28,
+                    height: 4,
+                    borderRadius: 99,
+                    background: "rgba(139,92,246,0.25)",
+                    overflow: "hidden",
+                  }}
+                >
+                  <span
+                    style={{
+                      display: "block",
+                      height: "100%",
+                      width: `${level.pct}%`,
+                      background: "linear-gradient(90deg,#8b5cf6,#3b82f6)",
+                      transition: "width .6s cubic-bezier(.2,.8,.2,1)",
+                    }}
+                  />
+                </span>
+              </div>
             </div>
           </div>
         </div>
 
         {/* Right: action buttons */}
-        <div style={{ display: "flex", gap: 6 }}>
+        <div style={{ display: "flex", gap: 6, flexShrink: 0 }}>
           <button
             onClick={() => {
               setIsSettingGoal(true);
@@ -2119,11 +2199,14 @@ export default function Home() {
         userProfile={userProfile}
       />
 
+      {/* Weight sits with the other daily metrics (calories/macros/water),
+          right under the stats — a quick morning weigh-in without scrolling,
+          and out of the food-logging flow (capture → log food) below. */}
       {/* === WEIGHT TRACKER CARD === */}
       <section style={{ padding: "12px 20px 0" }}>
         <div
           style={{
-            background: "#111116",
+            background: "linear-gradient(180deg, #15151b, #0f0f13)",
             borderRadius: 18,
             padding: "16px 18px",
             border: "1px solid #1e1e26",
@@ -2225,11 +2308,20 @@ export default function Home() {
         </div>
       </section>
 
+      {/* Phase 2: fast capture — snap / say / search — leads into the logger */}
+      <CaptureBar
+        onSnap={handleSnap}
+        onVoice={handleVoice}
+        onSearch={handleSearchFocus}
+      />
+
       <FoodLogger
         query={query}
         setQuery={setQuery}
         qty={qty}
         setQty={setQty}
+        selectedMeal={selectedMeal}
+        setSelectedMeal={setSelectedMeal}
         activeCategory={activeCategory}
         setActiveCategory={setActiveCategory}
         aiMealPlan={aiMealPlan}
@@ -2249,51 +2341,28 @@ export default function Home() {
         setIsManualEntryOpen={setIsManualEntryOpen}
       />
 
+      {/* Phase 3: today's quests */}
+      <QuestsCard quests={quests} />
+
       {/* TIMELINE */}
       <Timeline
         logs={logs}
         loading={loading}
         totals={totals}
         userProfile={userProfile}
-        hasUnsavedChanges={hasUnsavedChanges}
         openEditModal={openEditModal}
         deleteLog={deleteLog}
       />
 
-      {/* Floating Save FAB */}
-      {hasUnsavedChanges && (
-        <div style={{ position: "fixed", bottom: 90, right: 20, zIndex: 100 }}>
-          <button
-            onClick={saveChanges}
-            disabled={isSaving}
-            style={{
-              display: "flex",
-              alignItems: "center",
-              gap: 8,
-              background: isSaving
-                ? "#444"
-                : "linear-gradient(135deg,#22c55e,#16a34a)",
-              color: "#fff",
-              border: "none",
-              padding: "12px 20px",
-              borderRadius: 50,
-              fontWeight: 700,
-              fontSize: "0.9rem",
-              boxShadow: "0 8px 24px rgba(34,197,94,0.4)",
-              cursor: isSaving ? "wait" : "pointer",
-              transition: "transform 0.15s, box-shadow 0.15s",
-              animation: "fabBounce 0.4s cubic-bezier(0.34,1.56,0.64,1)",
-            }}
-          >
-            {isSaving ? (
-              <Loader2 className="animate-spin" size={16} />
-            ) : (
-              <Save size={16} />
-            )}
-            {isSaving ? "Saving…" : "Save"}
-          </button>
-        </div>
-      )}
+      {/* Phase 0/1/3: reward bursts, auto-save Undo toast, celebrations */}
+      <RewardLayer
+        floats={floats}
+        onFloatDone={(id) => setFloats((f) => f.filter((x) => x.id !== id))}
+        toast={toast}
+        onUndo={undoLastAdd}
+        celebration={celebration}
+        onCelebrationDone={() => setCelebration(null)}
+      />
     </div>
   );
 }

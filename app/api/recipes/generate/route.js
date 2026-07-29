@@ -22,7 +22,31 @@
 
 import { GoogleGenerativeAI } from "@google/generative-ai";
 import { NextResponse } from "next/server";
+import { createClient } from "@supabase/supabase-js";
 import { recordLlmUsage } from "../../../lib/llmCost";
+
+// The user's diet/allergies/conditions as HARD recipe constraints. Allergies
+// especially are a safety line — never suggest one.
+function personalizationBlock(profile) {
+  if (!profile) return "";
+  const parts = [];
+  if (profile.dietary_pattern) {
+    parts.push(
+      `Dietary pattern: ${profile.dietary_pattern} — respect strictly (e.g. vegetarian = no meat/fish, vegan = no animal products, jain = no onion/garlic/root veg).`,
+    );
+  }
+  if (Array.isArray(profile.allergies) && profile.allergies.length) {
+    parts.push(
+      `ALLERGIES — never use these or anything derived from them: ${profile.allergies.join(", ")}.`,
+    );
+  }
+  if (Array.isArray(profile.health_conditions) && profile.health_conditions.length) {
+    parts.push(
+      `Health conditions: ${profile.health_conditions.join(", ")} — favour suitable ingredients (low-glycaemic for diabetes/PCOS, heart-healthy & low saturated fat for high cholesterol, lower protein & potassium for kidney issues, low purine for gout).`,
+    );
+  }
+  return parts.length ? "\n- " + parts.join("\n- ") : "";
+}
 
 export async function POST(req) {
   try {
@@ -84,11 +108,36 @@ JSON schema (follow exactly):
   "tags": ["high-protein", "vegetarian"]
 }
 
-Allowed tags: high-protein, low-carb, vegetarian, vegan, dairy-free, gluten-free, high-fiber, low-fat, bulking, cutting.`;
+Allowed tags: high-protein, low-carb, vegetarian, vegan, dairy-free, gluten-free, high-fiber, low-fat, bulking, cutting.
+
+The user's dietary profile below is a set of HARD CONSTRAINTS, not preferences.
+Never suggest an ingredient that violates an allergy or their dietary pattern.`;
+
+    // Personalize from the user's profile (RLS-scoped read).
+    let profileBlock = "";
+    try {
+      const db = createClient(
+        process.env.NEXT_PUBLIC_SUPABASE_URL,
+        process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY,
+        { global: { headers: { Authorization: `Bearer ${accessToken}` } } },
+      );
+      const { data: profile } = await db
+        .from("user_profiles")
+        .select("dietary_pattern, allergies, health_conditions")
+        .eq("user_id", userId)
+        .maybeSingle();
+      profileBlock = personalizationBlock(profile);
+    } catch {
+      /* personalization is best-effort — a plain recipe is still fine */
+    }
 
     const result = await model.generateContent([
       { text: systemPrompt },
-      { text: `Recipe request: ${prompt.trim()}` },
+      {
+        text:
+          `User's dietary profile (MANDATORY):${profileBlock || " none specified"}\n\n` +
+          `Recipe request: ${prompt.trim()}`,
+      },
     ]);
 
     const raw = result.response.text().trim();

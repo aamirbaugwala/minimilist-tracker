@@ -1,9 +1,9 @@
 "use client";
 
+import { useState } from "react";
 import {
   Search,
   Plus,
-  Minus,
   X,
   Loader2,
   Trash2,
@@ -11,8 +11,11 @@ import {
   Sparkles,
   Globe,
   PlusCircle,
+  ChevronDown,
+  Check,
 } from "lucide-react";
 import { FOOD_CATEGORIES } from "../food-data";
+import { MEALS } from "../lib/mealPeriod";
 
 // ── Category icons map ──────────────────────────────────────────────────────
 const CATEGORY_ICONS = {
@@ -37,6 +40,8 @@ export default function FoodLogger({
   setQuery,
   qty,
   setQty,
+  selectedMeal,
+  setSelectedMeal,
   activeCategory,
   setActiveCategory,
   aiMealPlan,
@@ -55,6 +60,9 @@ export default function FoodLogger({
   setManualFood,
   setIsManualEntryOpen,
 }) {
+  const [mealOpen, setMealOpen] = useState(false);
+  const activeMeal = MEALS.find((m) => m.label === selectedMeal) || MEALS[0];
+
   return (
       <section className="command-center">
         {/* Section label */}
@@ -104,20 +112,112 @@ export default function FoodLogger({
           </div>
         </div>
 
-        {/* Search row — qty stepper + input + custom */}
-        <div className="input-row" style={{ display: "flex", gap: 8 }}>
-          <div className="qty-wrapper" style={{ flexShrink: 0 }}>
+        {/* Meal picker — compact, sticky pill. Defaults to the time-appropriate
+            meal but stays on whatever you last chose (so batch-logging a whole
+            day at night works: pick Breakfast, log, switch to Lunch, …). */}
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: 8,
+            marginBottom: 12,
+          }}
+        >
+          <span style={{ fontSize: "0.72rem", color: "#52525b", fontWeight: 600, flexShrink: 0 }}>
+            Logging to
+          </span>
+          <div style={{ position: "relative" }}>
             <button
-              className="qty-btn"
-              onClick={() => setQty(Math.max(0.5, qty - 0.5))}
+              onClick={() => setMealOpen((o) => !o)}
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: 7,
+                padding: "6px 10px 6px 11px",
+                borderRadius: 999,
+                cursor: "pointer",
+                fontSize: "0.8rem",
+                fontWeight: 700,
+                color: "#fff",
+                border: "1px solid rgba(59,130,246,0.4)",
+                background: "rgba(59,130,246,0.12)",
+                transition: "background 0.15s",
+              }}
             >
-              <Minus size={14} />
+              <span style={{ fontSize: "0.95rem", lineHeight: 1 }}>{activeMeal.icon}</span>
+              {activeMeal.label}
+              <ChevronDown
+                size={14}
+                color="#93b4f7"
+                style={{
+                  transform: mealOpen ? "rotate(180deg)" : "none",
+                  transition: "transform 0.2s",
+                }}
+              />
             </button>
-            <div className="qty-val">{qty}</div>
-            <button className="qty-btn" onClick={() => setQty(qty + 0.5)}>
-              <Plus size={14} />
-            </button>
+
+            {mealOpen && (
+              <>
+                {/* click-away backdrop */}
+                <div
+                  onClick={() => setMealOpen(false)}
+                  style={{ position: "fixed", inset: 0, zIndex: 30 }}
+                />
+                <div
+                  style={{
+                    position: "absolute",
+                    top: "calc(100% + 6px)",
+                    left: 0,
+                    zIndex: 31,
+                    minWidth: 168,
+                    background: "#17171d",
+                    border: "1px solid #2a2a33",
+                    borderRadius: 14,
+                    padding: 5,
+                    boxShadow: "0 18px 44px -14px rgba(0,0,0,0.85)",
+                    animation: "nt-pop 0.14s ease both",
+                  }}
+                >
+                  {MEALS.map((m) => {
+                    const isActive = selectedMeal === m.label;
+                    return (
+                      <button
+                        key={m.label}
+                        onClick={() => {
+                          setSelectedMeal(m.label);
+                          setMealOpen(false);
+                        }}
+                        style={{
+                          width: "100%",
+                          display: "flex",
+                          alignItems: "center",
+                          gap: 10,
+                          padding: "9px 10px",
+                          borderRadius: 10,
+                          cursor: "pointer",
+                          border: "none",
+                          background: isActive ? "rgba(59,130,246,0.14)" : "transparent",
+                          color: isActive ? "#fff" : "#c4c4cc",
+                          fontSize: "0.85rem",
+                          fontWeight: isActive ? 700 : 500,
+                          textAlign: "left",
+                        }}
+                      >
+                        <span style={{ fontSize: "1rem", lineHeight: 1 }}>{m.icon}</span>
+                        <span style={{ flex: 1 }}>{m.label}</span>
+                        {isActive && <Check size={15} color="#3b82f6" />}
+                      </button>
+                    );
+                  })}
+                </div>
+              </>
+            )}
           </div>
+        </div>
+
+        {/* Search row — the qty stepper used to live here and duplicated the
+            0.5/1/2/3× presets above; dropped it so the search bar owns the row. */}
+        <div className="input-row" style={{ display: "flex", gap: 8 }}>
           <div className="search-container" style={{ flex: 1 }}>
             <Search className="search-icon" size={16} />
             <input
@@ -637,8 +737,10 @@ export default function FoodLogger({
                         : isWeb
                           ? "1px dashed #3b82f6"
                           : "1px solid #1e1e26",
-                      background: isSmart ? "rgba(139,92,246,0.1)" : "#111116",
-                      borderRadius: 12,
+                      background: isSmart
+                        ? "rgba(139,92,246,0.1)"
+                        : "linear-gradient(180deg, #15151b, #0f0f13)",
+                      borderRadius: 14,
                       transition: "border-color 0.15s",
                     }}
                   >
@@ -691,22 +793,27 @@ export default function FoodLogger({
                       )}
                     </div>
 
-                    {/* Right: calorie badge */}
+                    {/* Right: calorie badge — warm "energy" accent, number-first */}
                     {cals !== null && !isNoRes && !isMeal && (
                       <div
                         style={{
-                          background: "rgba(255,255,255,0.05)",
-                          border: "1px solid #27272a",
-                          borderRadius: 8,
-                          padding: "3px 8px",
+                          display: "inline-flex",
+                          alignItems: "baseline",
+                          gap: 2,
+                          background:
+                            "linear-gradient(135deg, rgba(245,158,11,0.16), rgba(239,68,68,0.12))",
+                          border: "1px solid rgba(245,158,11,0.28)",
+                          borderRadius: 9,
+                          padding: "3px 9px",
                           flexShrink: 0,
-                          fontSize: "0.72rem",
-                          fontWeight: 700,
-                          color: "#aaa",
+                          color: "#f7c56b",
                           whiteSpace: "nowrap",
                         }}
                       >
-                        {cals} kcal
+                        <span style={{ fontSize: "0.82rem", fontWeight: 800 }}>{cals}</span>
+                        <span style={{ fontSize: "0.56rem", fontWeight: 700, opacity: 0.8 }}>
+                          kcal
+                        </span>
                       </div>
                     )}
                   </button>

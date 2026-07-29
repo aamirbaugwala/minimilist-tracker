@@ -71,6 +71,14 @@ export const CONDITIONS = {
     color: "#14b8a6",
     note: "Thyroid markers were flagged.",
   },
+  hypertension: {
+    id: "hypertension",
+    label: "Blood pressure",
+    color: "#06b6d4",
+    // Advisory only — targets aren't changed, because the food DB has no sodium
+    // data to act on. Surfaced so the coach and UI can flag it.
+    note: "High blood pressure was reported.",
+  },
 };
 
 /**
@@ -165,6 +173,7 @@ export const enforcedIds = (conditions) =>
 export function describeEvidence(condition) {
   const e = condition.evidence[0];
   if (!e) return "";
+  if (e.selfReported) return "You told us about this";
   const when =
     e.monthsAgo <= 0
       ? "this month"
@@ -172,4 +181,75 @@ export function describeEvidence(condition) {
         ? "1 month ago"
         : `${e.monthsAgo} months ago`;
   return `${e.marker} ${e.value} (${e.status}), ${when}`;
+}
+
+// ─── SELF-REPORTED CONDITIONS (onboarding) ──────────────────────────────────
+// What a user can tick during setup, and which engine condition each maps to.
+// Order = display order. Same condition ids the biomarker path produces, so
+// self-report and lab data flow through one pipeline.
+export const SELF_REPORT_OPTIONS = [
+  { key: "diabetes", label: "Diabetes", emoji: "🩸", condition: "glycemic" },
+  { key: "prediabetes", label: "Prediabetes", emoji: "📈", condition: "glycemic" },
+  { key: "pcos", label: "PCOS / insulin resistance", emoji: "🌸", condition: "glycemic" },
+  { key: "high_cholesterol", label: "High cholesterol", emoji: "🫀", condition: "lipid" },
+  { key: "hypertension", label: "High blood pressure", emoji: "💨", condition: "hypertension" },
+  { key: "kidney", label: "Kidney issues", emoji: "🫘", condition: "renal" },
+  { key: "fatty_liver", label: "Fatty liver", emoji: "🩺", condition: "hepatic" },
+  { key: "gout", label: "Gout / high uric acid", emoji: "🦶", condition: "purine" },
+  { key: "thyroid", label: "Thyroid", emoji: "🦋", condition: "thyroid" },
+  { key: "anemia", label: "Anaemia", emoji: "🩸", condition: "anemia" },
+];
+
+const SELF_TO_CONDITION = Object.fromEntries(
+  SELF_REPORT_OPTIONS.map((o) => [o.key, o.condition]),
+);
+
+/**
+ * Conditions from a user's SELF-REPORTED health_conditions array on their
+ * profile. Always enforced (a stated diagnosis doesn't go stale), and tagged so
+ * the UI can say "you told us" rather than cite a lab value.
+ *
+ * @param {object} profile user_profiles row (reads profile.health_conditions)
+ * @returns {Array} same shape as deriveConditions()
+ */
+export function conditionsFromProfile(profile) {
+  const keys = profile?.health_conditions;
+  if (!Array.isArray(keys) || keys.length === 0) return [];
+
+  const byCondition = new Map();
+  for (const key of keys) {
+    const conditionId = SELF_TO_CONDITION[key];
+    if (!conditionId) continue;
+    const evidence = { selfReported: true, source: key };
+    const existing = byCondition.get(conditionId);
+    if (existing) existing.evidence.push(evidence);
+    else
+      byCondition.set(conditionId, {
+        ...CONDITIONS[conditionId],
+        enforced: true,
+        selfReported: true,
+        evidence: [evidence],
+      });
+  }
+  return [...byCondition.values()];
+}
+
+/**
+ * Merge lab-derived and self-reported conditions into one list, deduped by id.
+ * When both sources name a condition, keep one entry but union the evidence and
+ * take the stronger `enforced` (self-reported is always enforced).
+ */
+export function mergeConditions(fromReports, fromProfile) {
+  const byId = new Map();
+  for (const c of [...(fromReports || []), ...(fromProfile || [])]) {
+    const existing = byId.get(c.id);
+    if (existing) {
+      existing.enforced = existing.enforced || c.enforced;
+      existing.selfReported = existing.selfReported || c.selfReported;
+      existing.evidence = [...(existing.evidence || []), ...(c.evidence || [])];
+    } else {
+      byId.set(c.id, { ...c, evidence: [...(c.evidence || [])] });
+    }
+  }
+  return [...byId.values()];
 }

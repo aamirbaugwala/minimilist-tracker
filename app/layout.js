@@ -20,6 +20,9 @@ export const viewport = {
   initialScale: 1,
   maximumScale: 1,
   userScalable: false,
+  // Draw under the notch/home-indicator so env(safe-area-inset-*) is non-zero
+  // in standalone PWA mode — the bottom nav and Undo toast rely on it.
+  viewportFit: "cover",
 };
 
 export default function RootLayout({ children }) {

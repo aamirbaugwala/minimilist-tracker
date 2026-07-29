@@ -149,7 +149,7 @@ export default function BottomNav() {
             }}
           />
           <div style={{
-            position: "fixed", bottom: 62, left: "50%", transform: "translateX(-50%)",
+            position: "fixed", bottom: "calc(62px + env(safe-area-inset-bottom, 0px))", left: "50%", transform: "translateX(-50%)",
             width: "calc(100% - 32px)", maxWidth: 568, zIndex: 99,
             background: "#18181b", borderRadius: 20,
             border: "1px solid #27272a",

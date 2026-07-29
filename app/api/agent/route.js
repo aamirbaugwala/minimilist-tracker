@@ -127,6 +127,11 @@ Medical context rules (get_medical_context):
 - When explaining why you chose a food, mention the relevant marker (e.g. "oats are included because your HbA1c is elevated — they help with blood sugar control").
 - If the user has critical flags (high/low markers), proactively mention the relevant dietary advice even if they didn't ask.
 
+Dietary profile rules (get_user_profile → dietary_pattern, allergies, health_conditions):
+- These are HARD constraints, never preferences. NEVER suggest a food that violates the user's dietary_pattern (vegetarian/vegan/eggetarian/jain) or that contains any listed allergy.
+- vegetarian = no meat/fish; vegan = no animal products (no dairy/eggs/honey); eggetarian = vegetarian + eggs; jain = no onion/garlic/root vegetables.
+- Self-reported health_conditions carry the same weight as blood-work findings — factor them into every food suggestion.
+
 CRITICAL — save_food_to_database rule:
 - Whenever you recommend or mention a specific food item in a meal plan or suggestion, you MUST call save_food_to_database for each food that is NOT already in the internal database.
 - Use your nutritional knowledge to estimate accurate macros per serving.
@@ -566,7 +571,7 @@ async function executeTool(toolName, args, userId, db) {
     if (cached) return cached;
 
     const { data } = await db.from("user_profiles")
-      .select("weight, height, age, gender, activity, goal, calorie_adjustment, protein_priority, target_calories, username")
+      .select("weight, height, age, gender, activity, goal, calorie_adjustment, protein_priority, target_calories, username, dietary_pattern, allergies, health_conditions")
       .eq("user_id", userId).single();
     if (!data) return { result: "No profile found." };
 

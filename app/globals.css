@@ -110,6 +110,9 @@ body {
   border: 1px solid var(--border);
   border-radius: var(--radius-lg);
   padding: 8px;
+  /* Align this card's edges with the 20px-inset sections above/below it on the
+     home page (the wrapper no longer adds side padding). */
+  margin: 0 20px;
   display: flex;
   flex-direction: column;
   gap: 8px;
@@ -130,15 +133,23 @@ body {
 .qty-btn:hover { background: var(--surface-highlight); color: var(--text-primary); }
 .qty-val { width: 24px; text-align: center; font-weight: 600; font-size: 0.9rem; }
 
-/* Search Input */
-.search-container { flex: 1; position: relative; }
+/* Search Input — elevated: taller, softer, glows on focus */
+.search-container { flex: 1; position: relative; display: flex; }
 .search-input {
-  width: 100%; height: 100%; background: var(--bg); border: 1px solid var(--border);
-  border-radius: var(--radius-sm); padding: 0 12px 0 40px; color: var(--text-primary); font-size: 0.95rem;
-  transition: border-color 0.2s, box-shadow 0.2s;
+  width: 100%; height: 48px; background: #0a0a0c; border: 1px solid #26262e;
+  border-radius: 14px; padding: 0 12px 0 42px; color: var(--text-primary); font-size: 1rem;
+  transition: border-color 0.2s, box-shadow 0.2s, background 0.2s;
 }
-.search-input:focus { outline: none; border-color: var(--brand); box-shadow: 0 0 0 2px var(--brand-glow); }
-.search-icon { position: absolute; left: 12px; top: 50%; transform: translateY(-50%); color: var(--text-secondary); pointer-events: none; }
+.search-input::placeholder { color: #52525b; }
+.search-input:focus {
+  outline: none; border-color: #3b82f6; background: #0c0f16;
+  box-shadow: 0 0 0 3px rgba(59,130,246,0.18);
+}
+.search-icon { position: absolute; left: 14px; top: 50%; transform: translateY(-50%); color: #52525b; pointer-events: none; transition: color 0.2s; z-index: 1; }
+.search-container:focus-within .search-icon { color: #3b82f6; }
+
+/* Meal-picker dropdown pop-in */
+@keyframes nt-pop { from { opacity: 0; transform: translateY(-6px) scale(0.97); } to { opacity: 1; transform: translateY(0) scale(1); } }
 
 /* Dropdown / Suggestions */
 /* --- FIXED DROPDOWN STYLING --- */
@@ -198,6 +209,10 @@ body {
 
 .suggestion-chip:hover { background: var(--bg); color: var(--text-primary); border-color: var(--text-tertiary); }
 .suggestion-chip.active { background: var(--brand); color: white; border-color: var(--brand); }
+/* Tactile press feedback on every food/category chip */
+.suggestion-chip:active { transform: scale(0.96); }
+.food-grid .suggestion-chip { transition: transform 0.12s ease, border-color 0.15s ease, background 0.15s ease; }
+.food-grid .suggestion-chip:hover { border-color: #3b82f6; }
 /* --- TIMELINE LIST --- */
 .timeline { display: flex; flex-direction: column; gap: 1rem; padding-bottom: 40px; }
 .timeline-label { font-size: 0.8rem; text-transform: uppercase; color: var(--text-tertiary); letter-spacing: 1px; margin-left: 4px; }
@@ -332,6 +347,10 @@ body {
   text-align: left;
   box-shadow: 0 -8px 48px rgba(0,0,0,0.7), 0 0 0 1px rgba(255,255,255,0.04) inset;
   animation: sheetUp 0.28s cubic-bezier(0.32,0.72,0,1);
+  /* Tall modals (Manual Entry, Meal Builder) must scroll on short screens or
+     when the keyboard is open — otherwise the submit button is unreachable. */
+  max-height: 92dvh;
+  overflow-y: auto;
 }
 @keyframes sheetUp {
   from { transform: translateY(60px); opacity: 0; }

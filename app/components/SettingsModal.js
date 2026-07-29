@@ -2,6 +2,7 @@
 
 import { Target, X, Shield, Calculator, AlertTriangle } from "lucide-react";
 import { calculateTargets, GOAL_PRESETS } from "../lib/nutrition";
+import HealthProfileFields from "./HealthProfileFields";
 
 export default function SettingsModal({
   conditions = [],
@@ -539,6 +540,20 @@ export default function SettingsModal({
                           </button>
                         ))}
                       </div>
+                    </div>
+
+                    {/* ── Health profile (self-reported → drives targets) ── */}
+                    <div
+                      style={{
+                        borderTop: "1px solid #27272a",
+                        paddingTop: 14,
+                        marginTop: 2,
+                      }}
+                    >
+                      <HealthProfileFields
+                        profile={userProfile}
+                        onChange={setUserProfile}
+                      />
                     </div>
 
                     {/* ── Medical conflicts & adjustments ──────────────────

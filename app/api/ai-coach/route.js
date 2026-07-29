@@ -38,7 +38,7 @@ export async function POST(req) {
         .gte("date", sinceStr)
         .order("date", { ascending: true }),
       db.from("user_profiles")
-        .select("goal, weight, activity")
+        .select("goal, weight, activity, dietary_pattern, allergies, health_conditions")
         .eq("user_id", userId)
         .single(),
       db.from("weight_logs")
@@ -91,6 +91,9 @@ CLIENT:
 - Goal: ${profile?.goal || "General Health"}
 - Weight: ${profile?.weight || "Unknown"}kg
 - Activity: ${profile?.activity || "Unknown"}
+- Diet: ${profile?.dietary_pattern || "not set"}${profile?.allergies?.length ? ` · avoids: ${profile.allergies.join(", ")}` : ""}
+- Health: ${profile?.health_conditions?.length ? profile.health_conditions.join(", ") : "none reported"}
+(Any food you suggest MUST respect the diet, allergies, and health conditions above.)
 
 LAST ${lookbackDays} DAYS SUMMARY:
 - Days with food logged: ${loggedDays}/${lookbackDays}
