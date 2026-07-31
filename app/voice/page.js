@@ -164,7 +164,6 @@ export default function VoicePage() {
   const audioCtxRef = useRef(null);
   const animFrameRef = useRef(null);
   const levelRef = useRef(0);
-  const recognitionRef = useRef(null); // native SpeechRecognition, when available
 
   const setVS = useCallback((s) => {
     voiceStateRef.current = s;
@@ -235,7 +234,6 @@ export default function VoicePage() {
       if (audioUrlRef.current) URL.revokeObjectURL(audioUrlRef.current);
       audioUrlRef.current = "";
     } catch {}
-    try { recognitionRef.current?.abort(); } catch {}
     stopMic();
     window.speechSynthesis?.cancel();
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -383,55 +381,6 @@ export default function VoicePage() {
     await speakResponse(reply);
   }, [pushMessage, setVS, askAgent, speakResponse, addDebugLog]);
 
-  // ── Native speech recognition (accurate, real-time) — primary path ──────────
-  // Same engine the AI Coach uses (en-IN). Auto-submits when you pause; tapping
-  // the coach mid-listen force-stops it. Returns false when unavailable (iOS),
-  // so the caller can fall back to recording a clip + Gemini transcription.
-  const startWebSpeech = useCallback(() => {
-    const SR =
-      typeof window !== "undefined" && (window.SpeechRecognition || window.webkitSpeechRecognition);
-    if (!SR) return false;
-
-    let rec;
-    try { rec = new SR(); } catch { return false; }
-    rec.lang = "en-IN";
-    rec.continuous = false;
-    rec.interimResults = false;
-    let done = false;
-
-    rec.onresult = (e) => {
-      done = true;
-      recognitionRef.current = null;
-      const transcript = (e.results?.[0]?.[0]?.transcript || "").trim();
-      addDebugLog(`SpeechRecognition result (${transcript.length} chars)`);
-      if (transcript) processTranscript(transcript);
-      else { setError("I didn't catch that — tap the coach and speak."); setVS(S.IDLE); }
-    };
-    rec.onerror = (e) => {
-      done = true;
-      recognitionRef.current = null;
-      addDebugLog(`SpeechRecognition error: ${e.error}`);
-      if (e.error === "not-allowed" || e.error === "service-not-allowed")
-        setError("Microphone access denied. Allow it in your browser settings.");
-      else if (e.error === "no-speech") setError("I didn't hear anything — tap and speak.");
-      else if (e.error !== "aborted") setError("Voice recognition hiccup — try again.");
-      setVS(S.IDLE);
-    };
-    rec.onend = () => {
-      if (!done) { recognitionRef.current = null; setVS(S.IDLE); }
-    };
-
-    try {
-      rec.start();
-      recognitionRef.current = rec;
-      addDebugLog("SpeechRecognition started (en-IN)");
-      return true;
-    } catch {
-      recognitionRef.current = null;
-      return false;
-    }
-  }, [processTranscript, setVS, addDebugLog]);
-
   // ── Mic ─────────────────────────────────────────────────────────────────────
   const acquireMic = useCallback(async () => {
     if (micStreamRef.current) return true;
@@ -449,8 +398,8 @@ export default function VoicePage() {
   }, [startAudioMonitor]);
 
   const startRecording = useCallback(async () => {
-    // Prefer native recognition (accurate); fall back to recording a clip.
-    if (startWebSpeech()) return true;
+    // Record a clip, then transcribe it server-side (/api/transcribe). Works on
+    // every browser — unlike webkitSpeechRecognition, which Brave aborts.
     if (typeof MediaRecorder === "undefined") { setError("Voice recording not supported in this browser."); return false; }
     const ok = await acquireMic();
     if (!ok) return false;
@@ -464,7 +413,7 @@ export default function VoicePage() {
     mediaRecorderRef.current = recorder;
     recorder.start();
     return true;
-  }, [acquireMic, startWebSpeech]);
+  }, [acquireMic]);
 
   const stopRecordingAndGetText = useCallback(async () => {
     const recorder = mediaRecorderRef.current;
@@ -501,12 +450,7 @@ export default function VoicePage() {
       const ok = await startRecording();
       if (!ok) setVS(S.IDLE);
     } else if (s === S.RECORDING) {
-      // Native recognition: stop() forces a final result (onresult handles it).
-      if (recognitionRef.current) {
-        try { recognitionRef.current.stop(); } catch { /* ignore */ }
-        return;
-      }
-      // Fallback (recorded clip): transcribe via Gemini.
+      // Stop the clip and transcribe it.
       setVS(S.THINKING);
       const text = await stopRecordingAndGetText();
       if (!text) {
@@ -524,7 +468,6 @@ export default function VoicePage() {
   }, [setVS, startRecording, stopRecordingAndGetText, processTranscript, unlockSpeech]);
 
   const endSession = useCallback(() => {
-    try { recognitionRef.current?.abort(); recognitionRef.current = null; } catch {}
     try { mediaRecorderRef.current?.stop(); } catch {}
     try { audioPlaybackRef.current?.pause(); if (audioPlaybackRef.current) audioPlaybackRef.current.currentTime = 0; } catch {}
     window.speechSynthesis?.cancel();
