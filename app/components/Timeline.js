@@ -176,7 +176,13 @@ export default function Timeline({
               (a, b) => a.order - b.order,
             );
 
-            return sortedGroups.map((group) => (
+            return sortedGroups.map((group) => {
+              // Water taps are clubbed into a single summary row per meal.
+              const foodLogs = group.items.filter((l) => l.name !== "Water");
+              const waterLogs = group.items.filter((l) => l.name === "Water");
+              const glasses = waterLogs.reduce((s, l) => s + (Number(l.qty) || 0), 0);
+              const rowCount = foodLogs.length + (waterLogs.length ? 1 : 0);
+              return (
               <div key={group.label} style={{ marginBottom: 20 }}>
                 {/* Meal period header */}
                 <div
@@ -213,8 +219,7 @@ export default function Timeline({
                       {group.label}
                     </span>
                     <span style={{ fontSize: "0.62rem", color: "#52525b" }}>
-                      {group.items.length}{" "}
-                      {group.items.length === 1 ? "item" : "items"}
+                      {rowCount} {rowCount === 1 ? "item" : "items"}
                     </span>
                   </div>
                   <span
@@ -236,8 +241,8 @@ export default function Timeline({
                   </span>
                 </div>
 
-                {/* Log rows */}
-                {group.items.map((log) => {
+                {/* Food rows (water is clubbed below) */}
+                {foodLogs.map((log) => {
                   const pct =
                     totals.calories > 0
                       ? Math.round((log.calories / totals.calories) * 100)
@@ -438,8 +443,73 @@ export default function Timeline({
                     </div>
                   );
                 })}
+
+                {/* Clubbed water — one summary row for all of this meal's water */}
+                {waterLogs.length > 0 && (() => {
+                  const latest = waterLogs
+                    .slice()
+                    .sort((a, b) => new Date(b.created_at) - new Date(a.created_at))[0];
+                  return (
+                    <div
+                      style={{
+                        background: "rgba(59,130,246,0.07)",
+                        border: "1px solid rgba(59,130,246,0.2)",
+                        borderRadius: 14,
+                        padding: "10px 12px",
+                        marginBottom: 8,
+                        display: "flex",
+                        alignItems: "center",
+                        gap: 10,
+                      }}
+                    >
+                      <div
+                        style={{
+                          background: "rgba(59,130,246,0.2)",
+                          color: "#3b82f6",
+                          borderRadius: 8,
+                          padding: "4px 8px",
+                          fontSize: "0.75rem",
+                          fontWeight: 700,
+                          minWidth: 34,
+                          textAlign: "center",
+                          flexShrink: 0,
+                        }}
+                      >
+                        {glasses}×
+                      </div>
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div style={{ fontWeight: 600, color: "#e4e4e7", fontSize: "0.9rem" }}>
+                          💧 Water
+                        </div>
+                        <span style={{ fontSize: "0.72rem", color: "#3b82f6", fontWeight: 600 }}>
+                          {(glasses * 0.25).toFixed(2)}L · {glasses} {glasses === 1 ? "glass" : "glasses"}
+                        </span>
+                      </div>
+                      <div style={{ textAlign: "right", flexShrink: 0 }}>
+                        <div style={{ fontWeight: 700, fontSize: "0.95rem", color: "#3b82f6" }}>0</div>
+                      </div>
+                      <div style={{ display: "flex", flexDirection: "column", gap: 2, flexShrink: 0 }}>
+                        <button
+                          onClick={() => deleteLog(latest.id)}
+                          style={{
+                            background: "none",
+                            border: "none",
+                            color: "#333",
+                            cursor: "pointer",
+                            padding: 5,
+                            borderRadius: 6,
+                          }}
+                          title="Remove a glass"
+                        >
+                          <Trash2 size={14} />
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })()}
               </div>
-            ));
+              );
+            });
           })()
         )}
       </section>

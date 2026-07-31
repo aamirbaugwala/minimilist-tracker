@@ -76,7 +76,7 @@ export default function AuthScreen({
   @media (max-width: 640px) {
     .feature-card { padding: 20px; }
     .hero-padding { padding: 40px 16px; }
-    .landing-nav { padding: 14px 16px !important; }
+    .landing-nav { padding: calc(14px + env(safe-area-inset-top, 0px)) 16px 14px !important; }
     .auth-card { padding: 20px !important; border-radius: 16px !important; }
     .auth-wrap { padding: 16px !important; justify-content: flex-start !important; padding-top: 24px !important; }
     .auth-input { padding: 12px 14px; font-size: 0.95rem; }
@@ -91,7 +91,7 @@ export default function AuthScreen({
             display: "flex",
             justifyContent: "space-between",
             alignItems: "center",
-            padding: "20px 40px",
+            padding: "calc(20px + env(safe-area-inset-top, 0px)) 40px 20px",
             borderBottom: "1px solid #1e1e22",
             background: "rgba(8,8,10,0.8)",
             backdropFilter: "blur(12px)",

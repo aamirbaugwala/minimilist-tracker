@@ -8,12 +8,21 @@
  * testable and can never "hallucinate a double-log" or silently log nothing.
  */
 
+import { resolveQuantity } from "./foodUnits";
+
 // Base food name without the serving descriptor: "roti (chapati, 1 pc)" → "roti"
 export function baseName(key) {
   return String(key || "").split("(")[0].trim();
 }
 
 const r1 = (n) => Math.round((Number(n) || 0) * 10) / 10;
+// Macros multiplier (in DB servings). Wider floor than clampQty so a single
+// almond (0.1 of a 10-pc serving) isn't rounded up to a quarter-serving.
+const clampServings = (n) => {
+  const x = Number(n);
+  if (!Number.isFinite(x) || x <= 0) return 1;
+  return Math.max(0.02, Math.min(x, 30));
+};
 
 // Servings are clamped to a sane range so a mis-heard "twenty" can't nuke a day.
 export function clampQty(q) {
@@ -85,16 +94,16 @@ export const isWaterPhrase = (name) =>
  * Returns { rows, matched, unmatched }.
  */
 export function buildLogRows(items, db, { userId, meal, date, createdAt } = {}) {
-  const byKey = new Map(); // matchedKey -> summed qty
+  // key -> { qty (natural display count), servings (macros multiplier) }
+  const byKey = new Map();
   const unmatched = [];
   let waterQty = 0; // hydration, tracked separately from food
 
   for (const it of Array.isArray(items) ? items : []) {
     const name = (it?.name || "").trim();
     if (!name) continue;
-    const qty = clampQty(it?.quantity);
     if (isWaterPhrase(name)) {
-      waterQty += qty;
+      waterQty += Number(it?.quantity) > 0 ? Number(it.quantity) : 1;
       continue;
     }
     const key = matchFood(name, db);
@@ -102,7 +111,11 @@ export function buildLogRows(items, db, { userId, meal, date, createdAt } = {}) 
       if (!unmatched.some((u) => u.toLowerCase() === name.toLowerCase())) unmatched.push(name);
       continue;
     }
-    byKey.set(key, (byKey.get(key) || 0) + qty);
+    // Interpret the spoken quantity in the food's natural unit (foodUnits.js):
+    // "5 almonds" → 0.5 servings but qty 5; "2 rotis" → 2 servings, qty 2.
+    const { qty, servings } = resolveQuantity({ quantity: it?.quantity, unit: it?.unit, foodKey: key });
+    const prev = byKey.get(key) || { qty: 0, servings: 0 };
+    byKey.set(key, { qty: prev.qty + qty, servings: prev.servings + servings });
   }
 
   const rows = [];
@@ -117,18 +130,22 @@ export function buildLogRows(items, db, { userId, meal, date, createdAt } = {}) 
     matched.push({ name: "Water", qty, calories: 0, protein: 0 });
   }
 
-  for (const [key, rawQty] of byKey) {
-    const qty = clampQty(rawQty);
+  for (const [key, agg] of byKey) {
+    const servings = clampServings(agg.servings); // scales the per-serving macros
+    const qty = Math.round(agg.qty * 100) / 100; // shown in the natural unit
     const item = db[key] || {};
+    // Store the clean base name ("almonds", not "almonds (10 pcs)") so the log
+    // reads "5× Almonds" rather than "5× the 10-piece serving".
+    const displayName = baseName(key) || key;
     const row = {
       user_id: userId,
-      name: key,
+      name: displayName,
       qty,
-      calories: Math.round((item.calories || 0) * qty),
-      protein: r1((item.protein || 0) * qty),
-      carbs: r1((item.carbs || 0) * qty),
-      fats: r1((item.fats || 0) * qty),
-      fiber: r1((item.fiber || 0) * qty),
+      calories: Math.round((item.calories || 0) * servings),
+      protein: r1((item.protein || 0) * servings),
+      carbs: r1((item.carbs || 0) * servings),
+      fats: r1((item.fats || 0) * servings),
+      fiber: r1((item.fiber || 0) * servings),
       meal,
       date,
       created_at: createdAt,
@@ -136,7 +153,7 @@ export function buildLogRows(items, db, { userId, meal, date, createdAt } = {}) 
     // Drop undefined optional fields so callers can omit meta.
     Object.keys(row).forEach((k) => row[k] === undefined && delete row[k]);
     rows.push(row);
-    matched.push({ name: key, qty, calories: row.calories, protein: row.protein });
+    matched.push({ name: displayName, qty, calories: row.calories, protein: row.protein });
   }
 
   return { rows, matched, unmatched };

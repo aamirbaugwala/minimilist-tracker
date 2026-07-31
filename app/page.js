@@ -1078,35 +1078,69 @@ export default function Home() {
     setIsEditingLog(true);
   };
 
-  const saveLogEdit = () => {
+  const saveLogEdit = async () => {
     if (!currentLogToEdit) return;
+    const target = currentLogToEdit; // snapshot — state is cleared below
     const newQ = Number(editQty);
-
-    if (newQ <= 0) {
-      deleteLog(currentLogToEdit.id);
-      setIsEditingLog(false);
-      setCurrentLogToEdit(null);
-      return;
-    }
-
-    const ratio = newQ / currentLogToEdit.qty;
-    const patch = {
-      qty: newQ,
-      calories: Math.round(currentLogToEdit.calories * ratio),
-      protein: Math.round(currentLogToEdit.protein * ratio),
-      carbs: Math.round(currentLogToEdit.carbs * ratio),
-      fats: Math.round(currentLogToEdit.fats * ratio),
-      fiber: Math.round((currentLogToEdit.fiber || 0) * ratio),
-    };
-    setLogs((prev) =>
-      prev.map((l) => (l.id === currentLogToEdit.id ? { ...l, ...patch } : l)),
-    );
-    resolveRowId(currentLogToEdit.id)
-      .then((realId) => supabase.from("food_logs").update(patch).eq("id", realId))
-      .catch(() => {});
-
     setIsEditingLog(false);
     setCurrentLogToEdit(null);
+
+    if (!(newQ > 0)) {
+      deleteLog(target.id);
+      return;
+    }
+    if (newQ === target.qty) return; // nothing changed
+
+    const ratio = newQ / target.qty;
+    const patch = {
+      qty: newQ,
+      calories: Math.round(target.calories * ratio),
+      protein: Math.round(target.protein * ratio),
+      carbs: Math.round(target.carbs * ratio),
+      fats: Math.round(target.fats * ratio),
+      fiber: Math.round((target.fiber || 0) * ratio),
+    };
+
+    // optimistic
+    setLogs((prev) => prev.map((l) => (l.id === target.id ? { ...l, ...patch } : l)));
+    setSaveError("");
+
+    // restore the row to its pre-edit values if the write doesn't stick
+    const rollback = () =>
+      setLogs((prev) =>
+        prev.map((l) =>
+          l.id === target.id
+            ? { ...l, qty: target.qty, calories: target.calories, protein: target.protein, carbs: target.carbs, fats: target.fats, fiber: target.fiber }
+            : l,
+        ),
+      );
+
+    try {
+      const realId = await resolveRowId(target.id);
+      // .select() lets us detect an update that returns NO error but changes 0
+      // rows — the signature of a missing UPDATE RLS policy (a silent no-op).
+      const runUpdate = () =>
+        supabase.from("food_logs").update(patch).eq("id", realId).select();
+      let { data, error } = await runUpdate();
+      if (error) {
+        await new Promise((r) => setTimeout(r, 500));
+        ({ data, error } = await runUpdate());
+      }
+      if (error) {
+        console.error("Edit failed:", error);
+        setSaveError(`Couldn't update "${target.name}": ${error.message}`);
+        rollback();
+      } else if (!data || data.length === 0) {
+        setSaveError(
+          `"${target.name}" didn't update — the change wasn't allowed to save. Run docs/fix-edit-log.sql, then try again.`,
+        );
+        rollback();
+      }
+    } catch (e) {
+      console.error("Edit failed:", e);
+      setSaveError(`Couldn't update "${target.name}": ${e?.message || e}`);
+      rollback();
+    }
   };
 
   // ── Daily quests (Phase 3) — derived from today's logs; reset at midnight ──
@@ -1832,7 +1866,7 @@ export default function Home() {
                 <div
                   style={{ fontSize: "0.7rem", color: "#555", marginTop: 2 }}
                 >
-                  = {Math.round(currentLogToEdit.calories * editQty)} kcal
+                  = {Math.round((currentLogToEdit.calories / (currentLogToEdit.qty || 1)) * editQty)} kcal
                 </div>
               </div>
               <button
