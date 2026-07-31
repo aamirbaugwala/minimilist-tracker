@@ -96,6 +96,26 @@ export default function VoicePage() {
   const [orbSize,     setOrbSize]     = useState(240);
   const [debugOpen,   setDebugOpen]   = useState(false);
   const [debugLogs,   setDebugLogs]   = useState([]);
+  const [messages,    setMessages]    = useState([]); // { role: "user"|"coach", text }
+  const scrollRef = useRef(null);
+
+  const pushMessage = useCallback(
+    (role, text) => setMessages((prev) => [...prev.slice(-12), { role, text }]),
+    [],
+  );
+  // Update the last coach bubble in place (for streaming the agent reply).
+  const streamCoach = useCallback(
+    (text) => setMessages((prev) => {
+      const next = [...prev];
+      if (next.length && next[next.length - 1].role === "coach") next[next.length - 1] = { role: "coach", text };
+      else next.push({ role: "coach", text });
+      return next;
+    }),
+    [],
+  );
+  useEffect(() => {
+    scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" });
+  }, [messages]);
 
   // ── Refs ──────────────────────────────────────────────────────────────────
   const voiceStateRef    = useRef(S.IDLE);
@@ -151,7 +171,7 @@ export default function VoicePage() {
 
   // ── Responsive orb ────────────────────────────────────────────────────────
   useEffect(() => {
-    const update = () => setOrbSize(Math.round(Math.min(Math.min(window.innerWidth, window.innerHeight) * 0.50, 250)));
+    const update = () => setOrbSize(Math.round(Math.min(Math.min(window.innerWidth, window.innerHeight) * 0.44, 190)));
     update();
     window.addEventListener("resize", update);
     return () => window.removeEventListener("resize", update);
@@ -300,138 +320,69 @@ export default function VoicePage() {
   }, [addDebugLog, setVS]);
 
   // ── TTS: speak AI response, then return to IDLE ───────────────────────────
+  // SPEED: use the browser's LOCAL speech first — it starts talking in <100ms.
+  // The server (Gemini) voice sounds nicer but needs 1–3s to generate + download
+  // the whole clip, so it's only a fallback for browsers with no local voices.
   const speakResponse = useCallback(async (fullText) => {
     if (!fullText.trim()) {
       addDebugLog("Skipping TTS: empty text");
       setVS(S.IDLE);
       return;
     }
-
-    // Strip markdown so TTS reads cleanly.
+    // Strip markdown so it reads cleanly.
     const clean = fullText
       .replace(/\*\*([^*]+)\*\*/g, "$1")
       .replace(/[•\-]\s/g, "")
       .replace(/#{1,6}\s/g, "")
       .trim();
 
-    // Prefer server-generated audio for consistent playback across devices.
-    const serverSpoken = await speakViaServerAudio(clean);
-    if (serverSpoken) return;
-
-    if (!("speechSynthesis" in window)) {
-      addDebugLog("Skipping browser TTS: speechSynthesis unavailable and server TTS failed");
-      setError("Voice output unavailable right now. Please retry when network is stable.");
-      setVS(S.IDLE);
-      return;
-    }
-
-    const sentences = clean.match(/[^.!?\n]+[.!?\n]*/g) || [clean];
-    const synth = window.speechSynthesis;
-    synth.cancel();
-    synth.resume();
-    addDebugLog(`TTS start requested (${fullText.length} chars)`);
-
-    // Try to get voices; wait up to 1s if they're loading (Brave workaround).
-    const voices = await new Promise((resolve) => {
-      const existing = synth.getVoices();
-      if (existing.length) {
-        console.log("[voice] Voices already loaded:", existing.length);
-        addDebugLog(`Voices already loaded: ${existing.length}`);
-        return resolve(existing);
+    // ── 1) Browser speech — instant ──────────────────────────────────────────
+    const synth = typeof window !== "undefined" && "speechSynthesis" in window ? window.speechSynthesis : null;
+    if (synth) {
+      synth.cancel();
+      synth.resume();
+      let voices = synth.getVoices();
+      if (!voices.length) {
+        // First use: give voices a brief moment (don't block long — 700ms max).
+        voices = await new Promise((resolve) => {
+          let done = false;
+          const to = setTimeout(() => { if (!done) { done = true; resolve(synth.getVoices()); } }, 700);
+          synth.onvoiceschanged = () => { if (!done) { done = true; clearTimeout(to); resolve(synth.getVoices()); } };
+        });
       }
-      
-      let resolved = false;
-      // iOS may take longer to load voices - increase timeout to 2s
-      const timeoutId = setTimeout(() => {
-        resolved = true;
-        const voicesFinal = synth.getVoices();
-        console.log("[voice] Timeout reached. Voices available:", voicesFinal.length);
-        addDebugLog(`Voice load timeout. Voices available: ${voicesFinal.length}`);
-        resolve(voicesFinal);
-      }, 2000);
-      
-      synth.onvoiceschanged = () => {
-        if (!resolved) {
-          resolved = true;
-          clearTimeout(timeoutId);
-          const voicesLoaded = synth.getVoices();
-          console.log("[voice] onvoiceschanged fired. Voices available:", voicesLoaded.length);
-          addDebugLog(`onvoiceschanged fired. Voices available: ${voicesLoaded.length}`);
-          if (voicesLoaded.length > 0) {
-            voicesLoaded.forEach((v, i) => console.log(`  [${i}] ${v.name} (${v.lang})`));
-          }
-          resolve(voicesLoaded);
-        }
-      };
-    });
-
-    // If no voices available (iOS/Brave limitation), show helpful error
-    if (!voices.length) {
-      const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent);
-      const isBrave = /Brave/.test(navigator.userAgent);
-      
-      console.error("[voice] No voices found! User agent:", navigator.userAgent.slice(0, 100));
-      addDebugLog("No voices found from getVoices(). Using browser default voice fallback.");
-      
-      if (isIOS) {
-        setError("iOS issue: No voices loaded. Try: 1) Reload the app, 2) Check volume isn't muted, 3) Reinstall PWA. Voice may work in Safari app instead.");
-      } else if (isBrave) {
-        setError("Brave disabled TTS. Try Firefox or Chrome for voice chat.");
-      } else {
-        setError("TTS unavailable. Check browser voice settings or try a different browser.");
-      }
-    }
-
-    const preferredVoice = voices.length > 0
-      ? (voices.find((voice) => /en(-|_)?(IN|US|GB)?/i.test(voice.lang) && !/google translate/i.test(voice.name))
-         || voices.find((voice) => /female|google|microsoft|samantha|alex|zira|david/i.test(voice.name))
-         || voices[0])
-      : null;
-
-    console.log("[voice] Selected voice:", preferredVoice?.name, "(" + preferredVoice?.lang + ")");
-    addDebugLog(`Selected voice: ${preferredVoice?.name || "default"} (${preferredVoice?.lang || "n/a"})`);
-    setVS(S.SPEAKING);
-
-    let idx = 0;
-    const speakNext = () => {
-      if (idx >= sentences.length) {
-        setVS(S.IDLE);
-        setError(""); // clear any voice warning once done
+      if (voices.length) {
+        const preferredVoice =
+          voices.find((v) => /en(-|_)?(IN|US|GB)?/i.test(v.lang) && !/google translate/i.test(v.name)) ||
+          voices.find((v) => /female|google|microsoft|samantha|alex|zira|david/i.test(v.name)) ||
+          voices[0];
+        addDebugLog(`Browser TTS (instant): ${preferredVoice?.name || "default"}`);
+        setVS(S.SPEAKING);
+        const sentences = clean.match(/[^.!?\n]+[.!?\n]*/g) || [clean];
+        let idx = 0;
+        const speakNext = () => {
+          if (idx >= sentences.length) { setVS(S.IDLE); setError(""); return; }
+          const s = sentences[idx].trim(); idx++;
+          if (!s) return speakNext();
+          const utt = new SpeechSynthesisUtterance(s);
+          utt.rate = 1.06; utt.pitch = 1.0; utt.volume = 1.0;
+          if (preferredVoice) { utt.voice = preferredVoice; utt.lang = preferredVoice.lang || "en-US"; }
+          else utt.lang = "en-US";
+          utt.onend = speakNext;
+          utt.onerror = () => { setVS(S.IDLE); };
+          synth.speak(utt);
+        };
+        speakNext();
         return;
       }
+    }
 
-      const s = sentences[idx].trim();
-      idx++;
-      if (!s) { speakNext(); return; }
-
-      const utt = new SpeechSynthesisUtterance(s);
-      utt.rate = 1.02;
-      utt.pitch = 1.0;
-      utt.volume = 1.0;
-      if (preferredVoice) {
-        utt.voice = preferredVoice;
-        utt.lang = preferredVoice.lang || "en-US";
-      } else {
-        // No voice selection; browser will use default (or fail).
-        utt.lang = "en-US";
-      }
-
-      let started = false;
-      utt.onstart = () => { started = true; setVS(S.SPEAKING); };
-      utt.onend   = speakNext;
-      utt.onerror = (event) => {
-        console.error("[voice] TTS error:", event.error);
-        addDebugLog(`TTS error: ${event.error || "unknown"}`);
-        if (!started) {
-          setError("Text-to-speech failed. Try Firefox or Chrome. Brave requires explicit voice configuration.");
-        }
-        setVS(S.IDLE);
-      };
-
-      synth.speak(utt);
-    };
-
-    speakNext();
+    // ── 2) Fallback: server (Gemini) audio — only when no local voices exist ──
+    addDebugLog("No local voices — using server TTS fallback");
+    const ok = await speakViaServerAudio(clean);
+    if (!ok) {
+      setError("Voice output unavailable right now. Please try again.");
+      setVS(S.IDLE);
+    }
   }, [setVS, addDebugLog, speakViaServerAudio]);
 
   // ── Route the transcript ──────────────────────────────────────────────────
@@ -442,6 +393,7 @@ export default function VoicePage() {
     if (!text?.trim() || !sessionRef.current) return;
     setVS(S.THINKING);
     addDebugLog(`Transcript: "${text}" (${text.length} chars)`);
+    pushMessage("user", text);
 
     try {
       const now = new Date();
@@ -463,6 +415,7 @@ export default function VoicePage() {
       if (vl.intent === "log" || vl.intent === "none") {
         const reply = vl.spokenReply || "Okay.";
         addDebugLog(`voice-log reply ready (${reply.length} chars)`);
+        pushMessage("coach", reply);
         await speakResponse(reply);
         return;
       }
@@ -503,6 +456,7 @@ export default function VoicePage() {
             const ev = JSON.parse(line.slice(6));
             if (ev.type === "chunk") {
               fullResponse += ev.text;
+              streamCoach(fullResponse);
             }
           } catch {}
         }
@@ -513,8 +467,9 @@ export default function VoicePage() {
     }
 
     addDebugLog(`Agent reply ready (${fullResponse.length} chars)`);
+    streamCoach(fullResponse);
     await speakResponse(fullResponse);
-  }, [setVS, speakResponse, addDebugLog]);
+  }, [setVS, speakResponse, addDebugLog, pushMessage, streamCoach]);
 
   // ── Acquire mic (shared setup) ────────────────────────────────────────────
   const acquireMic = useCallback(async () => {
@@ -677,14 +632,14 @@ export default function VoicePage() {
   }[voiceState] ?? "";
 
   const statusText = {
-    idle:      "Tap the Coach to start recording",
-    recording: "Recording… tap orb to send",
-    thinking:  "Thinking…",
-    speaking:  "Speaking… tap orb to stop",
+    idle:      "Tap the coach and tell me what you ate",
+    recording: "Listening… tap the coach to send",
+    thinking:  "Working on it…",
+    speaking:  "Speaking… tap the coach to stop",
   }[voiceState];
 
   const statusColor = {
-    idle: "#444", recording: "#ef4444", thinking: "#f59e0b", speaking: "#22c55e",
+    idle: "#7c8bff", recording: "#ef4444", thinking: "#f59e0b", speaking: "#22c55e",
   }[voiceState];
 
   const dotPulse  = voiceState !== S.IDLE;
@@ -718,48 +673,77 @@ export default function VoicePage() {
       </div>
 
       {/* CENTER CONTENT */}
-      <div style={{ flex: 1, minHeight: 0, display: "flex", alignItems: "center", justifyContent: "center", padding: "8px 18px max(env(safe-area-inset-bottom,0px),22px)" }}>
-        <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 14, width: "100%", maxWidth: 420 }}>
-          {/* STATUS LINE */}
-          <div style={{
-            textAlign: "center", fontSize: "0.82rem", color: statusColor,
-            padding: "5px 24px", minHeight: 34, transition: "color 0.3s", flexShrink: 0,
-            fontStyle: "normal", lineHeight: 1.4,
-          }}>
+      <div style={{ flex: 1, minHeight: 0, display: "flex", flexDirection: "column", padding: "2px 16px max(env(safe-area-inset-bottom,0px),14px)" }}>
+
+        {/* Coach + status — pinned at the top of the content area */}
+        <div style={{ flexShrink: 0, display: "flex", flexDirection: "column", alignItems: "center", gap: 6 }}>
+          <div
+            onPointerDown={voiceState === S.THINKING ? undefined : handleOrbTap}
+            role="button"
+            aria-label={orbLabel}
+            style={{
+              position: "relative",
+              cursor: voiceState === S.THINKING ? "default" : "pointer",
+              touchAction: "manipulation",
+              WebkitTapHighlightColor: "transparent",
+              userSelect: "none",
+              opacity: voiceState === S.THINKING ? 0.9 : 1,
+              transition: "opacity 0.2s",
+            }}
+          >
+            <CoachAvatar state={voiceState} size={orbSize} />
+          </div>
+          <div style={{ textAlign: "center", fontSize: "0.82rem", color: statusColor, minHeight: 20, transition: "color 0.3s", lineHeight: 1.4 }}>
             {statusText}
           </div>
-
-        <div
-          onPointerDown={voiceState === S.THINKING ? undefined : handleOrbTap}
-          role="button"
-          aria-label={orbLabel}
-          style={{
-            position: "relative",
-            cursor: voiceState === S.THINKING ? "default" : "pointer",
-            borderRadius: "50%",
-            touchAction: "manipulation",
-            WebkitTapHighlightColor: "transparent",
-            userSelect: "none",
-            opacity: voiceState === S.THINKING ? 0.82 : 1,
-            transition: "opacity 0.2s",
-          }}
-        >
-          <CoachAvatar state={voiceState} size={orbSize} />
         </div>
 
-        {error && (
-          <div style={{ fontSize: "0.78rem", color: "#ef4444", background: "#1f0505", border: "1px solid #3f1010", padding: "10px 18px", borderRadius: 12, maxWidth: 300, textAlign: "center", lineHeight: 1.5, margin: "0 16px" }}>
-            {error}
+        {/* Conversation — scrollable, so users see what was heard + the reply */}
+        <div
+          ref={scrollRef}
+          style={{ flex: 1, minHeight: 0, overflowY: "auto", display: "flex", flexDirection: "column", gap: 10, padding: "12px 2px 4px", width: "100%", maxWidth: 480, margin: "0 auto" }}
+        >
+          {messages.length === 0 && !error && (
+            <div style={{ margin: "auto", textAlign: "center", color: "#5b5b6b", fontSize: "0.85rem", lineHeight: 1.7, maxWidth: 300 }}>
+              Tap the coach and say what you ate —<br />
+              <span style={{ color: "#8b8ba3" }}>“I had two rotis and a bowl of dal”</span><br />
+              or ask <span style={{ color: "#8b8ba3" }}>“how many calories do I have left?”</span>
+            </div>
+          )}
+          {messages.map((m, i) => (
+            <div key={i} style={{ display: "flex", justifyContent: m.role === "user" ? "flex-end" : "flex-start" }}>
+              <div style={{
+                maxWidth: "84%", padding: "10px 14px", borderRadius: 16, fontSize: "0.9rem", lineHeight: 1.5,
+                borderBottomRightRadius: m.role === "user" ? 5 : 16,
+                borderBottomLeftRadius: m.role === "user" ? 16 : 5,
+                background: m.role === "user" ? "rgba(99,102,241,0.18)" : "rgba(255,255,255,0.055)",
+                border: `1px solid ${m.role === "user" ? "rgba(99,102,241,0.35)" : "rgba(255,255,255,0.10)"}`,
+                color: "#e9e9f2",
+              }}>
+                {m.role === "coach" && (
+                  <span style={{ display: "block", fontSize: "0.56rem", fontWeight: 800, letterSpacing: "0.09em", textTransform: "uppercase", color: statusColor, marginBottom: 3, opacity: 0.9 }}>
+                    NutriCoach
+                  </span>
+                )}
+                {m.text || (voiceState === S.THINKING && m.role === "coach" ? "…" : "")}
+              </div>
+            </div>
+          ))}
+          {error && (
+            <div style={{ margin: "4px auto 0", fontSize: "0.78rem", color: "#ef4444", background: "#1f0505", border: "1px solid #3f1010", padding: "10px 16px", borderRadius: 12, maxWidth: 320, textAlign: "center", lineHeight: 1.5 }}>
+              {error}
+            </div>
+          )}
+        </div>
+
+        {/* End conversation — pinned at the bottom, never overlaps the coach */}
+        {voiceState !== S.IDLE && (
+          <div style={{ flexShrink: 0, display: "flex", justifyContent: "center", paddingTop: 8 }}>
+            <button onPointerDown={endSession} style={{ background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.09)", color: "#888", cursor: "pointer", padding: "9px 22px", borderRadius: 22, fontSize: "0.78rem", touchAction: "manipulation", WebkitTapHighlightColor: "transparent" }}>
+              End conversation
+            </button>
           </div>
         )}
-
-        {voiceState !== S.IDLE && (
-          <button onPointerDown={endSession} style={{ background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.09)", color: "#555", cursor: "pointer", padding: "9px 22px", borderRadius: 22, fontSize: "0.78rem", touchAction: "manipulation", WebkitTapHighlightColor: "transparent" }}>
-            End conversation
-          </button>
-        )}
-
-        </div>
       </div>
 
       <button
