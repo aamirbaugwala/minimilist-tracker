@@ -207,11 +207,41 @@ Rules:
       });
     }
 
+    // ── Store the ORIGINAL PDF in the private vault ─────────────────────────
+    // Best-effort: the analysis is already persisted, so a storage hiccup must
+    // not fail the request. Path is namespaced by user so RLS keeps it private.
+    let fileUrl = null;
+    const storagePath = `${userId}/${saved.id}.pdf`;
+    try {
+      const { error: upErr } = await db.storage
+        .from("medical-reports")
+        .upload(storagePath, Buffer.from(arrayBuffer), {
+          contentType: "application/pdf",
+          upsert: true,
+        });
+      if (upErr) {
+        console.error("Vault upload failed:", upErr.message);
+      } else {
+        await db
+          .from("medical_reports")
+          .update({ file_path: storagePath, file_size: file.size })
+          .eq("id", saved.id);
+        saved.file_path = storagePath;
+        saved.file_size = file.size;
+        const { data: signed } = await db.storage
+          .from("medical-reports")
+          .createSignedUrl(storagePath, 60 * 60); // 1 hour
+        fileUrl = signed?.signedUrl || null;
+      }
+    } catch (e) {
+      console.error("Vault upload exception:", e.message);
+    }
+
     // New report saved — bust the medical context cache so agent fetches fresh data
     cacheInvalidate(userId, "get_medical_context");
 
     return NextResponse.json({
-      report: { ...parsed, ...saved },
+      report: { ...parsed, ...saved, file_url: fileUrl },
       saved: true,
     });
   } catch (error) {

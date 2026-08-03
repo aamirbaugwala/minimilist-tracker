@@ -36,6 +36,8 @@ import RewardLayer from "./components/RewardLayer";
 import QuestsCard from "./components/QuestsCard";
 import CaptureBar from "./components/CaptureBar";
 import { defaultMeal } from "./lib/mealPeriod";
+import { dayKey } from "./lib/day";
+import { compressImage } from "./lib/image";
 import {
   xpForLog,
   levelFromXp,
@@ -44,13 +46,9 @@ import {
   completedQuestIds,
 } from "./lib/gamification";
 
-// The user's LOCAL calendar day (YYYY-MM-DD). Using toISOString() gives the UTC
-// day, so anyone east/west of UTC can log a meal that then vanishes from
-// "today" once UTC rolls over. Write and read must use the same local key.
-const localDateKey = (d = new Date()) => {
-  const dt = d instanceof Date ? d : new Date(d);
-  return `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, "0")}-${String(dt.getDate()).padStart(2, "0")}`;
-};
+// The app's "today" — a local day that rolls over at 4am (see lib/day.js), so
+// late-night meals stay on the day you were awake for and every page agrees.
+const localDateKey = (d) => dayKey(d);
 
 export default function Home() {
   const router = useRouter();
@@ -1185,18 +1183,21 @@ export default function Home() {
     const input = document.querySelector(".command-center input");
     if (input) setTimeout(() => input.focus(), 300);
   };
-  const handleSnap = (file) => {
-    // Hand the photo to the AI Coach, which identifies items and logs them.
-    const reader = new FileReader();
-    reader.onload = () => {
+  const handleSnap = async (file) => {
+    // Guardrail + downscale before handing the photo to the AI Coach: rejects
+    // non-images and shrinks big gallery shots so they fit in sessionStorage.
+    setSaveError("");
+    try {
+      const { dataUrl } = await compressImage(file);
       try {
-        sessionStorage.setItem("nt_meal_photo", String(reader.result));
+        sessionStorage.setItem("nt_meal_photo", dataUrl);
       } catch {
-        /* storage blocked — the coach still opens */
+        /* storage blocked — the coach still opens, user can re-attach there */
       }
       router.push("/agent?photo=1");
-    };
-    reader.readAsDataURL(file);
+    } catch (err) {
+      setSaveError(err?.message || "Could not use that photo.");
+    }
   };
 
   const openMealBuilder = (mealToEdit = null) => {

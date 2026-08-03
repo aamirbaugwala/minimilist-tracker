@@ -40,13 +40,14 @@ export default function CaptureBar({ onSnap, onVoice, onSearch }) {
           <Camera size={19} />
           <span style={{ fontSize: "0.72rem" }}>Snap plate</span>
           <span style={{ fontSize: "0.54rem", color: "rgba(255,255,255,0.55)", fontWeight: 600 }}>
-            AI reads it
+            Camera or gallery
           </span>
+          {/* No `capture` attr → iOS/Android show BOTH "Take Photo" and
+              "Photo Library", so users can snap live or pick an existing shot. */}
           <input
             ref={fileRef}
             type="file"
             accept="image/*"
-            capture="environment"
             style={{ display: "none" }}
             onChange={(e) => {
               const file = e.target.files?.[0];

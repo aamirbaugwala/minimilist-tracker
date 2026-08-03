@@ -25,6 +25,8 @@ import {
   Minus,
   Sparkles,
   X,
+  Download,
+  Paperclip,
 } from "lucide-react";
 
 // ─── STATUS BADGE ─────────────────────────────────────────────────────────────
@@ -86,6 +88,11 @@ function ReportCard({ report, onDelete }) {
             </div>
           </div>
           <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            {report.file_url && (
+              <span title="Original PDF stored" style={{ color: "#52525b", display: "flex" }}>
+                <Paperclip size={13} />
+              </span>
+            )}
             {abnormal > 0 && (
               <span style={{
                 fontSize: "0.7rem", fontWeight: 700, padding: "3px 8px", borderRadius: 20,
@@ -233,6 +240,24 @@ function ReportCard({ report, onDelete }) {
             }}>
               ⚠️ {report.disclaimer}
             </div>
+          )}
+
+          {/* View / download the original PDF from the vault */}
+          {report.file_url && (
+            <a
+              href={report.file_url}
+              target="_blank"
+              rel="noopener noreferrer"
+              style={{
+                display: "flex", alignItems: "center", justifyContent: "center", gap: 6,
+                padding: "9px", borderRadius: 10, border: "1px solid #6366f130",
+                background: "#6366f110", color: "#818cf8", cursor: "pointer",
+                fontSize: "0.8rem", fontWeight: 600, textDecoration: "none",
+              }}
+            >
+              <Download size={13} /> View original PDF
+              {report.file_size ? ` · ${(report.file_size / 1024 / 1024).toFixed(1)} MB` : ""}
+            </a>
           )}
 
           {/* Delete */}
@@ -556,6 +581,9 @@ Be specific — mention actual values. Prefer practical Indian food-based advice
                     <div style={{ fontWeight: 700, fontSize: "0.95rem" }}>Drop your medical reports here</div>
                     <div style={{ fontSize: "0.8rem", color: "#52525b", marginTop: 4 }}>
                       PDF only · Max 10MB each · Multiple files supported
+                    </div>
+                    <div style={{ fontSize: "0.72rem", color: "#3f3f46", marginTop: 6, display: "flex", alignItems: "center", justifyContent: "center", gap: 4 }}>
+                      <Paperclip size={11} /> Originals are saved privately to your report vault
                     </div>
                   </div>
                   <span style={{

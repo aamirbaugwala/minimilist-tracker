@@ -21,9 +21,12 @@ export const viewport = {
   initialScale: 1,
   maximumScale: 1,
   userScalable: false,
-  // Draw under the notch/home-indicator so env(safe-area-inset-*) is non-zero
-  // in standalone PWA mode — the bottom nav and Undo toast rely on it.
-  viewportFit: "cover",
+  // NOTE: intentionally NOT viewport-fit:cover. Cover makes iOS extend the page
+  // under the status bar / home indicator, which breaks 100dvh math (empty gap
+  // above the nav at rest, and the input jumping when the keyboard opens). The
+  // default lets the browser keep content inside the safe area automatically —
+  // simpler and stable. The env(safe-area-inset-*) paddings elsewhere are then
+  // harmless no-ops (0).
 };
 
 export default function RootLayout({ children }) {

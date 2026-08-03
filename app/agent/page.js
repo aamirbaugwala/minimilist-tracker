@@ -3,6 +3,8 @@
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { supabase } from "../supabase";
+import { dayKey } from "../lib/day";
+import { compressImage } from "../lib/image";
 import {
   ArrowLeft,
   Send,
@@ -213,24 +215,18 @@ export default function AgentPage() {
   };
 
   // ── IMAGE PICK ─────────────────────────────────────────────────────────────
-  const handleImagePick = (e) => {
+  const handleImagePick = async (e) => {
     const file = e.target.files?.[0];
+    e.target.value = ""; // reset so the same file can be re-picked
     if (!file) return;
-    // Max 4 MB
-    if (file.size > 4 * 1024 * 1024) {
-      setError("Image must be under 4 MB.");
-      return;
-    }
-    const reader = new FileReader();
-    reader.onload = (ev) => {
-      const dataUrl = ev.target.result;               // "data:image/jpeg;base64,…"
-      const [header, base64] = dataUrl.split(",");    // split off the header
-      const mimeType = header.replace("data:", "").replace(";base64", "");
+    // Guardrail + downscale: validates it's an image and shrinks big gallery
+    // photos so the request stays fast and small.
+    try {
+      const { base64, mimeType, dataUrl } = await compressImage(file);
       setSelectedImage({ base64, mimeType, preview: dataUrl });
-    };
-    reader.readAsDataURL(file);
-    // Reset the input so the same file can be picked again
-    e.target.value = "";
+    } catch (err) {
+      setError(err?.message || "Could not use that image.");
+    }
   };
 
   // ── STREAMING TTS — queues utterances sentence-by-sentence as text arrives ─
@@ -421,6 +417,7 @@ export default function AgentPage() {
           accessToken: session.access_token,
           imageBase64:  imageToSend?.base64  || null,
           imageMimeType: imageToSend?.mimeType || null,
+          dayKey:      dayKey(),
         }),
       });
 
@@ -549,7 +546,10 @@ export default function AgentPage() {
     // Give state a tick to settle, then send with the meal-analysis prompt.
     const t = setTimeout(() => {
       sendMessageRef.current?.(
-        "Identify the foods and portions in this meal photo and log them for me.",
+        "Identify the foods and portions in this meal photo and log them for me. " +
+          "If this image is NOT a photo of food or a meal (e.g. a person, screenshot, " +
+          "document, or random object), do not log anything — just briefly tell me you " +
+          "can only read food photos.",
       );
     }, 400);
     return () => clearTimeout(t);
@@ -591,7 +591,7 @@ export default function AgentPage() {
       {/* ── HEADER ── */}
       <div
         style={{
-          padding: "calc(14px + env(safe-area-inset-top, 0px)) 16px 14px",
+          padding: "14px 16px",
           borderBottom: "1px solid #1f1f22",
           display: "flex",
           alignItems: "center",
@@ -1086,12 +1086,12 @@ export default function AgentPage() {
               fontFamily: "inherit",
             }}
           />
-          {/* Hidden image file input */}
+          {/* Hidden image file input — no `capture` so users can attach from the
+              gallery or take a new photo (the OS offers both). */}
           <input
             ref={imageInputRef}
             type="file"
             accept="image/*"
-            capture="environment"
             onChange={handleImagePick}
             style={{ display: "none" }}
           />

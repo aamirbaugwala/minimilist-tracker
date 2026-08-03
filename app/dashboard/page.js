@@ -16,6 +16,7 @@ import TrendCharts from "../components/dashboard/TrendCharts";
 import MacroBreakdown from "../components/dashboard/MacroBreakdown";
 import BiomarkerTimeline from "../components/dashboard/BiomarkerTimeline";
 import ChatDrawer from "../components/dashboard/ChatDrawer";
+import { dayKey, dayKeyDaysAgo } from "../lib/day";
 
 export default function UserDashboard() {
   const router = useRouter();
@@ -213,16 +214,14 @@ export default function UserDashboard() {
       return;
     }
 
-    const today = new Date().toISOString().slice(0, 10);
+    const today = dayKey();
     const { data: profileData } = await supabase
       .from("user_profiles")
       .select("*")
       .eq("user_id", session.user.id)
       .single();
 
-    const startDay = new Date();
-    startDay.setDate(startDay.getDate() - 30);
-    const startStr = startDay.toISOString().slice(0, 10);
+    const startStr = dayKeyDaysAgo(30);
 
     const { data: logData } = await supabase
       .from("food_logs")
@@ -353,9 +352,7 @@ export default function UserDashboard() {
     const calendarMap = {};
 
     for (let i = 29; i >= 0; i--) {
-      const d = new Date();
-      d.setDate(d.getDate() - i);
-      const dateStr = d.toISOString().slice(0, 10);
+      const dateStr = dayKeyDaysAgo(i); // logical day (4am rollover), matches log dates
       calendarMap[dateStr] = {
         cals: 0,
         protein: 0,

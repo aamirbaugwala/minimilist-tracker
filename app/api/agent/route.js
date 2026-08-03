@@ -350,8 +350,10 @@ const tools = [
   },
 ];
 
-async function executeTool(toolName, args, userId, db) {
-  const today = new Date().toISOString().slice(0, 10);
+async function executeTool(toolName, args, userId, db, clientDay) {
+  // Prefer the client's logical day (4am-rollover local, see lib/day.js) so
+  // agent-logged food lands on the day the user is actually having.
+  const today = clientDay || new Date().toISOString().slice(0, 10);
 
   if (toolName === "get_todays_logs") {
     const { data } = await db.from("food_logs")
@@ -923,6 +925,9 @@ export async function POST(req) {
 
   const body = await req.json();
   const { userId, accessToken, skipHistory, voiceMode } = body;
+  // Client's logical "today" (YYYY-MM-DD, 4am-rollover local day) for correct
+  // food-log dates; null falls back to server UTC inside executeTool.
+  const clientDay = typeof body.dayKey === "string" && /^\d{4}-\d{2}-\d{2}$/.test(body.dayKey) ? body.dayKey : null;
   const clientHistory = Array.isArray(body.history) ? body.history : [];
   const message = sanitizeMessage(body.message);
   // Image attachment — validated server-side
@@ -1083,7 +1088,7 @@ export async function POST(req) {
 
               let result;
               try {
-                result = await executeTool(call.name, call.args || {}, userId, db);
+                result = await executeTool(call.name, call.args || {}, userId, db, clientDay);
               } catch (toolErr) {
                 result = { error: `Tool ${call.name} failed: ${toolErr.message}` };
               }

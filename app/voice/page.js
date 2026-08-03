@@ -4,8 +4,9 @@ import { useEffect, useRef, useState, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import { supabase } from "../supabase";
 import { defaultMeal } from "../lib/mealPeriod";
+import { dayKey } from "../lib/day";
 import Lottie from "lottie-react";
-import { ArrowLeft } from "lucide-react";
+import { ArrowLeft, Mic, Square, Loader2 } from "lucide-react";
 
 // States
 // IDLE      → tap orb → RECORDING
@@ -396,8 +397,7 @@ export default function VoicePage() {
     pushMessage("user", text);
 
     try {
-      const now = new Date();
-      const localDate = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
+      const localDate = dayKey(); // 4am-rollover local day (matches home/dashboard)
       addDebugLog("Checking /api/voice-log (is this a log request?)");
       const vlRes = await fetch("/api/voice-log", {
         method: "POST",
@@ -436,6 +436,7 @@ export default function VoicePage() {
           userId: sessionRef.current.user.id,
           accessToken: sessionRef.current.access_token,
           voiceMode: true,
+          dayKey: dayKey(),
         }),
       });
       if (!res.ok) throw new Error("api error");
@@ -638,170 +639,187 @@ export default function VoicePage() {
     speaking:  "Speaking… tap the coach to stop",
   }[voiceState];
 
-  const statusColor = {
-    idle: "#7c8bff", recording: "#ef4444", thinking: "#f59e0b", speaking: "#22c55e",
-  }[voiceState];
-
-  const dotPulse  = voiceState !== S.IDLE;
   const statusBadge = { idle: "Ready", recording: "Recording", thinking: "Thinking", speaking: "Speaking" }[voiceState];
+  const micLabel = { idle: "Tap to speak", recording: "Tap to send", thinking: "Working on it…", speaking: "Tap to stop" }[voiceState];
 
   return (
-    <div style={{
-      height: "100dvh",
-      background: "radial-gradient(ellipse at 50% 55%, #0e0e1f 0%, #060609 100%)",
-      color: "#fff", display: "flex", flexDirection: "column",
-      fontFamily: "system-ui, -apple-system, sans-serif",
-      WebkitUserSelect: "none", userSelect: "none",
-      WebkitTapHighlightColor: "transparent",
-    }}>
+    <div className={`vx vx-${voiceState}`}>
+      <div className="vx-bg" aria-hidden />
 
       {/* HEADER */}
-      <div style={{ padding: "max(env(safe-area-inset-top,0px),14px) 20px 12px", display: "flex", alignItems: "center", justifyContent: "space-between", flexShrink: 0 }}>
-        <button onPointerDown={() => { endSession(); router.back(); }} style={{
-          background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.10)", color: "#aaa",
-          cursor: "pointer", padding: "8px 14px", borderRadius: 20, display: "flex", alignItems: "center", gap: 7, fontSize: "0.8rem", touchAction: "manipulation",
-        }}>
-          <ArrowLeft size={15} /> Back
+      <header className="vx-header">
+        <button className="vx-back" onPointerDown={() => { endSession(); router.back(); }}>
+          <ArrowLeft size={16} /> Back
         </button>
-
-        <div style={{ display: "flex", alignItems: "center", gap: 7, padding: "7px 16px", background: "rgba(255,255,255,0.04)", border: `1px solid ${statusColor}44`, borderRadius: 20, fontSize: "0.78rem", color: statusColor, transition: "all 0.3s", minWidth: 100, justifyContent: "center" }}>
-          <div style={{ width: 7, height: 7, borderRadius: "50%", background: statusColor, flexShrink: 0, boxShadow: dotPulse ? `0 0 8px ${statusColor}` : "none", animation: dotPulse ? "vp-pulse 1.2s ease-in-out infinite" : "none" }} />
-          {statusBadge}
+        <div className="vx-badge">
+          <span className="vx-dot" /> {statusBadge}
         </div>
+        <span style={{ width: 70 }} />
+      </header>
 
-        <div style={{ width: 68 }} />
+      {/* STAGE — the coach on a glowing platform */}
+      <div className="vx-stage">
+        <span className="vx-halo" aria-hidden />
+        <span className="vx-halo vx-halo2" aria-hidden />
+        <button
+          className="vx-coach"
+          onPointerDown={voiceState === S.THINKING ? undefined : handleOrbTap}
+          aria-label={orbLabel}
+          style={{ cursor: voiceState === S.THINKING ? "default" : "pointer" }}
+        >
+          <CoachAvatar state={voiceState} size={orbSize} />
+        </button>
+        <span className="vx-platform" aria-hidden />
+        <div className="vx-title">NutriCoach</div>
+        <div className="vx-status">{statusText}</div>
       </div>
 
-      {/* CENTER CONTENT */}
-      <div style={{ flex: 1, minHeight: 0, display: "flex", flexDirection: "column", padding: "2px 16px max(env(safe-area-inset-bottom,0px),14px)" }}>
-
-        {/* Coach + status — pinned at the top of the content area */}
-        <div style={{ flexShrink: 0, display: "flex", flexDirection: "column", alignItems: "center", gap: 6 }}>
-          <div
-            onPointerDown={voiceState === S.THINKING ? undefined : handleOrbTap}
-            role="button"
-            aria-label={orbLabel}
-            style={{
-              position: "relative",
-              cursor: voiceState === S.THINKING ? "default" : "pointer",
-              touchAction: "manipulation",
-              WebkitTapHighlightColor: "transparent",
-              userSelect: "none",
-              opacity: voiceState === S.THINKING ? 0.9 : 1,
-              transition: "opacity 0.2s",
-            }}
-          >
-            <CoachAvatar state={voiceState} size={orbSize} />
-          </div>
-          <div style={{ textAlign: "center", fontSize: "0.82rem", color: statusColor, minHeight: 20, transition: "color 0.3s", lineHeight: 1.4 }}>
-            {statusText}
-          </div>
-        </div>
-
-        {/* Conversation — scrollable, so users see what was heard + the reply */}
-        <div
-          ref={scrollRef}
-          style={{ flex: 1, minHeight: 0, overflowY: "auto", display: "flex", flexDirection: "column", gap: 10, padding: "12px 2px 4px", width: "100%", maxWidth: 480, margin: "0 auto" }}
-        >
-          {messages.length === 0 && !error && (
-            <div style={{ margin: "auto", textAlign: "center", color: "#5b5b6b", fontSize: "0.85rem", lineHeight: 1.7, maxWidth: 300 }}>
-              Tap the coach and say what you ate —<br />
-              <span style={{ color: "#8b8ba3" }}>“I had two rotis and a bowl of dal”</span><br />
-              or ask <span style={{ color: "#8b8ba3" }}>“how many calories do I have left?”</span>
-            </div>
-          )}
-          {messages.map((m, i) => (
-            <div key={i} style={{ display: "flex", justifyContent: m.role === "user" ? "flex-end" : "flex-start" }}>
-              <div style={{
-                maxWidth: "84%", padding: "10px 14px", borderRadius: 16, fontSize: "0.9rem", lineHeight: 1.5,
-                borderBottomRightRadius: m.role === "user" ? 5 : 16,
-                borderBottomLeftRadius: m.role === "user" ? 16 : 5,
-                background: m.role === "user" ? "rgba(99,102,241,0.18)" : "rgba(255,255,255,0.055)",
-                border: `1px solid ${m.role === "user" ? "rgba(99,102,241,0.35)" : "rgba(255,255,255,0.10)"}`,
-                color: "#e9e9f2",
-              }}>
-                {m.role === "coach" && (
-                  <span style={{ display: "block", fontSize: "0.56rem", fontWeight: 800, letterSpacing: "0.09em", textTransform: "uppercase", color: statusColor, marginBottom: 3, opacity: 0.9 }}>
-                    NutriCoach
-                  </span>
-                )}
-                {m.text || (voiceState === S.THINKING && m.role === "coach" ? "…" : "")}
-              </div>
-            </div>
-          ))}
-          {error && (
-            <div style={{ margin: "4px auto 0", fontSize: "0.78rem", color: "#ef4444", background: "#1f0505", border: "1px solid #3f1010", padding: "10px 16px", borderRadius: 12, maxWidth: 320, textAlign: "center", lineHeight: 1.5 }}>
-              {error}
-            </div>
-          )}
-        </div>
-
-        {/* End conversation — pinned at the bottom, never overlaps the coach */}
-        {voiceState !== S.IDLE && (
-          <div style={{ flexShrink: 0, display: "flex", justifyContent: "center", paddingTop: 8 }}>
-            <button onPointerDown={endSession} style={{ background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.09)", color: "#888", cursor: "pointer", padding: "9px 22px", borderRadius: 22, fontSize: "0.78rem", touchAction: "manipulation", WebkitTapHighlightColor: "transparent" }}>
-              End conversation
-            </button>
+      {/* CONVERSATION */}
+      <div className="vx-chat" ref={scrollRef}>
+        {messages.length === 0 && !error && (
+          <div className="vx-empty">
+            Tell me what you ate, or ask about your day —<br />
+            <b>“I had two rotis and a bowl of dal”</b><br />
+            <b>“how many calories do I have left?”</b>
           </div>
         )}
-      </div>
-
-      <button
-        onPointerDown={() => setDebugOpen((v) => !v)}
-        style={{
-          position: "fixed",
-          right: 14,
-          bottom: "max(14px, env(safe-area-inset-bottom,0px))",
-          zIndex: 70,
-          background: "#b91c1c",
-          color: "#fff",
-          border: "1px solid #ef4444",
-          borderRadius: 999,
-          padding: "8px 12px",
-          fontSize: "0.75rem",
-          fontWeight: 800,
-          letterSpacing: "0.04em",
-          boxShadow: "0 10px 24px rgba(0,0,0,0.35)",
-          touchAction: "manipulation",
-          WebkitTapHighlightColor: "transparent",
-        }}
-      >
-        DEBUG
-      </button>
-
-      {debugOpen && (
-        <div style={{
-          position: "fixed",
-          left: 12,
-          right: 12,
-          bottom: "max(58px, calc(env(safe-area-inset-bottom,0px) + 48px))",
-          maxHeight: "40dvh",
-          background: "rgba(8,10,20,0.96)",
-          border: "1px solid rgba(239,68,68,0.65)",
-          borderRadius: 12,
-          zIndex: 80,
-          display: "flex",
-          flexDirection: "column",
-          overflow: "hidden",
-          boxShadow: "0 18px 40px rgba(0,0,0,0.45)",
-        }}>
-          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, padding: "10px 12px", borderBottom: "1px solid rgba(239,68,68,0.30)" }}>
-            <strong style={{ fontSize: "0.76rem", letterSpacing: "0.05em", color: "#fca5a5" }}>VOICE DEBUG</strong>
-            <div style={{ display: "flex", gap: 8 }}>
-              <button onPointerDown={runTtsDebug} style={{ background: "rgba(255,255,255,0.08)", color: "#f1f5f9", border: "1px solid rgba(255,255,255,0.18)", borderRadius: 8, padding: "5px 8px", fontSize: "0.72rem" }}>Test TTS</button>
-              <button onPointerDown={() => setDebugLogs([])} style={{ background: "rgba(255,255,255,0.08)", color: "#f1f5f9", border: "1px solid rgba(255,255,255,0.18)", borderRadius: 8, padding: "5px 8px", fontSize: "0.72rem" }}>Clear</button>
+        {messages.map((m, i) => (
+          <div key={i} className={`vx-row ${m.role}`}>
+            <div className={`vx-bubble ${m.role}`}>
+              {m.role === "coach" && <span className="vx-who">NutriCoach</span>}
+              {m.text || (voiceState === S.THINKING && m.role === "coach" ? "…" : "")}
             </div>
           </div>
-          <div style={{ overflowY: "auto", padding: "10px 12px 14px", fontFamily: "ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace", fontSize: "0.69rem", color: "#e2e8f0", lineHeight: 1.5 }}>
-            {debugLogs.length ? debugLogs.map((line, idx) => <div key={idx}>{line}</div>) : <div style={{ color: "#94a3b8" }}>No logs yet. Tap orb once to start diagnostics.</div>}
+        ))}
+        {error && <div className="vx-error">{error}</div>}
+      </div>
+
+      {/* CONTROLS — primary mic button */}
+      <div className="vx-controls">
+        {voiceState !== S.IDLE && (
+          <button className="vx-end" onPointerDown={endSession}>End</button>
+        )}
+        <button
+          className="vx-mic"
+          onPointerDown={voiceState === S.THINKING ? undefined : handleOrbTap}
+          disabled={voiceState === S.THINKING}
+          aria-label={micLabel}
+        >
+          <span className="vx-mic-ring" aria-hidden />
+          {voiceState === S.THINKING
+            ? <Loader2 className="vx-spin" size={26} />
+            : voiceState === S.RECORDING || voiceState === S.SPEAKING
+              ? <Square size={22} fill="currentColor" />
+              : <Mic size={26} />}
+        </button>
+        <div className="vx-mic-label">{micLabel}</div>
+      </div>
+
+      {/* DEBUG (subtle) */}
+      <button className="vx-debug-btn" onPointerDown={() => setDebugOpen((v) => !v)}>debug</button>
+      {debugOpen && (
+        <div className="vx-debug">
+          <div className="vx-debug-head">
+            <strong>VOICE DEBUG</strong>
+            <div style={{ display: "flex", gap: 8 }}>
+              <button onPointerDown={runTtsDebug}>Test TTS</button>
+              <button onPointerDown={() => setDebugLogs([])}>Clear</button>
+            </div>
+          </div>
+          <div className="vx-debug-body">
+            {debugLogs.length ? debugLogs.map((line, idx) => <div key={idx}>{line}</div>) : <div style={{ color: "#94a3b8" }}>No logs yet. Tap the mic to start.</div>}
           </div>
         </div>
       )}
 
       <style>{`
-        @keyframes vp-pulse { 0%,100%{opacity:1;transform:scale(1)} 50%{opacity:0.4;transform:scale(1.2)} }
-        @keyframes vp-dots  { 0%,80%,100%{opacity:0.2} 40%{opacity:1} }
-        @keyframes vp-spin  { to{transform:rotate(360deg)} }
+        .vx { position: relative; height: 100dvh; overflow: hidden; display: flex; flex-direction: column; color: #fff;
+          font-family: system-ui, -apple-system, sans-serif; -webkit-user-select: none; user-select: none;
+          -webkit-tap-highlight-color: transparent; background: #05050b; --c: #6d7cff; }
+        .vx-idle { --c: #6d7cff; } .vx-recording { --c: #fb5f7a; } .vx-thinking { --c: #f5a623; } .vx-speaking { --c: #22d3a5; }
+
+        .vx-bg { position: absolute; inset: 0; pointer-events: none; transition: background .7s ease; background:
+          radial-gradient(58% 42% at 50% 30%, color-mix(in srgb, var(--c) 24%, transparent), transparent 72%),
+          radial-gradient(90% 60% at 50% 118%, color-mix(in srgb, var(--c) 13%, transparent), transparent 70%),
+          #06060d; }
+
+        .vx-header { position: relative; z-index: 3; display: flex; align-items: center; justify-content: space-between;
+          padding: max(env(safe-area-inset-top,0px),14px) 18px 6px; flex-shrink: 0; }
+        .vx-back { display: flex; align-items: center; gap: 7px; background: rgba(255,255,255,0.06);
+          border: 1px solid rgba(255,255,255,0.10); color: #d2d2e4; padding: 8px 14px; border-radius: 20px;
+          font-size: 0.82rem; cursor: pointer; transition: background .2s; }
+        .vx-back:hover { background: rgba(255,255,255,0.11); }
+        .vx-badge { display: flex; align-items: center; gap: 8px; padding: 7px 15px;
+          background: color-mix(in srgb, var(--c) 13%, transparent); border: 1px solid color-mix(in srgb, var(--c) 42%, transparent);
+          border-radius: 20px; font-size: 0.78rem; font-weight: 600; color: color-mix(in srgb, var(--c) 70%, #fff);
+          min-width: 108px; justify-content: center; transition: all .4s; }
+        .vx-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--c); box-shadow: 0 0 10px var(--c); }
+        .vx-idle .vx-dot { box-shadow: none; opacity: .65; }
+        .vx:not(.vx-idle) .vx-dot { animation: vx-pulse 1.2s ease-in-out infinite; }
+
+        .vx-stage { position: relative; z-index: 1; flex-shrink: 0; display: flex; flex-direction: column; align-items: center; padding: 8px 16px 0; }
+        .vx-halo { position: absolute; top: 4px; width: min(70vw, 300px); height: min(70vw, 300px); border-radius: 50%;
+          background: radial-gradient(circle, color-mix(in srgb, var(--c) 26%, transparent), transparent 60%);
+          filter: blur(12px); animation: vx-halo 4s ease-in-out infinite; }
+        .vx-halo2 { width: min(48vw, 210px); height: min(48vw, 210px); animation-delay: .6s; opacity: .8; }
+        .vx-recording .vx-halo { animation-duration: 1.5s; } .vx-speaking .vx-halo { animation-duration: 2.1s; }
+        .vx-coach { position: relative; z-index: 1; background: none; border: none; padding: 0; touch-action: manipulation; }
+        .vx-platform { margin-top: -8px; width: min(50vw, 220px); height: 24px; border-radius: 50%;
+          background: radial-gradient(circle, color-mix(in srgb, var(--c) 42%, transparent), transparent 68%); filter: blur(6px); opacity: .85; }
+        .vx-title { margin-top: 8px; font-size: 1.1rem; font-weight: 800; letter-spacing: -0.01em;
+          background: linear-gradient(90deg, #ffffff, color-mix(in srgb, var(--c) 65%, #ffffff)); -webkit-background-clip: text; background-clip: text; color: transparent; }
+        .vx-status { margin-top: 3px; font-size: 0.85rem; min-height: 20px; text-align: center; transition: color .3s;
+          color: color-mix(in srgb, var(--c) 55%, #c8c8dc); }
+
+        .vx-chat { position: relative; z-index: 1; flex: 1; min-height: 0; overflow-y: auto; width: 100%; max-width: 560px;
+          margin: 8px auto 0; padding: 8px 18px; display: flex; flex-direction: column; gap: 10px; }
+        .vx-chat::-webkit-scrollbar { width: 5px; } .vx-chat::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.12); border-radius: 4px; }
+        .vx-empty { margin: auto; text-align: center; color: #56566b; font-size: 0.92rem; line-height: 1.9; max-width: 340px; }
+        .vx-empty b { color: color-mix(in srgb, var(--c) 45%, #b7b7cc); font-weight: 600; }
+        .vx-row { display: flex; }
+        .vx-row.user { justify-content: flex-end; } .vx-row.coach { justify-content: flex-start; }
+        .vx-bubble { max-width: 82%; padding: 11px 15px; border-radius: 18px; font-size: 0.92rem; line-height: 1.5; animation: vx-in .25s ease; }
+        .vx-bubble.user { background: color-mix(in srgb, var(--c) 22%, transparent); border: 1px solid color-mix(in srgb, var(--c) 42%, transparent);
+          border-bottom-right-radius: 6px; color: #f1f1f9; }
+        .vx-bubble.coach { background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.11); border-bottom-left-radius: 6px; color: #ececf6; }
+        .vx-who { display: block; font-size: 0.55rem; font-weight: 800; letter-spacing: .1em; text-transform: uppercase; color: var(--c); margin-bottom: 3px; opacity: .95; }
+        .vx-error { margin: 4px auto 0; font-size: 0.8rem; color: #fda4af; background: rgba(190,30,50,0.14);
+          border: 1px solid rgba(244,63,94,0.32); padding: 10px 16px; border-radius: 12px; max-width: 340px; text-align: center; }
+
+        .vx-controls { position: relative; z-index: 3; flex-shrink: 0; display: flex; flex-direction: column; align-items: center; gap: 8px;
+          padding: 8px 16px max(env(safe-area-inset-bottom,0px),20px); }
+        .vx-mic { position: relative; width: 70px; height: 70px; border-radius: 50%; border: none; cursor: pointer; display: grid; place-items: center; color: #fff;
+          background: radial-gradient(circle at 40% 34%, color-mix(in srgb, var(--c) 92%, #fff), var(--c) 72%);
+          box-shadow: 0 14px 36px -6px var(--c), inset 0 -4px 12px rgba(0,0,0,.28), inset 0 3px 10px rgba(255,255,255,.35);
+          transition: transform .12s ease, box-shadow .3s; touch-action: manipulation; }
+        .vx-mic:active { transform: scale(0.93); }
+        .vx-mic:disabled { cursor: default; }
+        .vx-mic-ring { position: absolute; inset: -9px; border-radius: 50%; border: 2px solid color-mix(in srgb, var(--c) 55%, transparent); opacity: 0; }
+        .vx-recording .vx-mic-ring, .vx-speaking .vx-mic-ring { opacity: 1; animation: vx-ring 1.3s ease-out infinite; }
+        .vx-mic-label { font-size: 0.78rem; color: #8686a0; letter-spacing: .01em; }
+        .vx-end { position: absolute; left: 18px; bottom: max(env(safe-area-inset-bottom,0px),20px);
+          background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.10); color: #9a9ab0;
+          padding: 9px 16px; border-radius: 20px; font-size: 0.76rem; cursor: pointer; }
+
+        .vx-spin { animation: vx-spin 0.9s linear infinite; }
+
+        .vx-debug-btn { position: fixed; right: 12px; bottom: max(12px, env(safe-area-inset-bottom,0px)); z-index: 70;
+          background: rgba(255,255,255,0.05); color: #6b6b80; border: 1px solid rgba(255,255,255,0.08); border-radius: 999px;
+          padding: 5px 11px; font-size: 0.66rem; letter-spacing: .06em; text-transform: uppercase; cursor: pointer; }
+        .vx-debug { position: fixed; left: 12px; right: 12px; bottom: max(46px, calc(env(safe-area-inset-bottom,0px) + 42px));
+          max-height: 40dvh; background: rgba(8,10,20,0.97); border: 1px solid rgba(255,255,255,0.14); border-radius: 12px; z-index: 80;
+          display: flex; flex-direction: column; overflow: hidden; box-shadow: 0 18px 40px rgba(0,0,0,0.5); }
+        .vx-debug-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 10px 12px; border-bottom: 1px solid rgba(255,255,255,0.10); }
+        .vx-debug-head strong { font-size: 0.72rem; letter-spacing: .06em; color: #cfcfe0; }
+        .vx-debug-head button { background: rgba(255,255,255,0.08); color: #f1f5f9; border: 1px solid rgba(255,255,255,0.18); border-radius: 8px; padding: 5px 8px; font-size: 0.72rem; cursor: pointer; }
+        .vx-debug-body { overflow-y: auto; padding: 10px 12px 14px; font-family: ui-monospace, Menlo, Monaco, Consolas, monospace; font-size: 0.69rem; color: #e2e8f0; line-height: 1.5; }
+
+        @keyframes vx-pulse { 0%,100% { opacity: 1 } 50% { opacity: .35 } }
+        @keyframes vx-halo { 0%,100% { transform: scale(.94); opacity: .7 } 50% { transform: scale(1.06); opacity: 1 } }
+        @keyframes vx-ring { 0% { transform: scale(1); opacity: .7 } 100% { transform: scale(1.55); opacity: 0 } }
+        @keyframes vx-in { from { opacity: 0; transform: translateY(6px) } to { opacity: 1; transform: none } }
+        @keyframes vx-spin { to { transform: rotate(360deg) } }
+        @media (prefers-reduced-motion: reduce) { .vx *, .vx-bg { animation: none !important; } }
       `}</style>
     </div>
   );

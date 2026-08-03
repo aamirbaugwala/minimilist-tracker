@@ -36,6 +36,7 @@ import { Podium, SquadBanner } from "../components/social/Leaderboard";
 import FaceoffModal from "../components/social/FaceoffModal";
 import FriendModal from "../components/social/FriendModal";
 import RulesModal from "../components/social/RulesModal";
+import { dayKey } from "../lib/day";
 
 // ─── TOOL BADGE METADATA ──────────────────────────────────────────────────────
 const TOOL_META = {
@@ -225,7 +226,7 @@ export default function SocialPage() {
   const handleViewLogs = async (friend) => {
     setSelectedFriend(friend);
     setLogsLoading(true);
-    const today = new Date().toISOString().slice(0, 10);
+    const today = dayKey();
     const { data } = await supabase
       .from("food_logs").select("*")
       .eq("user_id", friend.id).eq("date", today)
@@ -261,7 +262,7 @@ export default function SocialPage() {
         .from("user_profiles").select("*").eq("user_id", uid).maybeSingle();
       const { data: logs } = await supabase
         .from("food_logs").select("*")
-        .eq("user_id", uid).eq("date", new Date().toISOString().slice(0, 10));
+        .eq("user_id", uid).eq("date", dayKey());
 
       const rawStats = logs?.reduce((acc, item) => {
         let currentFib = item.fiber || 0;

@@ -1,12 +1,13 @@
 "use client";
 import { computeDayScore } from "../../lib/dashboardMetrics";
+import { dayKey } from "../../lib/day";
 const DailyScoreCard = ({ metrics, calendarData, selectedDate, scoreExpanded, setScoreExpanded }) => {
             const score = computeDayScore(metrics, calendarData, selectedDate);
             const s = score || { total: 0, grade: "—", gradeColor: "#444", pillars: [] };
             const R = 44;
             const circ = 2 * Math.PI * R;
             const dash = score ? (s.total / 100) * circ : 0;
-            const isToday = selectedDate === new Date().toISOString().slice(0, 10);
+            const isToday = selectedDate === dayKey();
 
             return (
               <div
