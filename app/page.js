@@ -68,6 +68,14 @@ export default function Home() {
   // Surfaces a real save failure instead of swallowing it into the console.
   const [saveError, setSaveError] = useState("");
 
+  // ── Snap-a-plate: in-place photo identify + confirm (no navigation) ─────────
+  const [snapOpen, setSnapOpen] = useState(false);
+  const [snapLoading, setSnapLoading] = useState(false);
+  const [snapItems, setSnapItems] = useState([]);        // [{ name, qty, calories, protein, ... }]
+  const [snapImage, setSnapImage] = useState(null);      // { base64, mimeType, dataUrl }
+  const [snapError, setSnapError] = useState("");
+  const [snapCorrection, setSnapCorrection] = useState("");
+
   // ── Phase 1/3: reward + game state ──────────────────────────────────────────
   const [floats, setFloats] = useState([]); // floating +kcal / +XP bursts
   const [toast, setToast] = useState(null); // { name } — auto-save + undo
@@ -965,6 +973,51 @@ export default function Home() {
   // ── Add (append-only) ───────────────────────────────────────────────────────
   // Each item becomes its own food_logs row with a real created_at, so meal-time
   // grouping is accurate and Undo just deletes the batch. No Save step.
+  // Shared commit path for a batch of ready-to-insert rows (final macros, real
+  // UUID ids): optimistic UI, reward side-effects (isolated so a throw can never
+  // skip persistence — the original data-loss bug), then insert each row. Used
+  // by manual/search logging AND the Snap-a-plate confirm flow.
+  const commitRows = (rows) => {
+    if (!rows.length) return;
+    const idSet = new Set(rows.map((r) => r.id));
+
+    // optimistic — newest first
+    setLogs((prev) => [...rows.slice().reverse(), ...prev]);
+
+    try {
+      const kcal = rows.reduce((s, r) => s + r.calories, 0);
+      const xp = rows.reduce((s, r) => s + xpForLog(r), 0);
+      const label = rows.length === 1 ? rows[0].name : `${rows.length} items`;
+      fireReward(kcal, xp, label, idSet);
+      awardXp(xp);
+      if (typeof navigator !== "undefined" && navigator.vibrate) {
+        try { navigator.vibrate(16); } catch { /* ignore */ }
+      }
+    } catch (rewardErr) {
+      console.error("Reward side-effect failed (logging continues):", rewardErr);
+    }
+
+    // Persist each row. The id is already the final DB id, so there is nothing
+    // to reconcile — on success we clear the pending marker; on failure we roll
+    // the row back and surface the reason. pendingRef lets a delete/undo that
+    // fires before the insert finishes wait for it (same id throughout).
+    rows.forEach((row) => {
+      const p = insertFoodLog(row)
+        .then((error) => {
+          if (error) throw error;
+          delete pendingRef.current[row.id];
+        })
+        .catch((err) => {
+          const msg = err?.message || err?.error_description || String(err);
+          console.error("Could not save food log:", err);
+          setSaveError(`Couldn't save "${row.name}": ${msg}`);
+          setLogs((prev) => prev.filter((l) => l.id !== row.id));
+          delete pendingRef.current[row.id];
+        });
+      pendingRef.current[row.id] = p;
+    });
+  };
+
   const handleLocalAdd = (itemsToAdd) => {
     if (!session) return;
     const createdAt = new Date().toISOString();
@@ -995,45 +1048,37 @@ export default function Home() {
         user_id: session.user.id,
       };
     });
-    const idSet = new Set(rows.map((r) => r.id));
+    commitRows(rows);
+  };
 
-    // optimistic — newest first
-    setLogs((prev) => [...rows.slice().reverse(), ...prev]);
-
-    // Presentation side-effects are wrapped so a throw here can NEVER skip the
-    // DB insert below (the original data-loss bug: awardXp threw before persist).
-    try {
-      const kcal = rows.reduce((s, r) => s + r.calories, 0);
-      const xp = rows.reduce((s, r) => s + xpForLog(r), 0);
-      const label = rows.length === 1 ? rows[0].name : `${rows.length} items`;
-      fireReward(kcal, xp, label, idSet);
-      awardXp(xp);
-      if (typeof navigator !== "undefined" && navigator.vibrate) {
-        try { navigator.vibrate(16); } catch { /* ignore */ }
-      }
-    } catch (rewardErr) {
-      console.error("Reward side-effect failed (logging continues):", rewardErr);
-    }
-
-    // Persist each row. The id is already the final DB id, so there is nothing
-    // to reconcile — on success we just clear the pending marker; on failure we
-    // roll the row back and surface the reason. pendingRef lets a delete/undo
-    // that fires before the insert finishes wait for it (same id throughout).
-    rows.forEach((row) => {
-      const p = insertFoodLog(row)
-        .then((error) => {
-          if (error) throw error;
-          delete pendingRef.current[row.id];
-        })
-        .catch((err) => {
-          const msg = err?.message || err?.error_description || String(err);
-          console.error("Could not save food log:", err);
-          setSaveError(`Couldn't save "${row.name}": ${msg}`);
-          setLogs((prev) => prev.filter((l) => l.id !== row.id));
-          delete pendingRef.current[row.id];
-        });
-      pendingRef.current[row.id] = p;
-    });
+  // Log the foods the user confirmed from a Snap-a-plate photo. identify-meal
+  // returns FINAL (qty-multiplied) macros, so build rows directly — do NOT
+  // re-scale by qty the way handleLocalAdd does for per-serving DB foods.
+  const logIdentifiedItems = (items) => {
+    if (!session || !items.length) return;
+    setSaveError("");
+    const createdAt = new Date().toISOString();
+    const dateKey = localDateKey();
+    const meal = selectedMeal || defaultMeal(createdAt);
+    const newId = () =>
+      typeof crypto !== "undefined" && crypto.randomUUID
+        ? crypto.randomUUID()
+        : "id_" + Date.now() + "_" + Math.random().toString(36).slice(2);
+    const rows = items.map((item) => ({
+      id: newId(),
+      name: item.name,
+      qty: Number(item.qty) || 1,
+      calories: Math.round(item.calories || 0),
+      protein: Math.round(item.protein || 0),
+      carbs: Math.round(item.carbs || 0),
+      fats: Math.round(item.fats || 0),
+      fiber: Math.round(item.fiber || 0),
+      meal,
+      date: dateKey,
+      created_at: createdAt,
+      user_id: session.user.id,
+    }));
+    commitRows(rows);
   };
 
   const undoLastAdd = () => {
@@ -1183,22 +1228,118 @@ export default function Home() {
     const input = document.querySelector(".command-center input");
     if (input) setTimeout(() => input.focus(), 300);
   };
-  const handleSnap = async (file) => {
-    // Guardrail + downscale before handing the photo to the AI Coach: rejects
-    // non-images and shrinks big gallery shots so they fit in sessionStorage.
-    setSaveError("");
+  // Ask the server what foods are in the photo (optionally with a spoken/typed
+  // correction). Does NOT log — fills the confirm sheet so the user decides.
+  const runIdentify = async (img, correction) => {
+    if (!session || !img) return;
+    setSnapLoading(true);
+    setSnapError("");
     try {
-      const { dataUrl } = await compressImage(file);
-      try {
-        sessionStorage.setItem("nt_meal_photo", dataUrl);
-      } catch {
-        /* storage blocked — the coach still opens, user can re-attach there */
+      const res = await fetch("/api/identify-meal", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          image: img.base64,
+          mimeType: img.mimeType,
+          userId: session.user.id,
+          accessToken: session.access_token,
+          correction: correction || "",
+          meal: selectedMeal || "",
+          date: localDateKey(),
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (data.error) {
+        setSnapItems([]);
+        setSnapError(data.error);
+      } else if (data.isFood === false) {
+        setSnapItems([]);
+        setSnapError("That doesn't look like food. Try another photo, or describe your meal below.");
+      } else if (Array.isArray(data.items) && data.items.length) {
+        setSnapItems(data.items);
+        setSnapError(
+          data.unmatched?.length
+            ? `Couldn't place: ${data.unmatched.join(", ")}. Edit below or describe it.`
+            : "",
+        );
+      } else {
+        setSnapItems([]);
+        setSnapError(
+          data.unmatched?.length
+            ? `I saw ${data.unmatched.join(", ")} but couldn't match those. Describe your meal below to add it.`
+            : "I couldn't identify the foods. Describe your meal below and I'll add it.",
+        );
       }
-      router.push("/agent?photo=1");
+    } catch {
+      setSnapError("Something went wrong reading the photo. Please try again.");
+    }
+    setSnapLoading(false);
+  };
+
+  // Snap: guardrail + downscale, then identify IN PLACE (stay on this page).
+  const handleSnap = async (file) => {
+    setSaveError("");
+    let img;
+    try {
+      img = await compressImage(file);
     } catch (err) {
       setSaveError(err?.message || "Could not use that photo.");
+      return;
     }
+    setSnapImage(img);
+    setSnapItems([]);
+    setSnapError("");
+    setSnapCorrection("");
+    setSnapOpen(true);
+    runIdentify(img, "");
   };
+
+  const submitSnapCorrection = () => {
+    const c = snapCorrection.trim();
+    if (!c || !snapImage || snapLoading) return;
+    setSnapCorrection("");
+    runIdentify(snapImage, c);
+  };
+
+  const confirmSnap = () => {
+    if (!snapItems.length) return;
+    logIdentifiedItems(snapItems);
+    setSnapOpen(false);
+    setSnapItems([]);
+    setSnapImage(null);
+    setSnapCorrection("");
+    setSnapError("");
+  };
+
+  const closeSnap = () => {
+    setSnapOpen(false);
+    setSnapItems([]);
+    setSnapImage(null);
+    setSnapCorrection("");
+    setSnapError("");
+  };
+
+  // Inline tweaks in the sheet before logging — scale macros with the quantity.
+  const updateSnapQty = (idx, delta) => {
+    setSnapItems((prev) =>
+      prev.map((it, i) => {
+        if (i !== idx) return it;
+        const oldQty = Number(it.qty) || 1;
+        const newQty = Math.max(0.25, Math.round((oldQty + delta) * 100) / 100);
+        const ratio = newQty / oldQty;
+        return {
+          ...it,
+          qty: newQty,
+          calories: Math.round((it.calories || 0) * ratio),
+          protein: Math.round((it.protein || 0) * ratio),
+          carbs: Math.round((it.carbs || 0) * ratio),
+          fats: Math.round((it.fats || 0) * ratio),
+          fiber: Math.round((it.fiber || 0) * ratio),
+        };
+      }),
+    );
+  };
+  const removeSnapItem = (idx) => setSnapItems((prev) => prev.filter((_, i) => i !== idx));
 
   const openMealBuilder = (mealToEdit = null) => {
     if (mealToEdit) {
@@ -2481,6 +2622,127 @@ export default function Home() {
         celebration={celebration}
         onCelebrationDone={() => setCelebration(null)}
       />
+
+      {/* ── Snap-a-plate confirm sheet (stays on this page) ── */}
+      {snapOpen && (
+        <div
+          className="modal-overlay"
+          style={{ zIndex: 10000 }} /* sit above the fixed bottom nav (z 100) */
+          onClick={(e) => { if (e.target === e.currentTarget) closeSnap(); }}
+        >
+          <div className="modal-content" style={{ maxWidth: 520 }}>
+            {/* header (drag handle is drawn by .modal-content::before) */}
+            <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 14 }}>
+              {snapImage?.dataUrl && (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img
+                  src={snapImage.dataUrl}
+                  alt="Your meal"
+                  style={{ width: 46, height: 46, borderRadius: 10, objectFit: "cover", flexShrink: 0 }}
+                />
+              )}
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontWeight: 700, fontSize: "1rem" }}>Snap a plate</div>
+                <div style={{ fontSize: "0.74rem", color: "#71717a" }}>
+                  {snapLoading
+                    ? "Reading your photo…"
+                    : snapItems.length
+                      ? "Here's what I see — confirm or fix it"
+                      : "Describe your meal to add it"}
+                </div>
+              </div>
+              <button
+                onClick={closeSnap}
+                style={{ background: "none", border: "none", color: "#71717a", cursor: "pointer", padding: 4 }}
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            {snapLoading ? (
+              <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 10, padding: "34px 0", color: "#71717a" }}>
+                <Loader2 size={26} className="animate-spin" />
+                <div style={{ fontSize: "0.82rem" }}>Identifying foods…</div>
+              </div>
+            ) : (
+              <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                {snapItems.map((it, i) => (
+                  <div
+                    key={i}
+                    style={{ display: "flex", alignItems: "center", gap: 8, padding: "10px 12px", borderRadius: 12, background: "var(--surface)", border: "1px solid var(--border)" }}
+                  >
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ fontWeight: 600, fontSize: "0.88rem", textTransform: "capitalize", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                        {it.name}
+                      </div>
+                      <div style={{ fontSize: "0.72rem", color: "#71717a" }}>
+                        {it.calories} kcal · {it.protein}g protein
+                      </div>
+                    </div>
+                    <button onClick={() => updateSnapQty(i, -1)} style={SNAP_STEP}><Minus size={14} /></button>
+                    <span style={{ minWidth: 26, textAlign: "center", fontWeight: 700, fontSize: "0.82rem" }}>
+                      {+Number(it.qty).toFixed(2)}
+                    </span>
+                    <button onClick={() => updateSnapQty(i, +1)} style={SNAP_STEP}><Plus size={14} /></button>
+                    <button
+                      onClick={() => removeSnapItem(i)}
+                      style={{ background: "none", border: "none", color: "#52525b", cursor: "pointer", padding: 4, marginLeft: 2, flexShrink: 0 }}
+                    >
+                      <X size={15} />
+                    </button>
+                  </div>
+                ))}
+
+                {snapError && (
+                  <div style={{ padding: "9px 12px", borderRadius: 10, background: "#f59e0b12", border: "1px solid #f59e0b25", color: "#fbbf24", fontSize: "0.78rem", lineHeight: 1.5 }}>
+                    {snapError}
+                  </div>
+                )}
+                {snapItems.length === 0 && !snapError && (
+                  <div style={{ color: "#71717a", fontSize: "0.82rem", textAlign: "center", padding: "18px 0" }}>
+                    No foods identified yet.
+                  </div>
+                )}
+
+                {/* correction — "say/type anything again" */}
+                <div style={{ display: "flex", gap: 8, marginTop: 4 }}>
+                  <input
+                    value={snapCorrection}
+                    onChange={(e) => setSnapCorrection(e.target.value)}
+                    onKeyDown={(e) => { if (e.key === "Enter") submitSnapCorrection(); }}
+                    placeholder="Fix it — “2 rotis not 3, add a banana”"
+                    style={{ flex: 1, minWidth: 0, padding: "11px 14px", borderRadius: 12, border: "1px solid var(--border)", background: "var(--surface)", color: "#fff", fontSize: "0.84rem", fontFamily: "inherit" }}
+                  />
+                  <button
+                    onClick={submitSnapCorrection}
+                    disabled={!snapCorrection.trim()}
+                    style={{ padding: "0 16px", borderRadius: 12, border: "none", background: "#27272a", color: "#e4e4e7", fontWeight: 700, cursor: snapCorrection.trim() ? "pointer" : "default", fontSize: "0.82rem", opacity: snapCorrection.trim() ? 1 : 0.5, flexShrink: 0 }}
+                  >
+                    Redo
+                  </button>
+                </div>
+
+                {/* confirm */}
+                <button
+                  onClick={confirmSnap}
+                  disabled={!snapItems.length}
+                  style={{ width: "100%", padding: "14px", borderRadius: 14, border: "none", marginTop: 6, background: snapItems.length ? "linear-gradient(135deg,#7c3aed,#4338ca)" : "#27272a", color: "#fff", fontWeight: 700, fontSize: "0.95rem", cursor: snapItems.length ? "pointer" : "default", opacity: snapItems.length ? 1 : 0.55 }}
+                >
+                  {snapItems.length
+                    ? `Log ${snapItems.length} item${snapItems.length > 1 ? "s" : ""} to ${selectedMeal || "meal"}`
+                    : "Log meal"}
+                </button>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
 }
+
+const SNAP_STEP = {
+  width: 28, height: 28, borderRadius: 8, border: "1px solid var(--border)",
+  background: "var(--surface-highlight)", color: "#e4e4e7", cursor: "pointer",
+  display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0,
+};

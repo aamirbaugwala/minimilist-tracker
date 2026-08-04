@@ -137,21 +137,31 @@ export default function VoicePage() {
     });
   }, []);
 
+  // Prime the <audio> element for LATER programmatic playback. iOS/Safari only
+  // allow play() that originates from a user gesture, but our real TTS plays
+  // after an async fetch — so we "unlock" the shared element here, inside the
+  // tap, by playing a silent clip. Without this the coach streams text but is
+  // silent (play() is blocked), which looks like "speaking flickers, no sound".
   const unlockSpeech = useCallback(() => {
-    if (speechUnlockedRef.current || !("speechSynthesis" in window)) return;
+    if (speechUnlockedRef.current) return;
     try {
-      const synth = window.speechSynthesis;
-      const warmup = new SpeechSynthesisUtterance(" ");
-      warmup.volume = 0;
-      warmup.rate = 1;
-      warmup.pitch = 1;
-      synth.cancel();
-      synth.speak(warmup);
-      synth.cancel();
+      let audio = audioPlaybackRef.current;
+      if (!audio) {
+        audio = new Audio();
+        audio.preload = "auto";
+        audio.playsInline = true;
+        audioPlaybackRef.current = audio;
+      }
+      // 44-byte silent WAV — plays instantly and unlocks the element.
+      audio.src = "data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEARKwAAIhYAQACABAAZGF0YQAAAAA=";
+      const p = audio.play();
+      if (p && typeof p.then === "function") {
+        p.then(() => { try { audio.pause(); audio.currentTime = 0; } catch {} }).catch(() => {});
+      }
       speechUnlockedRef.current = true;
-      addDebugLog("TTS unlocked by user gesture");
+      addDebugLog("Audio playback unlocked by user gesture");
     } catch (e) {
-      addDebugLog(`TTS unlock failed: ${e?.message || "unknown"}`);
+      addDebugLog(`Audio unlock failed: ${e?.message || "unknown"}`);
     }
   }, [addDebugLog]);
 
@@ -295,8 +305,11 @@ export default function VoicePage() {
     playResolveRef.current = finish; // let stop() unblock this if interrupted
     audio.onended = finish;
     audio.onerror = finish;
-    audio.play().catch(finish);
-  }), []);
+    audio.play().catch((e) => {
+      addDebugLog(`Audio play blocked: ${e?.message || "unknown"}`);
+      finish();
+    });
+  }), [addDebugLog]);
 
   // A streaming speaker: push text as it becomes ready. Each chunk's audio is
   // generated IMMEDIATELY (overlapping the agent's own token streaming) but the

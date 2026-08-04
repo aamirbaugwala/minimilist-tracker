@@ -529,32 +529,6 @@ export default function AgentPage() {
   // Keep ref current on every render so voice recognition callbacks never use a stale closure
   sendMessageRef.current = sendMessage;
 
-  // "Snap plate" hand-off from the home screen: a photo stashed in sessionStorage
-  // is loaded and auto-analyzed here (the agent identifies items and can log them).
-  useEffect(() => {
-    let photo;
-    try {
-      photo = sessionStorage.getItem("nt_meal_photo");
-      if (photo) sessionStorage.removeItem("nt_meal_photo");
-    } catch {
-      photo = null;
-    }
-    if (!photo || !photo.startsWith("data:")) return;
-    const [header, base64] = photo.split(",");
-    const mimeType = header.replace("data:", "").replace(";base64", "");
-    setSelectedImage({ base64, mimeType, preview: photo });
-    // Give state a tick to settle, then send with the meal-analysis prompt.
-    const t = setTimeout(() => {
-      sendMessageRef.current?.(
-        "Identify the foods and portions in this meal photo and log them for me. " +
-          "If this image is NOT a photo of food or a meal (e.g. a person, screenshot, " +
-          "document, or random object), do not log anything — just briefly tell me you " +
-          "can only read food photos.",
-      );
-    }, 400);
-    return () => clearTimeout(t);
-  }, []);
-
   const handleKeyDown = (e) => {
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
