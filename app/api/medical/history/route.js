@@ -19,9 +19,12 @@ export async function GET(req) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
     const db = getSupabaseForUser(accessToken);
+    // Select "*" so this keeps working whether or not the vault migration
+    // (file_path/file_size columns) has been applied yet — if the columns are
+    // absent the fields are simply undefined and the vault gracefully hides.
     const { data, error } = await db
       .from("medical_reports")
-      .select("id, file_name, report_date, analysis, include_foods, exclude_foods, flags, trends, created_at, file_path, file_size")
+      .select("*")
       .eq("user_id", userId)
       .order("report_date", { ascending: false, nullsFirst: false })
       .limit(50);

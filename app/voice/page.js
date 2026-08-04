@@ -125,6 +125,8 @@ export default function VoicePage() {
   const speechUnlockedRef = useRef(false);
   const audioPlaybackRef = useRef(null);
   const audioUrlRef      = useRef("");
+  const speakerRef       = useRef(null); // active streaming-TTS controller
+  const playResolveRef   = useRef(null); // settles the in-flight playBlob on stop
 
   const addDebugLog = useCallback((message) => {
     const now = new Date();
@@ -239,6 +241,7 @@ export default function VoicePage() {
 
   // ── Cleanup on unmount ────────────────────────────────────────────────────
   useEffect(() => () => {
+    speakerRef.current?.stop();
     try {
       audioPlaybackRef.current?.pause();
       if (audioUrlRef.current) URL.revokeObjectURL(audioUrlRef.current);
@@ -249,142 +252,114 @@ export default function VoicePage() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // ── Server TTS playback (cross-device fallback) ──────────────────────────
-  const speakViaServerAudio = useCallback(async (text) => {
+  // ── Server TTS — the ONLY voice path (no unreliable device-voice fallback) ─
+  // Fetch spoken audio for ONE chunk of text. Kept per-chunk so the first
+  // sentence returns fast; callers pipeline several chunks for low latency.
+  const fetchTtsAudio = useCallback(async (text) => {
     try {
-      addDebugLog(`Server TTS request started (${text.length} chars)`);
       const r = await fetch("/api/tts", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ text, voiceName: "Kore" }),
       });
-
       const payload = await r.json().catch(() => ({}));
-      if (!r.ok) {
-        throw new Error(payload?.detail || payload?.error || `HTTP ${r.status}`);
+      if (!r.ok || !payload?.audioBase64) {
+        addDebugLog(`Server TTS failed: ${payload?.detail || payload?.error || `HTTP ${r.status}`}`);
+        return null;
       }
-
-      const audioBase64 = payload?.audioBase64;
-      const mimeType = payload?.mimeType || "audio/wav";
-      if (!audioBase64) throw new Error("No audio payload returned");
-
-      const binary = atob(audioBase64);
+      const binary = atob(payload.audioBase64);
       const bytes = new Uint8Array(binary.length);
       for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
-
-      const blob = new Blob([bytes], { type: mimeType });
-      if (audioUrlRef.current) URL.revokeObjectURL(audioUrlRef.current);
-      const objectUrl = URL.createObjectURL(blob);
-      audioUrlRef.current = objectUrl;
-
-      let audio = audioPlaybackRef.current;
-      if (!audio) {
-        audio = new Audio();
-        audio.preload = "auto";
-        audio.playsInline = true;
-        audioPlaybackRef.current = audio;
-      }
-
-      audio.src = objectUrl;
-      audio.volume = 1;
-      setVS(S.SPEAKING);
-      addDebugLog(`Server TTS audio ready (${mimeType}, ${blob.size} bytes)`);
-
-      await audio.play();
-      addDebugLog("Server TTS playback started");
-
-      await new Promise((resolve, reject) => {
-        const onEnd = () => {
-          cleanup();
-          resolve();
-        };
-        const onError = () => {
-          cleanup();
-          reject(new Error("audio playback error"));
-        };
-        const cleanup = () => {
-          audio.onended = null;
-          audio.onerror = null;
-        };
-        audio.onended = onEnd;
-        audio.onerror = onError;
-      });
-
-      addDebugLog("Server TTS playback ended");
-      setError("");
-      setVS(S.IDLE);
-      return true;
+      return new Blob([bytes], { type: payload.mimeType || "audio/wav" });
     } catch (e) {
-      addDebugLog(`Server TTS failed: ${e?.message || "unknown"}`);
-      return false;
+      addDebugLog(`Server TTS error: ${e?.message || "unknown"}`);
+      return null;
     }
-  }, [addDebugLog, setVS]);
+  }, [addDebugLog]);
 
-  // ── TTS: speak AI response, then return to IDLE ───────────────────────────
-  // SPEED: use the browser's LOCAL speech first — it starts talking in <100ms.
-  // The server (Gemini) voice sounds nicer but needs 1–3s to generate + download
-  // the whole clip, so it's only a fallback for browsers with no local voices.
+  // Play one audio blob to completion on the shared (gesture-primed) element.
+  const playBlob = useCallback((blob) => new Promise((resolve) => {
+    let audio = audioPlaybackRef.current;
+    if (!audio) {
+      audio = new Audio();
+      audio.preload = "auto";
+      audio.playsInline = true;
+      audioPlaybackRef.current = audio;
+    }
+    if (audioUrlRef.current) URL.revokeObjectURL(audioUrlRef.current);
+    const url = URL.createObjectURL(blob);
+    audioUrlRef.current = url;
+    audio.src = url;
+    audio.volume = 1;
+    const finish = () => { playResolveRef.current = null; resolve(); };
+    playResolveRef.current = finish; // let stop() unblock this if interrupted
+    audio.onended = finish;
+    audio.onerror = finish;
+    audio.play().catch(finish);
+  }), []);
+
+  // A streaming speaker: push text as it becomes ready. Each chunk's audio is
+  // generated IMMEDIATELY (overlapping the agent's own token streaming) but the
+  // chunks PLAY strictly in order. This is the whole optimisation — time to the
+  // first spoken word drops from (whole reply + one big clip) to (first short
+  // sentence's TTS).
+  const createSpeaker = useCallback(() => {
+    const queue = [];        // Promise<Blob|null>[], in play order
+    let producerDone = false;
+    let running = false;
+    let stopped = false;
+    let anyPlayed = false;
+
+    const pump = async () => {
+      if (running) return;
+      running = true;
+      while (queue.length && !stopped) {
+        const blob = await queue.shift();
+        if (stopped) break;
+        if (blob) { setVS(S.SPEAKING); anyPlayed = true; await playBlob(blob); }
+      }
+      running = false;
+      if (producerDone && !queue.length && !stopped) {
+        setError(anyPlayed ? "" : "Voice output unavailable right now. Please try again.");
+        setVS(S.IDLE);
+      }
+    };
+
+    return {
+      push(text) {
+        const t = (text || "")
+          .replace(/\*\*([^*]+)\*\*/g, "$1")
+          .replace(/[•\-]\s/g, "")
+          .replace(/#{1,6}\s/g, "")
+          .trim();
+        if (stopped || !t) return;
+        queue.push(fetchTtsAudio(t)); // start generating this chunk NOW
+        pump();
+      },
+      end() { producerDone = true; if (!running) pump(); },
+      stop() {
+        stopped = true;
+        try { audioPlaybackRef.current?.pause(); } catch {}
+        playResolveRef.current?.(); // unblock any in-flight playBlob so its pump exits
+      },
+    };
+  }, [fetchTtsAudio, playBlob, setVS]);
+
+  // ── Speak a complete block of text (server-only, sentence-pipelined) ──────
+  // Splits into sentences so the first one starts generating/playing right away.
   const speakResponse = useCallback(async (fullText) => {
-    if (!fullText.trim()) {
+    if (!fullText?.trim()) {
       addDebugLog("Skipping TTS: empty text");
       setVS(S.IDLE);
       return;
     }
-    // Strip markdown so it reads cleanly.
-    const clean = fullText
-      .replace(/\*\*([^*]+)\*\*/g, "$1")
-      .replace(/[•\-]\s/g, "")
-      .replace(/#{1,6}\s/g, "")
-      .trim();
-
-    // ── 1) Browser speech — instant ──────────────────────────────────────────
-    const synth = typeof window !== "undefined" && "speechSynthesis" in window ? window.speechSynthesis : null;
-    if (synth) {
-      synth.cancel();
-      synth.resume();
-      let voices = synth.getVoices();
-      if (!voices.length) {
-        // First use: give voices a brief moment (don't block long — 700ms max).
-        voices = await new Promise((resolve) => {
-          let done = false;
-          const to = setTimeout(() => { if (!done) { done = true; resolve(synth.getVoices()); } }, 700);
-          synth.onvoiceschanged = () => { if (!done) { done = true; clearTimeout(to); resolve(synth.getVoices()); } };
-        });
-      }
-      if (voices.length) {
-        const preferredVoice =
-          voices.find((v) => /en(-|_)?(IN|US|GB)?/i.test(v.lang) && !/google translate/i.test(v.name)) ||
-          voices.find((v) => /female|google|microsoft|samantha|alex|zira|david/i.test(v.name)) ||
-          voices[0];
-        addDebugLog(`Browser TTS (instant): ${preferredVoice?.name || "default"}`);
-        setVS(S.SPEAKING);
-        const sentences = clean.match(/[^.!?\n]+[.!?\n]*/g) || [clean];
-        let idx = 0;
-        const speakNext = () => {
-          if (idx >= sentences.length) { setVS(S.IDLE); setError(""); return; }
-          const s = sentences[idx].trim(); idx++;
-          if (!s) return speakNext();
-          const utt = new SpeechSynthesisUtterance(s);
-          utt.rate = 1.06; utt.pitch = 1.0; utt.volume = 1.0;
-          if (preferredVoice) { utt.voice = preferredVoice; utt.lang = preferredVoice.lang || "en-US"; }
-          else utt.lang = "en-US";
-          utt.onend = speakNext;
-          utt.onerror = () => { setVS(S.IDLE); };
-          synth.speak(utt);
-        };
-        speakNext();
-        return;
-      }
-    }
-
-    // ── 2) Fallback: server (Gemini) audio — only when no local voices exist ──
-    addDebugLog("No local voices — using server TTS fallback");
-    const ok = await speakViaServerAudio(clean);
-    if (!ok) {
-      setError("Voice output unavailable right now. Please try again.");
-      setVS(S.IDLE);
-    }
-  }, [setVS, addDebugLog, speakViaServerAudio]);
+    speakerRef.current?.stop();
+    const speaker = createSpeaker();
+    speakerRef.current = speaker;
+    const sentences = fullText.match(/[^.!?\n]+[.!?\n]*/g) || [fullText];
+    sentences.forEach((s) => speaker.push(s));
+    speaker.end();
+  }, [createSpeaker, setVS, addDebugLog]);
 
   // ── Route the transcript ──────────────────────────────────────────────────
   // Food logging → deterministic pipeline (/api/voice-log): accurate quantities
@@ -424,9 +399,30 @@ export default function VoicePage() {
       addDebugLog(`voice-log error, falling back to agent: ${e?.message || "unknown"}`);
     }
 
-    // ── Question path: streaming agent ──────────────────────────────────────
+    // ── Question path: streaming agent + pipelined TTS ──────────────────────
+    // Start a fresh streaming speaker and feed it COMPLETE sentences the moment
+    // they arrive, so audio for sentence 1 generates while sentence 2 is still
+    // being written by the model.
     addDebugLog(`Sending transcript to /api/agent (${text.length} chars)`);
+    speakerRef.current?.stop();
+    const speaker = createSpeaker();
+    speakerRef.current = speaker;
     let fullResponse = "";
+    let spokenUpto = 0;
+    const flushSentences = (final) => {
+      const pending = fullResponse.slice(spokenUpto);
+      const re = /[^.!?\n]+[.!?\n]+/g;
+      let m, consumed = 0;
+      while ((m = re.exec(pending)) !== null) {
+        speaker.push(m[0]);
+        consumed = re.lastIndex;
+      }
+      spokenUpto += consumed;
+      if (final && spokenUpto < fullResponse.length) {
+        speaker.push(fullResponse.slice(spokenUpto)); // trailing bit with no terminator
+        spokenUpto = fullResponse.length;
+      }
+    };
     try {
       const res = await fetch("/api/agent", {
         method: "POST",
@@ -458,6 +454,7 @@ export default function VoicePage() {
             if (ev.type === "chunk") {
               fullResponse += ev.text;
               streamCoach(fullResponse);
+              flushSentences(false); // speak any newly-completed sentences
             }
           } catch {}
         }
@@ -469,8 +466,9 @@ export default function VoicePage() {
 
     addDebugLog(`Agent reply ready (${fullResponse.length} chars)`);
     streamCoach(fullResponse);
-    await speakResponse(fullResponse);
-  }, [setVS, speakResponse, addDebugLog, pushMessage, streamCoach]);
+    flushSentences(true); // speak the remainder
+    speaker.end();
+  }, [setVS, createSpeaker, speakResponse, addDebugLog, pushMessage, streamCoach]);
 
   // ── Acquire mic (shared setup) ────────────────────────────────────────────
   const acquireMic = useCallback(async () => {
@@ -600,6 +598,7 @@ export default function VoicePage() {
       await sendToAgent(text);
 
     } else if (s === S.SPEAKING) {
+      speakerRef.current?.stop();
       window.speechSynthesis?.cancel();
       setVS(S.IDLE);
     }
@@ -608,6 +607,7 @@ export default function VoicePage() {
 
   // ── End session button ────────────────────────────────────────────────────
   const endSession = useCallback(() => {
+    speakerRef.current?.stop();
     try { mediaRecorderRef.current?.stop(); } catch {}
     try {
       audioPlaybackRef.current?.pause();
