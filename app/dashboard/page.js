@@ -206,6 +206,7 @@ export default function UserDashboard() {
   };
 
   const init = async () => {
+   try {
     const {
       data: { session },
     } = await supabase.auth.getSession();
@@ -253,7 +254,11 @@ export default function UserDashboard() {
       goalHistory || [],
     );
     handleDateSelect(today, logData || [], calculatedTargets);
-    setLoading(false);
+   } catch (e) {
+     console.error("Dashboard init failed:", e);
+   } finally {
+     setLoading(false);
+   }
   };
 
   useEffect(() => {
@@ -273,7 +278,7 @@ export default function UserDashboard() {
     const rawMacros = dailyLogs.reduce(
       (acc, item) => {
         let fib = item.fiber || 0;
-        if (!fib && item.name !== "Water") {
+        if (!fib && item.name && item.name !== "Water") {
           const dbItem = FLATTENED_DB[item.name.toLowerCase()];
           if (dbItem?.fiber) fib = Math.round(dbItem.fiber * item.qty);
         }
@@ -353,6 +358,7 @@ export default function UserDashboard() {
 
     for (let i = 29; i >= 0; i--) {
       const dateStr = dayKeyDaysAgo(i); // logical day (4am rollover), matches log dates
+      const d = new Date(`${dateStr}T00:00:00`); // for display formatting only
       calendarMap[dateStr] = {
         cals: 0,
         protein: 0,
@@ -375,7 +381,7 @@ export default function UserDashboard() {
         let fib = l.fiber || 0;
         let cals = l.calories || 0;
 
-        if (l.name !== "Water" && (!p || !c || !f)) {
+        if (l.name && l.name !== "Water" && (!p || !c || !f)) {
           const dbItem = FLATTENED_DB[l.name.toLowerCase()];
           if (dbItem) {
             if (!p) p = Math.round(dbItem.protein * l.qty);
