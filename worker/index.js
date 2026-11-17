@@ -23,7 +23,12 @@ self.addEventListener('push', (event) => {
       icon:               '/icon-192.png',
       badge:              '/icon-192.png',
       tag:                payload.tag || 'nutritrack',
-      data:               { url: payload.url || '/' },
+      // Buttons like "Snap it" / "Same as yesterday"; each carries its own URL.
+      actions:            (payload.actions || []).slice(0, 2).map((a) => ({ action: a.action, title: a.title })),
+      data:               {
+        url: payload.url || '/',
+        actionUrls: Object.fromEntries((payload.actions || []).map((a) => [a.action, a.url])),
+      },
       vibrate:            [200, 100, 200],
       requireInteraction: false,
     })
@@ -33,7 +38,8 @@ self.addEventListener('push', (event) => {
 // ── Notification click: open or focus the app ─────────────────────────────────
 self.addEventListener('notificationclick', (event) => {
   event.notification.close();
-  const url = event.notification.data?.url || '/';
+  const data = event.notification.data || {};
+  const url = (event.action && data.actionUrls?.[event.action]) || data.url || '/';
 
   event.waitUntil(
     clients

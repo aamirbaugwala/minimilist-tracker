@@ -20,6 +20,7 @@ import { FLATTENED_DB } from "../../food-data";
 import { defaultMeal, MEALS } from "../../lib/mealPeriod";
 import { buildLogRows, buildSpokenConfirmation } from "../../lib/voiceLog";
 import { recordLlmUsage } from "../../lib/llmCost";
+import { insertFoodLogs } from "../../lib/foodLogInsert";
 
 function getSupabaseForUser(accessToken) {
   return createClient(
@@ -164,18 +165,14 @@ export async function POST(req) {
     });
 
     // ── 4. Insert (resilient to the meal column not being migrated yet) ───────
+    // Ids are assigned here so the client can offer an exact Undo.
+    rows.forEach((r) => {
+      r.id = crypto.randomUUID();
+      r.source = "voice";
+    });
     let logged = matched;
     if (rows.length) {
-      let { error } = await db.from("food_logs").insert(rows);
-      if (error && (error.code === "PGRST204" || /meal/i.test(error.message || ""))) {
-        // meal column not migrated yet — save without it (grouping falls back to time)
-        const withoutMeal = rows.map((r) => {
-          const copy = { ...r };
-          delete copy.meal;
-          return copy;
-        });
-        ({ error } = await db.from("food_logs").insert(withoutMeal));
-      }
+      const error = await insertFoodLogs(db, rows);
       if (error) {
         console.error("[voice-log] insert failed:", error.message);
         return NextResponse.json(
@@ -197,6 +194,7 @@ export async function POST(req) {
       intent: "log",
       meal: finalMeal,
       logged,
+      ids: logged.length ? rows.map((r) => r.id) : [],
       unmatched,
       totals,
       spokenReply: buildSpokenConfirmation(matched, unmatched),

@@ -7,7 +7,11 @@
  *
  * Cached tools & their TTLs:
  *   get_user_profile    → 5 minutes  (profile rarely changes mid-session)
- *   get_medical_context → 60 minutes (only changes on new report upload)
+ *   get_medical_context → 60 minutes, BUT revalidated on every use with a cheap
+ *                         fingerprint query (see lib/agentTools.js). The store
+ *                         is per-route-bundle/instance, so cacheInvalidate()
+ *                         from /api/medical/analyze never reached the agent's
+ *                         copy — new reports stayed invisible for up to an hour.
  *
  * Cache is intentionally NOT used for:
  *   get_todays_logs / get_macro_gap / get_streak — change every food log

@@ -1,23 +1,12 @@
 "use client";
 
-import { useState, useEffect, useMemo, useRef } from "react";
+import { useState, useEffect, useMemo, useRef, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import {
-  Search,
-  Plus,
-  Minus,
-  X,
   Loader2,
   Flame,
-  Trash2,
-  Save,
-  Target,
-  KeyRound,
-  Settings,
-  PlusCircle,
-  Scale,
 } from "lucide-react";
-import { FOOD_CATEGORIES, FLATTENED_DB } from "./food-data";
+import { FLATTENED_DB } from "./food-data";
 import { supabase } from "./supabase";
 import { calculateTargets } from "./lib/nutrition";
 import {
@@ -30,13 +19,27 @@ import { useAuth } from "./hooks/useAuth";
 import StatsBoard from "./components/StatsBoard";
 import AuthScreen from "./components/AuthScreen";
 import SettingsModal from "./components/SettingsModal";
-import FoodLogger from "./components/FoodLogger";
 import Timeline from "./components/Timeline";
 import RewardLayer from "./components/RewardLayer";
 import QuestsCard from "./components/QuestsCard";
 import CaptureBar from "./components/CaptureBar";
-import { defaultMeal } from "./lib/mealPeriod";
+import LogFoodSheet from "./components/LogFoodSheet";
+import BarcodeScanner from "./components/BarcodeScanner";
+import TodayHeader from "./components/TodayHeader";
+import BodyTiles from "./components/BodyTiles";
+import CoachNudge from "./components/CoachNudge";
+import FirstWeekGuide from "./components/FirstWeekGuide";
+import InstallPrompt from "./components/InstallPrompt";
+import DayWrap from "./components/DayWrap";
+import { EditLogSheet, CustomFoodSheet, MealBuilderSheet, SnapSheet, AccountSetupSheet, SnapPromptSheet, RepeatMealSheet } from "./components/TodaySheets";
+import { computeStreak, weekOf } from "./lib/streak";
+import { useNotifications } from "./hooks/useNotifications";
+import QuickAddRow from "./components/QuickAddRow";
+import { saveProfileGoal, saveUsername } from "./lib/profileActions";
+import { defaultMeal, MEALS } from "./lib/mealPeriod";
 import { dayKey } from "./lib/day";
+import { uuid } from "./lib/uuid";
+import { insertFoodLogs } from "./lib/foodLogInsert";
 import { compressImage } from "./lib/image";
 import {
   xpForLog,
@@ -49,6 +52,32 @@ import {
 // The app's "today" — a local day that rolls over at 4am (see lib/day.js), so
 // late-night meals stay on the day you were awake for and every page agrees.
 const localDateKey = (d) => dayKey(d);
+
+/**
+ * Deep links from push nudges and home-screen shortcuts:
+ *   ?log=<Meal>     open the food sheet on that meal
+ *   ?snap=<Meal|1>  one-tap camera prompt (browsers need a tap to open it)
+ *   ?repeat=<Meal>  "same as yesterday" confirm
+ *   ?water=1        add a glass right away (Undo toast as usual)
+ * Read in state initialisers (the server renders the splash first, so there's
+ * no markup to mismatch); the param is stripped once handled.
+ */
+function readUrlAction() {
+  if (typeof window === "undefined") return null;
+  const q = new URLSearchParams(window.location.search);
+  const meal = (v) => {
+    const label = v.charAt(0).toUpperCase() + v.slice(1).toLowerCase();
+    return MEALS.some((x) => x.label === label) ? label : defaultMeal();
+  };
+  for (const type of ["log", "snap", "repeat"]) if (q.get(type)) return { type, meal: meal(q.get(type)) };
+  if (q.get("water")) return { type: "water" };
+  return null;
+}
+const clearUrlAction = () => {
+  if (typeof window !== "undefined" && window.location.search) {
+    window.history.replaceState(window.history.state, "", window.location.pathname);
+  }
+};
 
 export default function Home() {
   const router = useRouter();
@@ -64,11 +93,22 @@ export default function Home() {
   } = useAuth();
   const [loading, setLoading] = useState(true);
   const [logs, setLogs] = useState([]);
-  const [showAuth, setShowAuth] = useState(false);
   // Surfaces a real save failure instead of swallowing it into the console.
   const [saveError, setSaveError] = useState("");
 
   // ── Snap-a-plate: in-place photo identify + confirm (no navigation) ─────────
+  // Food logger bottom sheet: null = closed, { focus } = open (focus → raise
+  // the keyboard on the search box, for the Search shortcut).
+  // ?log=<Meal> (meal-time push nudges, home-screen shortcut) opens the sheet
+  // on that meal. Read in the initialiser, not an effect: the server always
+  // renders the splash first, so there is no markup to mismatch.
+  const [logSheet, setLogSheet] = useState(() => (readUrlAction()?.type === "log" ? { focus: false } : null));
+  const [scanOpen, setScanOpen] = useState(false);
+  const [snapPrompt, setSnapPrompt] = useState(() => readUrlAction()?.type === "snap");
+  const [repeatPrompt, setRepeatPrompt] = useState(() => (readUrlAction()?.type === "repeat" ? readUrlAction().meal : null));
+  const [waterFromUrl] = useState(() => readUrlAction()?.type === "water");
+  const waterHandledRef = useRef(false);
+  const [logsReady, setLogsReady] = useState(false); // first fetch of today's logs finished
   const [snapOpen, setSnapOpen] = useState(false);
   const [snapLoading, setSnapLoading] = useState(false);
   const [snapItems, setSnapItems] = useState([]);        // [{ name, qty, calories, protein, ... }]
@@ -80,7 +120,6 @@ export default function Home() {
   const [floats, setFloats] = useState([]); // floating +kcal / +XP bursts
   const [toast, setToast] = useState(null); // { name } — auto-save + undo
   const [celebration, setCelebration] = useState(null); // quest / level-up
-  const [totalXp, setTotalXp] = useState(0);
   const totalXpRef = useRef(0);
   const lastAddRef = useRef(null); // last batch, for Undo
   const pendingRef = useRef({}); // tempId -> Promise<realId> (insert reconcile)
@@ -100,7 +139,8 @@ export default function Home() {
 
   // UI State
   const [savedMeals, setSavedMeals] = useState([]);
-  const [streak, setStreak] = useState(0);
+  const [loggedDates, setLoggedDates] = useState([]); // YYYY-MM-DD, last 120 days
+  const [yesterdayByMeal, setYesterdayByMeal] = useState(null); // { Lunch: { items, kcal } } · null = not loaded
 
   // Modals
   const [isCreatingMeal, setIsCreatingMeal] = useState(false);
@@ -112,6 +152,7 @@ export default function Home() {
   const [isEditingLog, setIsEditingLog] = useState(false);
   const [currentLogToEdit, setCurrentLogToEdit] = useState(null);
   const [editQty, setEditQty] = useState(1);
+  const [editMeal, setEditMeal] = useState("Breakfast"); // move an entry to another meal
 
   // --- CUSTOM FOODS & MANUAL ENTRY STATE ---
   const [customFoods, setCustomFoods] = useState([]);
@@ -120,6 +161,7 @@ export default function Home() {
   const [biomarkerConditions, setBiomarkerConditions] = useState([]);
   const [showOnboarding, setShowOnboarding] = useState(false);
   const [isManualEntryOpen, setIsManualEntryOpen] = useState(false);
+  const [manualAddNow, setManualAddNow] = useState(true); // custom food: also log 1 now
   const [manualFood, setManualFood] = useState({
     name: "",
     calories: "",
@@ -163,8 +205,7 @@ export default function Home() {
   const [query, setQuery] = useState("");
   // Which meal new logs are filed under (user's explicit choice); starts on the
   // sensible one for the current time.
-  const [selectedMeal, setSelectedMeal] = useState(() => defaultMeal());
-  const [activeCategory, setActiveCategory] = useState("Recent");
+  const [selectedMeal, setSelectedMeal] = useState(() => readUrlAction()?.meal || defaultMeal());
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [otp, setOtp] = useState("");
@@ -185,91 +226,8 @@ export default function Home() {
     return combined;
   }, [customFoods]);
 
-  // --- AI MEAL PLAN STATE ---
-  const [aiMealPlan, setAiMealPlan] = useState(null); // { text, toolsUsed }
-  const [aiMealPlanLoading, setAiMealPlanLoading] = useState(false);
 
-  const fetchAiMealPlan = async () => {
-    if (!session || aiMealPlanLoading) return;
-    setAiMealPlan(null);
-    setAiMealPlanLoading(true);
-    try {
-      const res = await fetch("/api/agent", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          message:
-            "Build me a meal plan for the rest of the day based on my macro gap. Be specific with Indian food options and serving sizes. For every food you mention that is not already in the internal database, call save_food_to_database with your best estimated macros.",
-          userId: session.user.id,
-          accessToken: session.access_token,
-          skipHistory: true,
-        }),
-      });
-
-      if (!res.ok) {
-        const data = await res.json().catch(() => ({}));
-        setAiMealPlan({
-          text: "⚠️ " + (data.error || "Could not generate plan. Try again."),
-          toolsUsed: [],
-        });
-        return;
-      }
-
-      // Read SSE stream
-      const reader = res.body.getReader();
-      const decoder = new TextDecoder();
-      let buffer = "";
-      let accumulated = "";
-      const toolsUsed = [];
-
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-
-        buffer += decoder.decode(value, { stream: true });
-        const lines = buffer.split("\n\n");
-        buffer = lines.pop() ?? "";
-
-        for (const line of lines) {
-          if (!line.startsWith("data: ")) continue;
-          try {
-            const event = JSON.parse(line.slice(6));
-            if (event.type === "tool") {
-              toolsUsed.push(event.name);
-            } else if (event.type === "chunk") {
-              accumulated += event.text;
-              setAiMealPlan({ text: accumulated, toolsUsed: [...toolsUsed] });
-            } else if (event.type === "done") {
-              // Refresh custom foods so newly saved items appear as loggable chips
-              supabase
-                .from("custom_foods")
-                .select("*")
-                .eq("user_id", session.user.id)
-                .then(({ data: freshCustom }) => {
-                  if (freshCustom) setCustomFoods(freshCustom);
-                });
-            } else if (event.type === "error") {
-              setAiMealPlan({
-                text: "⚠️ " + (event.message || "Could not generate plan."),
-                toolsUsed,
-              });
-            }
-          } catch {
-            /* skip malformed SSE line */
-          }
-        }
-      }
-    } catch {
-      setAiMealPlan({
-        text: "⚠️ Network error. Please try again.",
-        toolsUsed: [],
-      });
-    } finally {
-      setAiMealPlanLoading(false);
-    }
-  };
-
-  // --- FEATURE 1: SMART RECOMMENDATIONS LOGIC (legacy, unused) ---
+  // --- FEATURE 1: SMART RECOMMENDATIONS (the food sheet's "Suggested" tab) ---
   const generateSmartMeals = () => {
     // Use centralised target calculation
     const t = calculateTargets(userProfile, conditions);
@@ -406,10 +364,12 @@ export default function Home() {
     return recommendations;
   };
 
+  // Only needed while the food sheet is open — skip the full-DB scan otherwise.
+  const sheetOpen = !!logSheet;
   const smartRecommendations = useMemo(
-    () => generateSmartMeals(),
+    () => (sheetOpen ? generateSmartMeals() : []),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [totals, userProfile, COMBINED_DB],
+    [sheetOpen, totals, userProfile, COMBINED_DB],
   );
 
   // --- ACTUAL WEB SEARCH (OpenFoodFacts) ---
@@ -429,7 +389,7 @@ export default function Home() {
         setIsWebSearching(true);
         try {
           const response = await fetch(
-            `https://world.openfoodfacts.org/cgi/search.pl?search_terms=${query}&search_simple=1&action=process&json=1&page_size=5`,
+            `https://world.openfoodfacts.org/cgi/search.pl?search_terms=${encodeURIComponent(query)}&search_simple=1&action=process&json=1&page_size=5`,
           );
           const data = await response.json();
 
@@ -495,7 +455,14 @@ export default function Home() {
         }
         return { ...log, fiber: 0 };
       });
-      setLogs(enrichedLogs);
+      // Keep rows the user added while this fetch was in flight (their insert
+      // is still pending, so the snapshot can't contain them yet).
+      setLogs((prev) => {
+        const fetched = new Set(enrichedLogs.map((l) => l.id));
+        const inFlight = prev.filter((l) => pendingRef.current[l.id] && !fetched.has(l.id));
+        return [...inFlight, ...enrichedLogs];
+      });
+      setLogsReady(true);
     }
 
     const { data: history } = await supabase
@@ -573,8 +540,7 @@ export default function Home() {
         .eq("user_id", session.user.id)
         .maybeSingle();
       const xp = gam?.total_xp || 0;
-      setTotalXp(xp);
-      totalXpRef.current = xp;
+      totalXpRef.current = xp; // level isn't shown on Today in Direction A
 
       // Blood work drives target adjustments (see lib/conditions.js). Only the
       // columns needed to resolve markers — the analysis text is large and
@@ -588,42 +554,46 @@ export default function Home() {
     }
   };
 
+  // Logged days (for the streak) + yesterday's meals (for "Same as yesterday").
+  // The streak itself is derived below from these dates plus today's live logs,
+  // so it updates the moment the first item of the day is logged.
   const calculateStreak = async () => {
     const {
       data: { session },
     } = await supabase.auth.getSession();
     if (!session) return;
-    const { data } = await supabase
-      .from("food_logs")
-      .select("date")
-      .eq("user_id", session.user.id)
-      .order("date", { ascending: false });
-    if (!data || data.length === 0) {
-      setStreak(0);
-      return;
-    }
-
-    const uniqueDates = [...new Set(data.map((item) => item.date))];
     const today = localDateKey();
     const yesterday = localDateKey(new Date(Date.now() - 86400000));
+    const windowStart = localDateKey(new Date(Date.now() - 120 * 86400000));
 
-    if (uniqueDates[0] !== today && uniqueDates[0] !== yesterday) {
-      setStreak(0);
-      return;
-    }
-    let count = 1;
-    let currentDate = new Date(uniqueDates[0]);
-    for (let i = 1; i < uniqueDates.length; i++) {
-      const prevDate = new Date(uniqueDates[i]);
-      if (
-        Math.ceil(Math.abs(currentDate - prevDate) / (1000 * 60 * 60 * 24)) ===
-        1
-      ) {
-        count++;
-        currentDate = prevDate;
-      } else break;
-    }
-    setStreak(count);
+    const [{ data: dates }, { data: yLogs }] = await Promise.all([
+      supabase
+        .from("food_logs")
+        .select("date")
+        .eq("user_id", session.user.id)
+        .gte("date", windowStart)
+        .lte("date", today)
+        .order("date", { ascending: false }),
+      supabase
+        .from("food_logs")
+        .select("name, qty, calories, protein, carbs, fats, fiber, meal, created_at")
+        .eq("user_id", session.user.id)
+        .eq("date", yesterday)
+        .order("created_at", { ascending: true }),
+    ]);
+
+    setLoggedDates([...new Set((dates || []).map((d) => d.date))]);
+
+    const byMeal = {};
+    (yLogs || [])
+      .filter((l) => l.name !== "Water")
+      .forEach((l) => {
+        const meal = l.meal || defaultMeal(l.created_at);
+        if (!byMeal[meal]) byMeal[meal] = { items: [], kcal: 0 };
+        byMeal[meal].items.push(l);
+        byMeal[meal].kcal += Number(l.calories) || 0;
+      });
+    setYesterdayByMeal(byMeal);
   };
 
   // useAuth handles getSession + onAuthStateChange subscription internally.
@@ -709,39 +679,8 @@ export default function Home() {
   };
 
   const saveGoal = async () => {
-    if (
-      !userProfile.target_calories &&
-      (!userProfile.weight || !userProfile.height)
-    )
-      return alert("Please fill info");
-    const { error } = await supabase.from("user_profiles").upsert({
-      user_id: session.user.id,
-      ...userProfile,
-      target_calories: userProfile.target_calories
-        ? Number(userProfile.target_calories)
-        : null,
-      calorie_adjustment: Number(userProfile.calorie_adjustment ?? 0),
-      protein_priority: userProfile.protein_priority || "balanced",
-      updated_at: new Date(),
-    });
-    if (error) {
-      alert("Error saving goal");
-      return;
-    }
-
-    // Snapshot the goal so past days retain their original targets
-    await supabase.from("goal_history").insert({
-      user_id: session.user.id,
-      goal: userProfile.goal,
-      activity: userProfile.activity,
-      calorie_adjustment: Number(userProfile.calorie_adjustment ?? 0),
-      protein_priority: userProfile.protein_priority || "balanced",
-      target_calories: userProfile.target_calories
-        ? Number(userProfile.target_calories)
-        : null,
-      effective_from: new Date().toISOString().slice(0, 10),
-    });
-
+    const result = await saveProfileGoal(session.user.id, userProfile);
+    if (!result.ok) return alert(result.error);
     alert("Profile updated!");
     setIsSettingGoal(false);
   };
@@ -754,20 +693,8 @@ export default function Home() {
       msg += "Password updated. ";
     }
     if (username) {
-      const { error: profileError } = await supabase
-        .from("user_profiles")
-        .upsert(
-          {
-            user_id: session.user.id,
-            username: username,
-            updated_at: new Date(),
-          },
-          { onConflict: "user_id" },
-        );
-      if (profileError) {
-        console.error(profileError);
-        return alert("Error saving username.");
-      }
+      const saved = await saveUsername(session.user.id, username);
+      if (!saved.ok) return alert(saved.error);
       setUserProfile((prev) => ({ ...prev, username }));
       msg += "Username saved.";
     }
@@ -805,9 +732,11 @@ export default function Home() {
       // 3. Update local state
       setUserProfile((prev) => ({ ...prev, weight: numWeight }));
       setWeightInput("");
+      return true;
     } catch (err) {
       console.error(err);
       alert("Failed to log weight");
+      return false;
     } finally {
       setIsLoggingWeight(false);
     }
@@ -841,7 +770,7 @@ export default function Home() {
   };
 
   const handleManualAddSubmit = (e) => {
-    e.preventDefault();
+    e?.preventDefault?.();
     if (!manualFood.name || !manualFood.calories)
       return alert("Missing details!");
 
@@ -855,7 +784,7 @@ export default function Home() {
     };
 
     saveCustomFoodToDb(formattedFood);
-    addFood(formattedFood.name, qty, formattedFood);
+    if (manualAddNow) addFood(formattedFood.name, 1, formattedFood, "custom");
 
     setManualFood({
       name: "",
@@ -903,7 +832,6 @@ export default function Home() {
     const prev = totalXpRef.current;
     const next = Math.max(0, prev + delta);
     totalXpRef.current = next;
-    setTotalXp(next);
     if (delta > 0 && didLevelUp(prev, delta)) {
       setCelebration({
         id: Date.now(),
@@ -932,10 +860,10 @@ export default function Home() {
     // centered, in that case.
     const bursts = kcal > 0
       ? [
-          { id: base + "a", text: `+${kcal}`, color: "#fff", dx: -34 },
-          { id: base + "b", text: `+${xp} XP`, color: "#a78bfa", dx: 22 },
+          { id: base + "a", text: `+${kcal}`, color: "var(--text)", dx: -34 },
+          { id: base + "b", text: `+${xp} XP`, color: "var(--accent-text)", dx: 22 },
         ]
-      : [{ id: base + "b", text: `+${xp} XP`, color: "#a78bfa", dx: -18 }];
+      : [{ id: base + "b", text: `+${xp} XP`, color: "var(--accent-text)", dx: -18 }];
     setFloats((f) => [...f, ...bursts]);
     lastAddRef.current = { idSet, xp, label };
     setToast({ name: label });
@@ -950,15 +878,7 @@ export default function Home() {
   // actually landed, so we treat it as success. Falls back to inserting without
   // `meal` if that column hasn't been migrated yet (PGRST204).
   const insertFoodLog = async (row) => {
-    const attempt = async () => {
-      let { error } = await supabase.from("food_logs").insert(row);
-      if (error && (error.code === "PGRST204" || /meal/i.test(error.message || ""))) {
-        const withoutMeal = { ...row };
-        delete withoutMeal.meal;
-        ({ error } = await supabase.from("food_logs").insert(withoutMeal));
-      }
-      return error;
-    };
+    const attempt = () => insertFoodLogs(supabase, row);
     let error = await attempt();
     if (error) {
       await new Promise((r) => setTimeout(r, 600));
@@ -1018,7 +938,7 @@ export default function Home() {
     });
   };
 
-  const handleLocalAdd = (itemsToAdd) => {
+  const handleLocalAdd = (itemsToAdd, source = "sheet") => {
     if (!session) return;
     const createdAt = new Date().toISOString();
     const dateKey = localDateKey(); // local calendar day, not UTC
@@ -1026,10 +946,7 @@ export default function Home() {
 
     // File everything in this batch under the meal the user has selected.
     const meal = selectedMeal || defaultMeal(createdAt);
-    const newId = () =>
-      typeof crypto !== "undefined" && crypto.randomUUID
-        ? crypto.randomUUID()
-        : "id_" + Date.now() + "_" + Math.random().toString(36).slice(2);
+    const newId = uuid;
     const rows = itemsToAdd.map((item) => {
       const quantity = Number(item.qty) || 1;
       const base = perUnitMacros(item);
@@ -1043,6 +960,7 @@ export default function Home() {
         fats: Math.round(base.fats * quantity),
         fiber: Math.round((base.fiber || 0) * quantity),
         meal,
+        source,
         date: dateKey,
         created_at: createdAt,
         user_id: session.user.id,
@@ -1054,16 +972,15 @@ export default function Home() {
   // Log the foods the user confirmed from a Snap-a-plate photo. identify-meal
   // returns FINAL (qty-multiplied) macros, so build rows directly — do NOT
   // re-scale by qty the way handleLocalAdd does for per-serving DB foods.
-  const logIdentifiedItems = (items) => {
+  // `mealOverride` files the batch under a specific meal (e.g. "Same as
+  // yesterday's lunch" logged while the picker says something else).
+  const logIdentifiedItems = (items, mealOverride, source = "snap") => {
     if (!session || !items.length) return;
     setSaveError("");
     const createdAt = new Date().toISOString();
     const dateKey = localDateKey();
-    const meal = selectedMeal || defaultMeal(createdAt);
-    const newId = () =>
-      typeof crypto !== "undefined" && crypto.randomUUID
-        ? crypto.randomUUID()
-        : "id_" + Date.now() + "_" + Math.random().toString(36).slice(2);
+    const meal = mealOverride || selectedMeal || defaultMeal(createdAt);
+    const newId = uuid;
     const rows = items.map((item) => ({
       id: newId(),
       name: item.name,
@@ -1074,6 +991,7 @@ export default function Home() {
       fats: Math.round(item.fats || 0),
       fiber: Math.round(item.fiber || 0),
       meal,
+      source,
       date: dateKey,
       created_at: createdAt,
       user_id: session.user.id,
@@ -1097,17 +1015,13 @@ export default function Home() {
     setToast(null);
   };
 
-  const addFood = (foodName, overrideQty = null, explicitMacros = null) => {
-    handleLocalAdd([{ name: foodName, qty: overrideQty || qty, ...explicitMacros }]);
+  const addFood = (foodName, overrideQty = null, explicitMacros = null, source = "sheet") => {
+    handleLocalAdd([{ name: foodName, qty: overrideQty || qty, ...explicitMacros }], source);
     if (!overrideQty && foodName !== "Water") {
       setQty(1);
       setQuery("");
     }
   };
-  const loadMeal = (meal) => {
-    handleLocalAdd(meal.items);
-  };
-
   const deleteLog = (id) => {
     setLogs((prev) => prev.filter((l) => l.id !== id));
     resolveRowId(id)
@@ -1118,6 +1032,7 @@ export default function Home() {
   const openEditModal = (log) => {
     setCurrentLogToEdit(log);
     setEditQty(log.qty);
+    setEditMeal(log.meal || defaultMeal(log.created_at));
     setIsEditingLog(true);
   };
 
@@ -1132,10 +1047,13 @@ export default function Home() {
       deleteLog(target.id);
       return;
     }
-    if (newQ === target.qty) return; // nothing changed
+    const newMeal = editMeal;
+    const oldMeal = target.meal || defaultMeal(target.created_at);
+    if (newQ === target.qty && newMeal === oldMeal) return; // nothing changed
 
     const ratio = newQ / target.qty;
     const patch = {
+      ...(newMeal !== oldMeal ? { meal: newMeal } : {}),
       qty: newQ,
       calories: Math.round(target.calories * ratio),
       protein: Math.round(target.protein * ratio),
@@ -1153,7 +1071,7 @@ export default function Home() {
       setLogs((prev) =>
         prev.map((l) =>
           l.id === target.id
-            ? { ...l, qty: target.qty, calories: target.calories, protein: target.protein, carbs: target.carbs, fats: target.fats, fiber: target.fiber }
+            ? { ...l, qty: target.qty, calories: target.calories, protein: target.protein, carbs: target.carbs, fats: target.fats, fiber: target.fiber, meal: target.meal }
             : l,
         ),
       );
@@ -1218,16 +1136,69 @@ export default function Home() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [quests]);
 
-  const level = useMemo(() => levelFromXp(totalXp), [totalXp]);
+
+  // ── Streak (one rest day per week — lib/streak.js, same rule as Coach) ──────
+  const todayKey = localDateKey();
+  const streakInfo = useMemo(() => {
+    const dates = new Set(loggedDates);
+    if (logs.length) dates.add(todayKey); // live: first log of the day counts now
+    const info = computeStreak([...dates], todayKey);
+    const monday = weekOf(todayKey);
+    const rest = new Set(info.restDays);
+    const week = Array.from({ length: 7 }, (_, i) => {
+      const d = new Date(`${monday}T00:00:00Z`);
+      d.setUTCDate(d.getUTCDate() + i);
+      const day = d.toISOString().slice(0, 10);
+      const state = dates.has(day) ? "logged" : rest.has(day) ? "rest" : day > todayKey ? "future" : "open";
+      return { day, state };
+    });
+    return { ...info, week };
+  }, [loggedDates, logs.length, todayKey]);
+
+  // Food sheet "Add N items": log every pick under the chosen meal. Picks carry
+  // per-serving macros; handleLocalAdd multiplies by qty. Foods found via the
+  // packaged-food web search are also saved to custom foods (as before).
+  const commitPicks = (entries, source = "sheet") => {
+    entries.filter((e) => e.isWeb).forEach((e) => saveCustomFoodToDb({ name: e.name, ...e.per }));
+    handleLocalAdd(entries.map((e) => ({ name: e.name, qty: e.qty, ...e.per })), source);
+  };
+
+  // Log yesterday's meal again, filed under that meal, with its exact macros.
+  const repeatMeal = (meal, items) =>
+    logIdentifiedItems(
+      items.map((i) => ({ name: i.name, qty: i.qty, calories: i.calories, protein: i.protein, carbs: i.carbs, fats: i.fats, fiber: i.fiber })),
+      meal,
+      "repeat",
+    );
+
+  const notifications = useNotifications();
+
+  // ?water=1 (home-screen shortcut): add one glass once today's logs are in.
+  useEffect(() => {
+    // Wait for today's logs: adding before the first fetch lands would be
+    // overwritten by that fetch's (older) snapshot.
+    if (!waterFromUrl || waterHandledRef.current || !logsReady || !session) return;
+    waterHandledRef.current = true;
+    clearUrlAction();
+    addFood("Water", null, null, "shortcut");
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [waterFromUrl, logsReady, session]);
 
   // ── Capture shortcuts (Phase 2) ─────────────────────────────────────────────
   const handleVoice = () => router.push("/voice");
-  const handleSearchFocus = () => {
-    const sec = document.querySelector(".command-center");
-    if (sec) sec.scrollIntoView({ behavior: "smooth", block: "start" });
-    const input = document.querySelector(".command-center input");
-    if (input) setTimeout(() => input.focus(), 300);
+  const handleSearchFocus = () => setLogSheet({ focus: true });
+  // From a meal group's "+" (or the empty state): open the logger on that meal.
+  const openLoggerForMeal = (meal) => {
+    if (meal && MEALS.some((m) => m.label === meal)) setSelectedMeal(meal);
+    setLogSheet({ focus: false });
   };
+  const closeLogSheet = useCallback(() => {
+    setLogSheet(null);
+    setQuery("");
+    // Opened from a nudge/shortcut (?log=…): drop the param so a reload
+    // doesn't reopen the sheet. Keeps Next's history state intact.
+    clearUrlAction();
+  }, []);
   // Ask the server what foods are in the photo (optionally with a spoken/typed
   // correction). Does NOT log — fills the confirm sheet so the user decides.
   const runIdentify = async (img, correction) => {
@@ -1426,67 +1397,6 @@ export default function Home() {
     });
   }, [logs]);
 
-  const getDisplayItems = () => {
-    const hydrate = (keys) =>
-      keys.map((key) => {
-        const item =
-          COMBINED_DB[key.toLowerCase()] ||
-          COMBINED_DB[
-            Object.keys(COMBINED_DB).find((k) => k.includes(key.toLowerCase()))
-          ];
-        return item ? { name: key, ...item } : { name: key };
-      });
-
-    if (query) {
-      const keys = Object.keys(COMBINED_DB).filter((k) =>
-        k.includes(query.toLowerCase()),
-      );
-      const results = hydrate(keys);
-
-      if (results.length === 0) {
-        if (isWebSearching) {
-          return [{ id: "loading", name: "Searching Web...", isWeb: true }];
-        }
-        if (webResults.length > 0) {
-          return webResults;
-        }
-        return [
-          {
-            id: "no-res",
-            name: "No results. Try standardizing name.",
-            isWeb: true,
-          },
-        ];
-      }
-      return results;
-    }
-
-    if (activeCategory === "Smart") {
-      return smartRecommendations.length > 0
-        ? smartRecommendations
-        : [
-            {
-              id: "smart-empty",
-              name: "Goal Met! Have some water.",
-              type: "meal",
-              items: [],
-              isSmart: true,
-            },
-          ];
-    }
-
-    if (activeCategory === "Recent") {
-      return hydrate(recents);
-    }
-
-    if (activeCategory === "Meals") {
-      return savedMeals;
-    }
-
-    const catKeys = Object.keys(FOOD_CATEGORIES[activeCategory] || {});
-    return hydrate(catKeys);
-  };
-
   const getBuilderSuggestions = () =>
     mealBuilderQuery
       ? Object.keys(COMBINED_DB).filter((k) =>
@@ -1517,31 +1427,11 @@ export default function Home() {
   // marketing/login page before the app appears.
   if (initializing) {
     return (
-      <div
-        style={{
-          minHeight: "100vh",
-          background: "#08080a",
-          display: "flex",
-          flexDirection: "column",
-          alignItems: "center",
-          justifyContent: "center",
-          gap: 18,
-        }}
-      >
-        <div
-          style={{
-            width: 56,
-            height: 56,
-            borderRadius: 16,
-            background: "linear-gradient(135deg, #3b82f6, #8b5cf6)",
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-          }}
-        >
-          <Flame size={28} color="#fff" fill="#fff" />
+      <div style={{ minHeight: "100vh", background: "var(--bg)", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 18 }}>
+        <div style={{ width: 56, height: 56, borderRadius: 16, background: "var(--accent)", display: "grid", placeItems: "center" }}>
+          <Flame size={28} color="var(--on-accent)" fill="var(--on-accent)" />
         </div>
-        <Loader2 className="animate-spin" size={18} color="#3b82f6" />
+        <Loader2 className="animate-spin" size={18} color="var(--text-muted)" />
       </div>
     );
   }
@@ -1549,8 +1439,6 @@ export default function Home() {
   if (!session) {
     return (
       <AuthScreen
-        showAuth={showAuth}
-        setShowAuth={setShowAuth}
         usePasswordLogin={usePasswordLogin}
         setUsePasswordLogin={setUsePasswordLogin}
         isCodeSent={isCodeSent}
@@ -1571,7 +1459,7 @@ export default function Home() {
   }
   return (
     <div
-      className="app-wrapper"
+      className="app-wrapper today-wrapper"
       style={{
         minHeight: "100vh",
         // Kill the .app-wrapper CSS *horizontal* padding (sections own their
@@ -1579,7 +1467,7 @@ export default function Home() {
         // content isn't double-inset — but keep a real vertical gap so the
         // stacked cards breathe instead of sitting wall-to-wall.
         padding: 0,
-        gap: 14,
+        gap: 24,
         paddingBottom: "calc(100px + env(safe-area-inset-bottom, 0px))",
         width: "100%",
         overflowX: "hidden",
@@ -1587,253 +1475,17 @@ export default function Home() {
         boxSizing: "border-box",
       }}
     >
-      {/* MANUAL ENTRY MODAL */}
+      {/* CREATE A CUSTOM FOOD — z above the food sheet (9000) it opens from */}
       {isManualEntryOpen && (
-        <div className="modal-overlay" style={{ zIndex: 10000 }}>
-          <div
-            className="modal-content"
-            style={{ maxWidth: 350, width: "90%", textAlign: "left" }}
-          >
-            <div
-              style={{
-                display: "flex",
-                justifyContent: "space-between",
-                alignItems: "center",
-                marginBottom: 16,
-              }}
-            >
-              <h3
-                style={{
-                  margin: 0,
-                  display: "flex",
-                  alignItems: "center",
-                  gap: 8,
-                }}
-              >
-                <PlusCircle size={20} color="#3b82f6" /> Add Custom Food
-              </h3>
-              <button
-                onClick={() => setIsManualEntryOpen(false)}
-                style={{
-                  background: "none",
-                  border: "none",
-                  color: "#666",
-                  cursor: "pointer",
-                }}
-              >
-                <X size={20} />
-              </button>
-            </div>
-
-            <form onSubmit={handleManualAddSubmit}>
-              <div style={{ marginBottom: 12 }}>
-                <label
-                  style={{
-                    fontSize: "0.8rem",
-                    color: "#888",
-                    display: "block",
-                    marginBottom: 4,
-                  }}
-                >
-                  Food Name *
-                </label>
-                <input
-                  required
-                  placeholder="e.g. Grandma's Pasta"
-                  value={manualFood.name}
-                  onChange={(e) =>
-                    setManualFood({ ...manualFood, name: e.target.value })
-                  }
-                  style={{
-                    width: "100%",
-                    padding: 10,
-                    background: "#000",
-                    border: "1px solid #333",
-                    color: "#fff",
-                    borderRadius: 8,
-                  }}
-                />
-              </div>
-
-              <div
-                style={{
-                  display: "grid",
-                  gridTemplateColumns: "1fr 1fr",
-                  gap: 10,
-                  marginBottom: 12,
-                }}
-              >
-                <div>
-                  <label
-                    style={{
-                      fontSize: "0.8rem",
-                      color: "#888",
-                      display: "block",
-                      marginBottom: 4,
-                    }}
-                  >
-                    Calories *
-                  </label>
-                  <input
-                    required
-                    type="number"
-                    placeholder="kcal"
-                    value={manualFood.calories}
-                    onChange={(e) =>
-                      setManualFood({ ...manualFood, calories: e.target.value })
-                    }
-                    style={{
-                      width: "100%",
-                      padding: 10,
-                      background: "#000",
-                      border: "1px solid #333",
-                      color: "#fff",
-                      borderRadius: 8,
-                    }}
-                  />
-                </div>
-                <div>
-                  <label
-                    style={{
-                      fontSize: "0.8rem",
-                      color: "#888",
-                      display: "block",
-                      marginBottom: 4,
-                    }}
-                  >
-                    Protein (g)
-                  </label>
-                  <input
-                    type="number"
-                    placeholder="g"
-                    value={manualFood.protein}
-                    onChange={(e) =>
-                      setManualFood({ ...manualFood, protein: e.target.value })
-                    }
-                    style={{
-                      width: "100%",
-                      padding: 10,
-                      background: "#000",
-                      border: "1px solid #333",
-                      color: "#fff",
-                      borderRadius: 8,
-                    }}
-                  />
-                </div>
-              </div>
-
-              <div
-                style={{
-                  display: "grid",
-                  gridTemplateColumns: "1fr 1fr",
-                  gap: 10,
-                  marginBottom: 20,
-                }}
-              >
-                <div>
-                  <label
-                    style={{
-                      fontSize: "0.8rem",
-                      color: "#888",
-                      display: "block",
-                      marginBottom: 4,
-                    }}
-                  >
-                    Carbs (g)
-                  </label>
-                  <input
-                    type="number"
-                    placeholder="g"
-                    value={manualFood.carbs}
-                    onChange={(e) =>
-                      setManualFood({ ...manualFood, carbs: e.target.value })
-                    }
-                    style={{
-                      width: "100%",
-                      padding: 10,
-                      background: "#000",
-                      border: "1px solid #333",
-                      color: "#fff",
-                      borderRadius: 8,
-                    }}
-                  />
-                </div>
-                <div>
-                  <label
-                    style={{
-                      fontSize: "0.8rem",
-                      color: "#888",
-                      display: "block",
-                      marginBottom: 4,
-                    }}
-                  >
-                    Fats (g)
-                  </label>
-                  <input
-                    type="number"
-                    placeholder="g"
-                    value={manualFood.fats}
-                    onChange={(e) =>
-                      setManualFood({ ...manualFood, fats: e.target.value })
-                    }
-                    style={{
-                      width: "100%",
-                      padding: 10,
-                      background: "#000",
-                      border: "1px solid #333",
-                      color: "#fff",
-                      borderRadius: 8,
-                    }}
-                  />
-                </div>
-                <div>
-                  <label
-                    style={{
-                      fontSize: "0.8rem",
-                      color: "#888",
-                      display: "block",
-                      marginBottom: 4,
-                    }}
-                  >
-                    Fiber (g)
-                  </label>
-                  <input
-                    type="number"
-                    placeholder="g"
-                    value={manualFood.fiber}
-                    onChange={(e) =>
-                      setManualFood({ ...manualFood, fiber: e.target.value })
-                    }
-                    style={{
-                      width: "100%",
-                      padding: 10,
-                      background: "#000",
-                      border: "1px solid #333",
-                      color: "#fff",
-                      borderRadius: 8,
-                    }}
-                  />
-                </div>
-              </div>
-
-              <button
-                type="submit"
-                style={{
-                  width: "100%",
-                  padding: 12,
-                  background: "var(--brand)",
-                  border: "none",
-                  color: "#fff",
-                  borderRadius: 8,
-                  fontWeight: 600,
-                  cursor: "pointer",
-                }}
-              >
-                Save & Log
-              </button>
-            </form>
-          </div>
-        </div>
+        <CustomFoodSheet
+          food={manualFood}
+          setFood={setManualFood}
+          addNow={manualAddNow}
+          setAddNow={setManualAddNow}
+          meal={selectedMeal}
+          onSubmit={handleManualAddSubmit}
+          onClose={() => setIsManualEntryOpen(false)}
+        />
       )}
 
       {/* FIRST-RUN ONBOARDING / GOAL SETTER */}
@@ -1845,226 +1497,34 @@ export default function Home() {
         />
       )}
 
-      {/* PASSWORD & USERNAME MODAL */}
+      {/* USERNAME & PASSWORD — after the first email-code sign-in */}
       {showPasswordSetup && (
-        <div className="modal-overlay">
-          <div
-            className="modal-content"
-            style={{ maxWidth: 400, width: "90%", textAlign: "center" }}
-          >
-            <KeyRound size={40} color="#3b82f6" style={{ marginBottom: 16 }} />
-            <h3 style={{ margin: "0 0 8px 0" }}>Account Setup</h3>
-            <p style={{ color: "#888", marginBottom: 20, fontSize: "0.9rem" }}>
-              Set a username and password to secure your account.
-            </p>
-
-            <input
-              type="text"
-              placeholder="Username (e.g. GymRat99)"
-              value={username}
-              onChange={(e) => setUsername(e.target.value)}
-              style={{
-                width: "100%",
-                padding: 12,
-                background: "#000",
-                border: "1px solid #444",
-                color: "#fff",
-                borderRadius: 8,
-                marginBottom: 10,
-              }}
-            />
-            <input
-              type="password"
-              placeholder="New Password"
-              value={newPassword}
-              onChange={(e) => setNewPassword(e.target.value)}
-              style={{
-                width: "100%",
-                padding: 12,
-                background: "#000",
-                border: "1px solid #444",
-                color: "#fff",
-                borderRadius: 8,
-                marginBottom: 10,
-              }}
-            />
-            <div style={{ display: "flex", gap: 10 }}>
-              <button
-                onClick={() => setShowPasswordSetup(false)}
-                style={{
-                  flex: 1,
-                  padding: 12,
-                  background: "transparent",
-                  border: "1px solid #333",
-                  borderRadius: 8,
-                  color: "#888",
-                  fontWeight: 600,
-                  cursor: "pointer",
-                }}
-              >
-                Cancel
-              </button>
-              <button
-                onClick={handleUpdatePassword}
-                style={{
-                  flex: 1,
-                  padding: 12,
-                  background: "var(--brand)",
-                  border: "none",
-                  borderRadius: 8,
-                  color: "#fff",
-                  fontWeight: 600,
-                  cursor: "pointer",
-                }}
-              >
-                Save Changes
-              </button>
-            </div>
-          </div>
-        </div>
+        <AccountSetupSheet
+          username={username}
+          setUsername={setUsername}
+          password={newPassword}
+          setPassword={setNewPassword}
+          onSave={handleUpdatePassword}
+          onClose={() => setShowPasswordSetup(false)}
+        />
       )}
 
-      {/* EDIT LOG MODAL (NEW) */}
+      {/* EDIT AN ENTRY */}
       {isEditingLog && currentLogToEdit && (
-        <div className="modal-overlay" style={{ alignItems: "center" }}>
-          <div
-            className="modal-content"
-            style={{
-              maxWidth: 320,
-              width: "88%",
-              textAlign: "center",
-              borderRadius: 20,
-              border: "1px solid rgba(255,255,255,0.07)",
-            }}
-          >
-            <div
-              style={{
-                fontSize: "0.65rem",
-                color: "#666",
-                textTransform: "uppercase",
-                letterSpacing: 1,
-                marginBottom: 6,
-              }}
-            >
-              Modify Quantity
-            </div>
-            <h3
-              style={{
-                margin: "0 0 4px 0",
-                fontSize: "1rem",
-                color: "#fff",
-                fontWeight: 700,
-                overflow: "hidden",
-                textOverflow: "ellipsis",
-                whiteSpace: "nowrap",
-              }}
-            >
-              {currentLogToEdit.name}
-            </h3>
-            <div
-              style={{ color: "#555", fontSize: "0.8rem", marginBottom: 24 }}
-            >
-              {currentLogToEdit.calories} kcal per serving
-            </div>
-
-            <div
-              style={{
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "center",
-                gap: 24,
-                marginBottom: 28,
-              }}
-            >
-              <button
-                className="qty-btn"
-                onClick={() => setEditQty(Math.max(0.5, editQty - 0.5))}
-                style={{
-                  width: 44,
-                  height: 44,
-                  borderRadius: 12,
-                  background: "#1a1a1f",
-                  border: "1px solid #2a2a30",
-                  color: "#fff",
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "center",
-                  cursor: "pointer",
-                }}
-              >
-                <Minus size={18} />
-              </button>
-              <div>
-                <div
-                  style={{
-                    fontSize: "2.2rem",
-                    fontWeight: 800,
-                    color: "#fff",
-                    lineHeight: 1,
-                  }}
-                >
-                  {editQty}
-                </div>
-                <div
-                  style={{ fontSize: "0.7rem", color: "#555", marginTop: 2 }}
-                >
-                  = {Math.round((currentLogToEdit.calories / (currentLogToEdit.qty || 1)) * editQty)} kcal
-                </div>
-              </div>
-              <button
-                className="qty-btn"
-                onClick={() => setEditQty(editQty + 0.5)}
-                style={{
-                  width: 44,
-                  height: 44,
-                  borderRadius: 12,
-                  background: "#1a1a1f",
-                  border: "1px solid #2a2a30",
-                  color: "#fff",
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "center",
-                  cursor: "pointer",
-                }}
-              >
-                <Plus size={18} />
-              </button>
-            </div>
-
-            <div style={{ display: "flex", gap: 10 }}>
-              <button
-                onClick={() => setIsEditingLog(false)}
-                style={{
-                  flex: 1,
-                  padding: 13,
-                  background: "transparent",
-                  border: "1px solid #2a2a30",
-                  borderRadius: 12,
-                  color: "#666",
-                  fontWeight: 600,
-                  cursor: "pointer",
-                }}
-              >
-                Cancel
-              </button>
-              <button
-                onClick={saveLogEdit}
-                style={{
-                  flex: 1,
-                  padding: 13,
-                  background: "var(--brand)",
-                  border: "none",
-                  borderRadius: 12,
-                  color: "#fff",
-                  fontWeight: 700,
-                  cursor: "pointer",
-                }}
-              >
-                Update
-              </button>
-            </div>
-          </div>
-        </div>
+        <EditLogSheet
+          log={currentLogToEdit}
+          qty={editQty}
+          setQty={setEditQty}
+          meal={editMeal}
+          setMeal={setEditMeal}
+          onSave={saveLogEdit}
+          onDelete={() => {
+            deleteLog(currentLogToEdit.id);
+            setIsEditingLog(false);
+            setCurrentLogToEdit(null);
+          }}
+          onClose={() => setIsEditingLog(false)}
+        />
       )}
 
       {/* SETTINGS MODAL */}
@@ -2085,533 +1545,245 @@ export default function Home() {
         />
       )}
 
-      {/* MEAL BUILDER */}
+      {/* SAVED MEAL BUILDER — z above the food sheet (9000) it opens from */}
       {isCreatingMeal && (
-        <div className="modal-overlay">
-          <div
-            className="modal-content"
-            style={{ maxWidth: 400, width: "90%" }}
-          >
-            <div
-              style={{
-                display: "flex",
-                justifyContent: "space-between",
-                alignItems: "center",
-                marginBottom: 16,
-              }}
-            >
-              <h3 style={{ margin: 0 }}>
-                {editingMealId ? "Edit Meal" : "Build a Meal"}
-              </h3>
-              <button
-                onClick={() => setIsCreatingMeal(false)}
-                style={{ background: "none", border: "none", color: "#666" }}
-              >
-                <X size={20} />
-              </button>
-            </div>
-            <input
-              autoFocus
-              placeholder="Meal Name"
-              value={newMealName}
-              onChange={(e) => setNewMealName(e.target.value)}
-              style={{
-                width: "100%",
-                padding: 12,
-                marginBottom: 16,
-                background: "#000",
-                border: "1px solid #333",
-                color: "#fff",
-                borderRadius: 8,
-              }}
-            />
-            <div
-              style={{
-                background: "#000",
-                borderRadius: 8,
-                border: "1px solid #333",
-                padding: 10,
-                marginBottom: 16,
-                minHeight: 100,
-                maxHeight: 150,
-                overflowY: "auto",
-              }}
-            >
-              {mealBuilderItems.length === 0 ? (
-                <div
-                  style={{
-                    color: "#666",
-                    textAlign: "center",
-                    marginTop: 30,
-                  }}
-                >
-                  Add items below
-                </div>
-              ) : (
-                mealBuilderItems.map((item, idx) => (
-                  <div
-                    key={idx}
-                    style={{
-                      display: "flex",
-                      justifyContent: "space-between",
-                      padding: "6px 0",
-                      borderBottom: "1px solid #222",
-                    }}
-                  >
-                    <span>
-                      {item.qty}x {item.name}
-                    </span>
-                    <button
-                      onClick={() => removeItemFromBuilder(idx)}
-                      style={{
-                        background: "none",
-                        border: "none",
-                        color: "#ef4444",
-                        cursor: "pointer",
-                      }}
-                    >
-                      <Trash2 size={14} />
-                    </button>
-                  </div>
-                ))
-              )}
-            </div>
-            <div style={{ marginBottom: 16 }}>
-              <div
-                style={{
-                  display: "flex",
-                  alignItems: "center",
-                  background: "#000",
-                  border: "1px solid #333",
-                  borderRadius: 8,
-                  padding: "0 10px",
-                }}
-              >
-                <Search size={14} color="#666" />
-                <input
-                  placeholder="Search food..."
-                  value={mealBuilderQuery}
-                  onChange={(e) => setMealBuilderQuery(e.target.value)}
-                  style={{
-                    flex: 1,
-                    background: "none",
-                    border: "none",
-                    color: "#fff",
-                    padding: 10,
-                    outline: "none",
-                  }}
-                />
-              </div>
-              {mealBuilderQuery && (
-                <div
-                  style={{
-                    marginTop: 8,
-                    display: "flex",
-                    flexWrap: "wrap",
-                    gap: 6,
-                    maxHeight: 100,
-                    overflowY: "auto",
-                  }}
-                >
-                  {getBuilderSuggestions().map((item) => (
-                    <button
-                      key={item}
-                      onClick={() => addItemToBuilder(item)}
-                      style={{
-                        background: "#27272a",
-                        border: "1px solid #333",
-                        color: "#ddd",
-                        padding: "4px 10px",
-                        borderRadius: 20,
-                        fontSize: "0.8rem",
-                        cursor: "pointer",
-                        textTransform: "capitalize",
-                      }}
-                    >
-                      + {item}
-                    </button>
-                  ))}
-                </div>
-              )}
-            </div>
-            <button
-              onClick={saveBuiltMeal}
-              style={{
-                width: "100%",
-                padding: 12,
-                background: "var(--brand)",
-                border: "none",
-                color: "#fff",
-                borderRadius: 8,
-                fontWeight: 600,
-                cursor: "pointer",
-              }}
-            >
-              <Save size={16} style={{ display: "inline", marginRight: 6 }} />{" "}
-              Save Meal
-            </button>
-          </div>
-        </div>
+        <MealBuilderSheet
+          editing={!!editingMealId}
+          name={newMealName}
+          setName={setNewMealName}
+          items={mealBuilderItems}
+          foodDb={COMBINED_DB}
+          query={mealBuilderQuery}
+          setQuery={setMealBuilderQuery}
+          suggestions={getBuilderSuggestions()}
+          onAdd={(name) => {
+            addItemToBuilder(name);
+            setMealBuilderQuery("");
+          }}
+          onRemove={removeItemFromBuilder}
+          onQty={(idx, q) => setMealBuilderItems(mealBuilderItems.map((it, i) => (i === idx ? { ...it, qty: q } : it)))}
+          onSave={saveBuiltMeal}
+          onClose={() => setIsCreatingMeal(false)}
+        />
       )}
 
-      {/* HEADER */}
-      <header
-        className="header-row"
-        style={{
-          // viewportFit:"cover" lets the page draw under the status bar/notch,
-          // so the sticky header must pad the top inset or it hides behind the
-          // iOS clock/battery (the bottom nav already pads its own inset).
-          padding: "calc(14px + env(safe-area-inset-top, 0px)) 20px 12px",
-          borderBottom: "1px solid #1a1a1e",
-          width: "100%",
-          display: "flex",
-          justifyContent: "space-between",
-          alignItems: "center",
-          position: "sticky",
-          top: 0,
-          zIndex: 50,
-          background: "rgba(8,8,10,0.85)",
-          backdropFilter: "blur(12px)",
-          WebkitBackdropFilter: "blur(12px)",
-          boxSizing: "border-box",
-        }}
-      >
-        {/* Left: branding + greeting */}
-        <div style={{ display: "flex", alignItems: "center", gap: 12, minWidth: 0, flex: 1 }}>
-          <div
-            style={{
-              width: 40,
-              height: 40,
-              borderRadius: 12,
-              background: "linear-gradient(135deg, #3b82f6, #8b5cf6)",
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              flexShrink: 0,
-            }}
-          >
-            <Flame size={20} color="#fff" fill="#fff" />
+      {/* Today: one column on phones (items keep the order below via CSS
+          order); two columns on desktop — main log left, nudges right. */}
+      <div className="today-grid">
+        <div className="today-col today-main">
+          <div className="tw" style={{ order: 1 }}>
+          {/* HEADER — date, greeting, streak (Direction A) */}
+          <TodayHeader
+            name={username}
+            dayLabel={new Date(`${todayKey}T12:00:00`).toLocaleDateString("en-IN", { weekday: "long", day: "numeric", month: "short" })}
+            streak={streakInfo.streak}
+            restLeftThisWeek={streakInfo.restLeftThisWeek}
+            week={streakInfo.week}
+          />
           </div>
-          <div style={{ minWidth: 0 }}>
-            <div
-              style={{
-                fontSize: "1rem",
-                fontWeight: 800,
-                color: "#fff",
-                lineHeight: 1.1,
-                overflow: "hidden",
-                textOverflow: "ellipsis",
-                whiteSpace: "nowrap",
-              }}
-            >
-              {username ? `Hey, ${username} 👋` : "NutriTrack"}
-            </div>
-            <div
-              style={{
-                display: "flex",
-                alignItems: "center",
-                gap: 8,
-                marginTop: 2,
-                flexWrap: "wrap",
-              }}
-            >
-              <div className="date-badge" style={{ fontSize: "0.7rem" }}>
-                Today
-              </div>
-              {streak > 0 && (
-                <div
-                  style={{
-                    display: "flex",
-                    alignItems: "center",
-                    gap: 4,
-                    background: "rgba(245,158,11,0.12)",
-                    border: "1px solid rgba(245,158,11,0.25)",
-                    borderRadius: 10,
-                    padding: "1px 8px",
-                    fontSize: "0.72rem",
-                    color: "#f59e0b",
-                    fontWeight: 700,
-                  }}
-                >
-                  <Flame size={11} fill="#f59e0b" color="#f59e0b" /> {streak}d
-                </div>
-              )}
-              {/* Level + XP (Phase 3) */}
-              <div
-                title={`${level.into}/${level.needed} XP`}
-                style={{
-                  display: "flex",
-                  alignItems: "center",
-                  gap: 5,
-                  background: "rgba(139,92,246,0.12)",
-                  border: "1px solid rgba(139,92,246,0.25)",
-                  borderRadius: 10,
-                  padding: "1px 8px",
-                  fontSize: "0.72rem",
-                  color: "#a78bfa",
-                  fontWeight: 800,
-                }}
-              >
-                LV {level.level}
-                <span
-                  style={{
-                    width: 28,
-                    height: 4,
-                    borderRadius: 99,
-                    background: "rgba(139,92,246,0.25)",
-                    overflow: "hidden",
-                  }}
-                >
-                  <span
-                    style={{
-                      display: "block",
-                      height: "100%",
-                      width: `${level.pct}%`,
-                      background: "linear-gradient(90deg,#8b5cf6,#3b82f6)",
-                      transition: "width .6s cubic-bezier(.2,.8,.2,1)",
-                    }}
-                  />
+          <div className="tw" style={{ order: 2 }}>
+          {saveError && (
+            <div style={{ padding: "0 20px" }}>
+              <div role="alert" style={{ display: "flex", alignItems: "flex-start", gap: 10, padding: "12px 14px", borderRadius: 14, background: "var(--danger-soft)", color: "var(--text)", fontSize: 14, lineHeight: 1.45 }}>
+                <span style={{ flex: 1, minWidth: 0 }}>
+                  <strong style={{ color: "var(--danger)", fontWeight: 600 }}>That didn’t save.</strong> Check your connection and try again.
+                  <span style={{ display: "block", fontSize: 12, color: "var(--text-faint)", marginTop: 4, overflowWrap: "anywhere" }}>{saveError}</span>
                 </span>
+                <button onClick={() => setSaveError("")} aria-label="Dismiss" style={{ background: "none", border: "none", padding: 2, color: "var(--text-muted)", cursor: "pointer", fontSize: 16, lineHeight: 1 }}>
+                  ✕
+                </button>
               </div>
             </div>
+          )}
           </div>
-        </div>
-
-        {/* Right: action buttons */}
-        <div style={{ display: "flex", gap: 6, flexShrink: 0 }}>
-          <button
-            onClick={() => {
+          <div className="tw" style={{ order: 5 }}>
+          {/* Hero: kcal left, macros. "Goal" opens the goal settings. */}
+          <StatsBoard
+            conditions={conditions}
+            totals={totals}
+            userProfile={userProfile}
+            onEditGoal={() => {
               setIsSettingGoal(true);
               setSettingsTab("profile");
             }}
-            style={{
-              background: "rgba(59,130,246,0.1)",
-              border: "1px solid rgba(59,130,246,0.25)",
-              color: "#3b82f6",
-              cursor: "pointer",
-              padding: "8px 14px",
-              borderRadius: 12,
-              display: "flex",
-              alignItems: "center",
-              gap: 6,
-              fontSize: "0.8rem",
-              fontWeight: 700,
-            }}
-          >
-            <Target size={15} /> Goal
-          </button>
-          <button
-            onClick={() => {
-              setIsSettingGoal(true);
-              setSettingsTab("security");
-            }}
-            style={{
-              background: "#111113",
-              border: "1px solid #27272a",
-              color: "#666",
-              cursor: "pointer",
-              padding: 9,
-              borderRadius: 12,
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-            }}
-          >
-            <Settings size={16} />
-          </button>
-        </div>
-      </header>
-
-      {saveError && (
-        <div style={{ padding: "10px 20px 0" }}>
-          <div
-            style={{
-              display: "flex",
-              alignItems: "flex-start",
-              gap: 10,
-              background: "rgba(239,68,68,0.1)",
-              border: "1px solid rgba(239,68,68,0.35)",
-              borderRadius: 12,
-              padding: "10px 12px",
-              fontSize: "0.78rem",
-              color: "#fca5a5",
-              lineHeight: 1.45,
-            }}
-          >
-            <span style={{ flex: 1 }}>
-              <b style={{ color: "#ef4444" }}>Log didn&apos;t save.</b> {saveError}
-            </span>
-            <button
-              onClick={() => setSaveError("")}
-              style={{ background: "none", border: "none", color: "#fca5a5", cursor: "pointer", fontWeight: 800, flexShrink: 0 }}
-            >
-              ✕
-            </button>
+          />
+          </div>
+          <div className="tw" style={{ order: 6 }}>
+          {/* Water + weight — right under the hero so a long food log never buries them */}
+          <BodyTiles
+            totals={totals}
+            userProfile={userProfile}
+            conditions={conditions}
+            onAddWater={() => addFood("Water", null, null, "water")}
+            weightInput={weightInput}
+            setWeightInput={setWeightInput}
+            onSaveWeight={handleLogWeight}
+            savingWeight={isLoggingWeight}
+          />
+          </div>
+          <div className="tw" style={{ order: 8 }}>
+          {/* Capture: Add food (logger sheet) · Snap · Say */}
+          <CaptureBar
+            onSnap={handleSnap}
+            onVoice={handleVoice}
+            onSearch={handleSearchFocus}
+          />
+          </div>
+          <div className="tw" style={{ order: 9 }}>
+          {/* One-tap re-log of recent foods into the current meal */}
+          <QuickAddRow
+            recents={recents}
+            foodDb={COMBINED_DB}
+            selectedMeal={selectedMeal}
+            onAdd={(name) => addFood(name, 1, null, "quick_add")}
+            onMore={() => openLoggerForMeal()}
+          />
+          </div>
+          <div className="tw" style={{ order: 10 }}>
+          {/* TODAY'S LOG — the current meal always offers a way forward */}
+          <Timeline
+            logs={logs}
+            loading={loading}
+            totals={totals}
+            openEditModal={openEditModal}
+            deleteLog={deleteLog}
+            onAddToMeal={openLoggerForMeal}
+            currentMeal={defaultMeal()}
+            yesterdayByMeal={yesterdayByMeal || {}}
+            onRepeatMeal={repeatMeal}
+          />
           </div>
         </div>
+        <aside className="today-col today-aside" aria-label="Suggestions">
+          <div className="tw" style={{ order: 3 }}>
+          {/* First week: three clear next steps instead of an empty screen */}
+          <FirstWeekGuide
+            accountCreatedAt={session?.user?.created_at}
+            todayKey={todayKey}
+            hasGoal={!!userProfile.weight}
+            hasLogged={logs.length > 0 || recents.length > 0}
+            notifications={notifications}
+            onLogFirst={() => openLoggerForMeal()}
+            onSetGoal={() => {
+              setIsSettingGoal(true);
+              setSettingsTab("profile");
+            }}
+          />
+          </div>
+          <div className="tw" style={{ order: 4 }}>
+          {/* Evening: the day wrap (from 7 pm, once something is logged) */}
+          <DayWrap
+            totals={totals}
+            userProfile={userProfile}
+            conditions={conditions}
+            logs={logs}
+            todayKey={todayKey}
+            onAddLateSnack={() => openLoggerForMeal("Snacks")}
+          />
+          </div>
+          <div className="tw" style={{ order: 7 }}>
+          {/* The one Coach nudge (deterministic, dismissible for the day) */}
+          <CoachNudge
+            totals={totals}
+            userProfile={userProfile}
+            conditions={conditions}
+            foodDb={COMBINED_DB}
+            recents={recents}
+            day={todayKey}
+            currentMeal={selectedMeal}
+            onAdd={(name) => addFood(name, 1, null, "nudge")}
+          />
+          </div>
+          <div className="tw" style={{ order: 12 }}>
+          {/* Daily goals — kept quiet in Direction A (wrapper paddingBottom clears the nav) */}
+          <QuestsCard quests={quests} />
+          </div>
+          <div className="tw" style={{ order: 11 }}>
+          {/* After the first log: get them onto the installed app (reminders) */}
+          <InstallPrompt hasLogged={logs.length > 0 || recents.length > 0} todayKey={todayKey} />
+          </div>
+        </aside>
+      </div>
+
+      {/* Barcode scanner — opened from the food sheet's search row */}
+      {scanOpen && (
+        <BarcodeScanner
+          meal={selectedMeal}
+          onAdd={({ name, per }) => {
+            setScanOpen(false);
+            commitPicks([{ name, qty: 1, per, isWeb: true }], "barcode"); // also saved to custom foods
+          }}
+          onManual={(name) => {
+            setScanOpen(false);
+            setManualFood((prev) => ({ ...prev, name: name || "" }));
+            setIsManualEntryOpen(true);
+          }}
+          onClose={() => setScanOpen(false)}
+        />
       )}
 
-      <StatsBoard
-        conditions={conditions}
-        totals={totals}
-        onAddWater={() => addFood("Water")}
-        userProfile={userProfile}
-      />
-
-      {/* Weight sits with the other daily metrics (calories/macros/water),
-          right under the stats — a quick morning weigh-in without scrolling,
-          and out of the food-logging flow (capture → log food) below. */}
-      {/* === WEIGHT TRACKER CARD === */}
-      <section style={{ padding: "12px 20px 0" }}>
-        <div
-          style={{
-            background: "linear-gradient(180deg, #15151b, #0f0f13)",
-            borderRadius: 18,
-            padding: "16px 18px",
-            border: "1px solid #1e1e26",
-            display: "flex",
-            alignItems: "center",
-            gap: 14,
+      {/* Deep links from nudges / shortcuts */}
+      {snapPrompt && (
+        <SnapPromptSheet
+          meal={selectedMeal}
+          onPick={(file) => {
+            setSnapPrompt(false);
+            clearUrlAction();
+            handleSnap(file);
           }}
-        >
-          <div
-            style={{
-              background: "rgba(236,72,153,0.12)",
-              border: "1px solid rgba(236,72,153,0.2)",
-              padding: 10,
-              borderRadius: 12,
-              flexShrink: 0,
-            }}
-          >
-            <Scale size={20} color="#ec4899" />
-          </div>
-          <div style={{ flex: 1, minWidth: 0 }}>
-            <div
-              style={{
-                display: "flex",
-                justifyContent: "space-between",
-                alignItems: "baseline",
-                marginBottom: 6,
-              }}
-            >
-              <span
-                style={{ fontWeight: 700, fontSize: "0.9rem", color: "#fff" }}
-              >
-                Today&apos;s Weight
-              </span>
-              <span
-                style={{
-                  fontSize: "1.1rem",
-                  fontWeight: 800,
-                  color: "#ec4899",
-                }}
-              >
-                {userProfile.weight || "--"}{" "}
-                <span
-                  style={{
-                    fontSize: "0.75rem",
-                    color: "#555",
-                    fontWeight: 600,
-                  }}
-                >
-                  kg
-                </span>
-              </span>
-            </div>
-            <div style={{ display: "flex", gap: 8 }}>
-              <input
-                type="number"
-                step="0.1"
-                placeholder="Log weight..."
-                value={weightInput}
-                onChange={(e) => setWeightInput(e.target.value)}
-                style={{
-                  flex: 1,
-                  padding: "8px 12px",
-                  borderRadius: 10,
-                  background: "#0a0a0c",
-                  border: "1px solid #27272a",
-                  color: "#fff",
-                  outline: "none",
-                  fontSize: "0.9rem",
-                }}
-              />
-              <button
-                onClick={handleLogWeight}
-                disabled={isLoggingWeight || !weightInput}
-                style={{
-                  padding: "8px 16px",
-                  background: weightInput
-                    ? "linear-gradient(135deg, #ec4899, #8b5cf6)"
-                    : "#1e1e26",
-                  color: weightInput ? "#fff" : "#444",
-                  border: "none",
-                  borderRadius: 10,
-                  fontWeight: 700,
-                  cursor: weightInput ? "pointer" : "not-allowed",
-                  fontSize: "0.85rem",
-                  transition: "all 0.2s",
-                  display: "flex",
-                  alignItems: "center",
-                  gap: 6,
-                }}
-              >
-                {isLoggingWeight ? (
-                  <Loader2 size={14} className="animate-spin" />
-                ) : (
-                  "Save"
-                )}
-              </button>
-            </div>
-          </div>
-        </div>
-      </section>
+          onClose={() => {
+            setSnapPrompt(false);
+            clearUrlAction();
+          }}
+        />
+      )}
+      {repeatPrompt && (
+        <RepeatMealSheet
+          meal={repeatPrompt}
+          data={yesterdayByMeal ? yesterdayByMeal[repeatPrompt] || null : undefined}
+          onConfirm={(items) => {
+            repeatMeal(repeatPrompt, items);
+            setRepeatPrompt(null);
+            clearUrlAction();
+          }}
+          onPickInstead={() => {
+            openLoggerForMeal(repeatPrompt);
+            setRepeatPrompt(null);
+          }}
+          onClose={() => {
+            setRepeatPrompt(null);
+            clearUrlAction();
+          }}
+        />
+      )}
 
-      {/* Phase 2: fast capture — snap / say / search — leads into the logger */}
-      <CaptureBar
-        onSnap={handleSnap}
-        onVoice={handleVoice}
-        onSearch={handleSearchFocus}
-      />
-
-      <FoodLogger
-        query={query}
-        setQuery={setQuery}
-        qty={qty}
-        setQty={setQty}
-        selectedMeal={selectedMeal}
-        setSelectedMeal={setSelectedMeal}
-        activeCategory={activeCategory}
-        setActiveCategory={setActiveCategory}
-        aiMealPlan={aiMealPlan}
-        setAiMealPlan={setAiMealPlan}
-        aiMealPlanLoading={aiMealPlanLoading}
-        fetchAiMealPlan={fetchAiMealPlan}
-        COMBINED_DB={COMBINED_DB}
-        getDisplayItems={getDisplayItems}
-        savedMeals={savedMeals}
-        openMealBuilder={openMealBuilder}
-        loadMeal={loadMeal}
-        deleteMeal={deleteMeal}
-        addFood={addFood}
-        saveCustomFoodToDb={saveCustomFoodToDb}
-        manualFood={manualFood}
-        setManualFood={setManualFood}
-        setIsManualEntryOpen={setIsManualEntryOpen}
-      />
-
-      {/* Phase 3: today's quests */}
-      <QuestsCard quests={quests} />
-
-      {/* TIMELINE */}
-      <Timeline
-        logs={logs}
-        loading={loading}
-        totals={totals}
-        userProfile={userProfile}
-        openEditModal={openEditModal}
-        deleteLog={deleteLog}
-      />
+      {/* FOOD LOGGER SHEET — the full search / categories / grid */}
+      {logSheet && (
+        <LogFoodSheet
+          onClose={closeLogSheet}
+          onCommit={(entries) => commitPicks(entries, "sheet")}
+          onScan={() => setScanOpen(true)}
+          autoFocusSearch={logSheet.focus}
+          selectedMeal={selectedMeal}
+          setSelectedMeal={setSelectedMeal}
+          query={query}
+          setQuery={setQuery}
+          foodDb={COMBINED_DB}
+          recents={recents}
+          savedMeals={savedMeals}
+          suggestions={smartRecommendations}
+          webResults={webResults}
+          isWebSearching={isWebSearching}
+          userProfile={userProfile}
+          conditions={conditions}
+          openMealBuilder={openMealBuilder}
+          deleteMeal={deleteMeal}
+          onCustomFood={(name) => {
+            setManualFood({ ...manualFood, name: name || "" });
+            setIsManualEntryOpen(true);
+          }}
+        />
+      )}
 
       {/* Phase 0/1/3: reward bursts, auto-save Undo toast, celebrations */}
       <RewardLayer
@@ -2623,126 +1795,24 @@ export default function Home() {
         onCelebrationDone={() => setCelebration(null)}
       />
 
-      {/* ── Snap-a-plate confirm sheet (stays on this page) ── */}
+      {/* Snap-a-plate: confirm what the photo shows, then log */}
       {snapOpen && (
-        <div
-          className="modal-overlay"
-          style={{ zIndex: 10000 }} /* sit above the fixed bottom nav (z 100) */
-          onClick={(e) => { if (e.target === e.currentTarget) closeSnap(); }}
-        >
-          <div className="modal-content" style={{ maxWidth: 520 }}>
-            {/* header (drag handle is drawn by .modal-content::before) */}
-            <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 14 }}>
-              {snapImage?.dataUrl && (
-                // eslint-disable-next-line @next/next/no-img-element
-                <img
-                  src={snapImage.dataUrl}
-                  alt="Your meal"
-                  style={{ width: 46, height: 46, borderRadius: 10, objectFit: "cover", flexShrink: 0 }}
-                />
-              )}
-              <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ fontWeight: 700, fontSize: "1rem" }}>Snap a plate</div>
-                <div style={{ fontSize: "0.74rem", color: "#71717a" }}>
-                  {snapLoading
-                    ? "Reading your photo…"
-                    : snapItems.length
-                      ? "Here's what I see — confirm or fix it"
-                      : "Describe your meal to add it"}
-                </div>
-              </div>
-              <button
-                onClick={closeSnap}
-                style={{ background: "none", border: "none", color: "#71717a", cursor: "pointer", padding: 4 }}
-              >
-                <X size={18} />
-              </button>
-            </div>
-
-            {snapLoading ? (
-              <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 10, padding: "34px 0", color: "#71717a" }}>
-                <Loader2 size={26} className="animate-spin" />
-                <div style={{ fontSize: "0.82rem" }}>Identifying foods…</div>
-              </div>
-            ) : (
-              <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-                {snapItems.map((it, i) => (
-                  <div
-                    key={i}
-                    style={{ display: "flex", alignItems: "center", gap: 8, padding: "10px 12px", borderRadius: 12, background: "var(--surface)", border: "1px solid var(--border)" }}
-                  >
-                    <div style={{ flex: 1, minWidth: 0 }}>
-                      <div style={{ fontWeight: 600, fontSize: "0.88rem", textTransform: "capitalize", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                        {it.name}
-                      </div>
-                      <div style={{ fontSize: "0.72rem", color: "#71717a" }}>
-                        {it.calories} kcal · {it.protein}g protein
-                      </div>
-                    </div>
-                    <button onClick={() => updateSnapQty(i, -1)} style={SNAP_STEP}><Minus size={14} /></button>
-                    <span style={{ minWidth: 26, textAlign: "center", fontWeight: 700, fontSize: "0.82rem" }}>
-                      {+Number(it.qty).toFixed(2)}
-                    </span>
-                    <button onClick={() => updateSnapQty(i, +1)} style={SNAP_STEP}><Plus size={14} /></button>
-                    <button
-                      onClick={() => removeSnapItem(i)}
-                      style={{ background: "none", border: "none", color: "#52525b", cursor: "pointer", padding: 4, marginLeft: 2, flexShrink: 0 }}
-                    >
-                      <X size={15} />
-                    </button>
-                  </div>
-                ))}
-
-                {snapError && (
-                  <div style={{ padding: "9px 12px", borderRadius: 10, background: "#f59e0b12", border: "1px solid #f59e0b25", color: "#fbbf24", fontSize: "0.78rem", lineHeight: 1.5 }}>
-                    {snapError}
-                  </div>
-                )}
-                {snapItems.length === 0 && !snapError && (
-                  <div style={{ color: "#71717a", fontSize: "0.82rem", textAlign: "center", padding: "18px 0" }}>
-                    No foods identified yet.
-                  </div>
-                )}
-
-                {/* correction — "say/type anything again" */}
-                <div style={{ display: "flex", gap: 8, marginTop: 4 }}>
-                  <input
-                    value={snapCorrection}
-                    onChange={(e) => setSnapCorrection(e.target.value)}
-                    onKeyDown={(e) => { if (e.key === "Enter") submitSnapCorrection(); }}
-                    placeholder="Fix it — “2 rotis not 3, add a banana”"
-                    style={{ flex: 1, minWidth: 0, padding: "11px 14px", borderRadius: 12, border: "1px solid var(--border)", background: "var(--surface)", color: "#fff", fontSize: "0.84rem", fontFamily: "inherit" }}
-                  />
-                  <button
-                    onClick={submitSnapCorrection}
-                    disabled={!snapCorrection.trim()}
-                    style={{ padding: "0 16px", borderRadius: 12, border: "none", background: "#27272a", color: "#e4e4e7", fontWeight: 700, cursor: snapCorrection.trim() ? "pointer" : "default", fontSize: "0.82rem", opacity: snapCorrection.trim() ? 1 : 0.5, flexShrink: 0 }}
-                  >
-                    Redo
-                  </button>
-                </div>
-
-                {/* confirm */}
-                <button
-                  onClick={confirmSnap}
-                  disabled={!snapItems.length}
-                  style={{ width: "100%", padding: "14px", borderRadius: 14, border: "none", marginTop: 6, background: snapItems.length ? "linear-gradient(135deg,#7c3aed,#4338ca)" : "#27272a", color: "#fff", fontWeight: 700, fontSize: "0.95rem", cursor: snapItems.length ? "pointer" : "default", opacity: snapItems.length ? 1 : 0.55 }}
-                >
-                  {snapItems.length
-                    ? `Log ${snapItems.length} item${snapItems.length > 1 ? "s" : ""} to ${selectedMeal || "meal"}`
-                    : "Log meal"}
-                </button>
-              </div>
-            )}
-          </div>
-        </div>
+        <SnapSheet
+          image={snapImage}
+          loading={snapLoading}
+          items={snapItems}
+          error={snapError}
+          correction={snapCorrection}
+          setCorrection={setSnapCorrection}
+          onQty={updateSnapQty}
+          onRemove={removeSnapItem}
+          onRedo={submitSnapCorrection}
+          onConfirm={confirmSnap}
+          onClose={closeSnap}
+          meal={selectedMeal || "meal"}
+        />
       )}
     </div>
   );
 }
 
-const SNAP_STEP = {
-  width: 28, height: 28, borderRadius: 8, border: "1px solid var(--border)",
-  background: "var(--surface-highlight)", color: "#e4e4e7", cursor: "pointer",
-  display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0,
-};

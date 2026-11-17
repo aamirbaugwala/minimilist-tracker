@@ -5,8 +5,8 @@ import { useRouter } from "next/navigation";
 import { supabase } from "../supabase";
 import { defaultMeal } from "../lib/mealPeriod";
 import { dayKey } from "../lib/day";
-import Lottie from "lottie-react";
-import { ArrowLeft, Mic, Square, Loader2 } from "lucide-react";
+import { Check, Mic, Square, Loader2 } from "lucide-react";
+import { useSmartBack } from "../components/PageHeader";
 
 // States
 // IDLE      → tap orb → RECORDING
@@ -15,89 +15,17 @@ import { ArrowLeft, Mic, Square, Loader2 } from "lucide-react";
 // SPEAKING  → TTS finishes or tap → IDLE
 const S = { IDLE: "idle", RECORDING: "recording", THINKING: "thinking", SPEAKING: "speaking" };
 
-// ── NUTRICOACH — Lottie character ────────────────────────────────────────────
-// Plays a Lottie animation you drop into /public/lottie:
-//   coach.json        → idle / listening / thinking loop (required)
-//   coach-talk.json   → optional talking loop, used while speaking
-// Until a file exists it shows a soft "AI presence" orb. A colour-shifting aura
-// + thinking dots signal state on top of whichever character is loaded.
-function CoachAvatar({ state, size = 240 }) {
-  const [idle, setIdle] = useState(null);
-  const [talk, setTalk] = useState(null);
-
-  useEffect(() => {
-    let on = true;
-    const grab = (url, set) =>
-      fetch(url)
-        .then((r) => (r.ok ? r.json() : null))
-        .then((d) => { if (on && d) set(d); })
-        .catch(() => {});
-    grab("/lottie/coach.json", setIdle);
-    grab("/lottie/coach-talk.json", setTalk);
-    return () => { on = false; };
-  }, []);
-
-  const data = state === "speaking" && talk ? talk : idle;
-
-  return (
-    <div className={`ca ca-${state}`} style={{ width: size, height: size }}>
-      <span className="ca-aura" />
-      <div className="ca-stage">
-        {data ? (
-          <Lottie animationData={data} loop autoplay style={{ width: "100%", height: "100%" }} />
-        ) : (
-          <span className="ca-orb" />
-        )}
-      </div>
-      <span className="ca-dots"><i /><i /><i /></span>
-
-      <style>{`
-        .ca { position: relative; display: grid; place-items: center; --c: #6366f1; }
-        .ca-idle { --c: #6366f1; } .ca-recording { --c: #ef4444; }
-        .ca-thinking { --c: #f59e0b; } .ca-speaking { --c: #22c55e; }
-
-        .ca-aura {
-          position: absolute; inset: -4%; border-radius: 50%; pointer-events: none;
-          background: radial-gradient(circle at 50% 45%, color-mix(in srgb, var(--c) 42%, transparent), transparent 62%);
-          filter: blur(4px); animation: ca-aura 3.4s ease-in-out infinite;
-        }
-        .ca-recording .ca-aura { animation-duration: 1.3s; } .ca-speaking .ca-aura { animation-duration: 1.8s; }
-        @keyframes ca-aura { 0%,100% { transform: scale(.9); opacity: .6 } 50% { transform: scale(1.06); opacity: 1 } }
-
-        .ca-stage { position: relative; width: 100%; height: 100%; display: grid; place-items: center; }
-
-        .ca-orb {
-          width: 64%; height: 64%; border-radius: 50%;
-          background: radial-gradient(circle at 38% 32%, color-mix(in srgb, var(--c) 85%, #fff), var(--c) 55%, #0b0b16 100%);
-          box-shadow: 0 18px 44px -10px var(--c), inset 0 -10px 26px rgba(0,0,0,.35), inset 0 8px 18px rgba(255,255,255,.25);
-          animation: ca-orb 3.6s ease-in-out infinite;
-        }
-        @keyframes ca-orb { 0%,100% { transform: translateY(0) scale(1) } 50% { transform: translateY(-4px) scale(1.03) } }
-
-        .ca-dots { position: absolute; top: 4%; right: 10%; display: flex; gap: 5px; opacity: 0; transition: opacity .2s; pointer-events: none; }
-        .ca-dots i { width: 7px; height: 7px; border-radius: 50%; background: var(--c); }
-        .ca-thinking .ca-dots { opacity: 1; }
-        .ca-thinking .ca-dots i { animation: ca-td 1.1s ease-in-out infinite; }
-        .ca-thinking .ca-dots i:nth-child(2) { animation-delay: .15s; }
-        .ca-thinking .ca-dots i:nth-child(3) { animation-delay: .3s; }
-        @keyframes ca-td { 0%,100% { transform: translateY(0); opacity: .5 } 50% { transform: translateY(-5px); opacity: 1 } }
-
-        @media (prefers-reduced-motion: reduce) { .ca * { animation: none !important; } }
-      `}</style>
-    </div>
-  );
-}
-
 // ── MAIN PAGE ─────────────────────────────────────────────────────────────────
 export default function VoicePage() {
   const router = useRouter();
+  // Fullscreen (no tab bar), so Back is the only exit: never leave the app.
+  const goBack = useSmartBack("/");
 
   const [voiceState,  setVoiceState]  = useState(S.IDLE);
   const [error,       setError]       = useState("");
-  const [orbSize,     setOrbSize]     = useState(240);
   const [debugOpen,   setDebugOpen]   = useState(false);
   const [debugLogs,   setDebugLogs]   = useState([]);
-  const [messages,    setMessages]    = useState([]); // { role: "user"|"coach", text }
+  const [messages,    setMessages]    = useState([]); // { role: "user"|"coach", text } | { role: "receipt", meal, items, calories, ids, undone }
   const scrollRef = useRef(null);
 
   const pushMessage = useCallback(
@@ -180,14 +108,6 @@ export default function VoicePage() {
     voiceStateRef.current = s;
     orbStateRef.current   = s;
     setVoiceState(s);
-  }, []);
-
-  // ── Responsive orb ────────────────────────────────────────────────────────
-  useEffect(() => {
-    const update = () => setOrbSize(Math.round(Math.min(Math.min(window.innerWidth, window.innerHeight) * 0.44, 190)));
-    update();
-    window.addEventListener("resize", update);
-    return () => window.removeEventListener("resize", update);
   }, []);
 
   // ── Auth ──────────────────────────────────────────────────────────────────
@@ -402,6 +322,12 @@ export default function VoicePage() {
       addDebugLog(`voice-log: intent=${vl.intent} logged=${(vl.logged || []).length} unmatched=${(vl.unmatched || []).length}`);
       if (vl.intent === "log" || vl.intent === "none") {
         const reply = vl.spokenReply || "Okay.";
+        if (vl.intent === "log" && vl.logged?.length) {
+          setMessages((prev) => [
+            ...prev.slice(-12),
+            { role: "receipt", meal: vl.meal, items: vl.logged, calories: vl.totals?.calories ?? 0, ids: vl.ids || [], undone: false },
+          ]);
+        }
         addDebugLog(`voice-log reply ready (${reply.length} chars)`);
         pushMessage("coach", reply);
         await speakResponse(reply);
@@ -446,6 +372,7 @@ export default function VoicePage() {
           accessToken: sessionRef.current.access_token,
           voiceMode: true,
           dayKey: dayKey(),
+          meal: defaultMeal(),
         }),
       });
       if (!res.ok) throw new Error("api error");
@@ -637,202 +564,173 @@ export default function VoicePage() {
     speakResponse("This is a voice output test from your nutrition coach.");
   }, [unlockSpeech, speakResponse]);
 
+  // ── Undo a voice log (exact rows, by id) ──────────────────────────────────
+  const undoReceipt = useCallback(async (index) => {
+    const m = messages[index];
+    if (!m?.ids?.length || !sessionRef.current) return;
+    setMessages((prev) => prev.map((x, i) => (i === index ? { ...x, undone: true } : x)));
+    const { error: delErr } = await supabase.from("food_logs").delete().in("id", m.ids).eq("user_id", sessionRef.current.user.id);
+    if (delErr) {
+      setMessages((prev) => prev.map((x, i) => (i === index ? { ...x, undone: false } : x)));
+      setError("Couldn’t undo that — remove it from Today instead.");
+    }
+  }, [messages]);
+
+  const ask = useCallback((text) => {
+    unlockSpeech();
+    if (voiceStateRef.current !== S.IDLE) return;
+    setError("");
+    sendToAgent(text);
+  }, [sendToAgent, unlockSpeech]);
+
   // ── Display helpers ───────────────────────────────────────────────────────
-  const orbLabel = {
-    idle:      "TAP TO\nSTART",
-    recording: "TAP TO\nSEND",
-    thinking:  "",
-    speaking:  "TAP TO\nSTOP",
-  }[voiceState] ?? "";
-
-  const statusText = {
-    idle:      "Tap the coach and tell me what you ate",
-    recording: "Listening… tap the coach to send",
-    thinking:  "Working on it…",
-    speaking:  "Speaking… tap the coach to stop",
-  }[voiceState];
-
-  const statusBadge = { idle: "Ready", recording: "Recording", thinking: "Thinking", speaking: "Speaking" }[voiceState];
+  const statusBadge = { idle: "Ready", recording: "Listening", thinking: "Thinking", speaking: "Speaking" }[voiceState];
   const micLabel = { idle: "Tap to speak", recording: "Tap to send", thinking: "Working on it…", speaking: "Tap to stop" }[voiceState];
+  const busy = voiceState !== S.IDLE;
 
   return (
     <div className={`vx vx-${voiceState}`}>
-      <div className="vx-bg" aria-hidden />
-
-      {/* HEADER */}
       <header className="vx-header">
-        <button className="vx-back" onPointerDown={() => { endSession(); router.back(); }}>
-          <ArrowLeft size={16} /> Back
-        </button>
-        <div className="vx-badge">
-          <span className="vx-dot" /> {statusBadge}
-        </div>
-        <span style={{ width: 70 }} />
+        <button className="vx-done" onPointerDown={() => { endSession(); goBack(); }}>Done</button>
+        <div className="vx-badge" role="status"><span className="vx-dot" /> {statusBadge}</div>
+        <button className="vx-debug-btn" onPointerDown={() => setDebugOpen((v) => !v)} aria-label="Voice diagnostics">···</button>
       </header>
 
-      {/* STAGE — the coach on a glowing platform */}
-      <div className="vx-stage">
-        <span className="vx-halo" aria-hidden />
-        <span className="vx-halo vx-halo2" aria-hidden />
-        <button
-          className="vx-coach"
-          onPointerDown={voiceState === S.THINKING ? undefined : handleOrbTap}
-          aria-label={orbLabel}
-          style={{ cursor: voiceState === S.THINKING ? "default" : "pointer" }}
-        >
-          <CoachAvatar state={voiceState} size={orbSize} />
-        </button>
-        <span className="vx-platform" aria-hidden />
-        <div className="vx-title">NutriCoach</div>
-        <div className="vx-status">{statusText}</div>
-      </div>
-
-      {/* CONVERSATION */}
       <div className="vx-chat" ref={scrollRef}>
         {messages.length === 0 && !error && (
           <div className="vx-empty">
-            Tell me what you ate, or ask about your day —<br />
-            <b>“I had two rotis and a bowl of dal”</b><br />
-            <b>“how many calories do I have left?”</b>
+            <div className="vx-empty-title">Say what you ate, or ask about your day</div>
+            <div>“I had two rotis and a bowl of dal for lunch”</div>
+            <div>“How much protein is left today?”</div>
           </div>
         )}
-        {messages.map((m, i) => (
-          <div key={i} className={`vx-row ${m.role}`}>
-            <div className={`vx-bubble ${m.role}`}>
-              {m.role === "coach" && <span className="vx-who">NutriCoach</span>}
-              {m.text || (voiceState === S.THINKING && m.role === "coach" ? "…" : "")}
+        {messages.map((m, i) =>
+          m.role === "receipt" ? (
+            <div key={i} className={`vx-receipt${m.undone ? " undone" : ""}`}>
+              <div className="vx-receipt-head">
+                <Check size={16} strokeWidth={2.6} />
+                {m.undone ? `Removed from ${m.meal}` : `Logged to ${m.meal}`}
+              </div>
+              <div className="vx-receipt-items">{m.items.map((it) => `${it.name} × ${it.qty}`).join(" · ")}</div>
+              <div className="vx-receipt-foot">
+                <span>{Math.round(m.calories)} kcal{m.undone ? "" : " · saved"}</span>
+                {!m.undone && m.ids?.length > 0 && <button onPointerDown={() => undoReceipt(i)}>Undo</button>}
+              </div>
             </div>
-          </div>
-        ))}
-        {error && <div className="vx-error">{error}</div>}
+          ) : (
+            <div key={i} className={`vx-row ${m.role}`}>
+              <div className={`vx-bubble ${m.role}`}>
+                {m.role === "user" ? `“${m.text}”` : m.text || (voiceState === S.THINKING ? "…" : "")}
+              </div>
+            </div>
+          ),
+        )}
+        {error && <div className="vx-error" role="alert">{error}</div>}
       </div>
 
-      {/* CONTROLS — primary mic button */}
       <div className="vx-controls">
-        {voiceState !== S.IDLE && (
-          <button className="vx-end" onPointerDown={endSession}>End</button>
+        {!busy && (
+          <div className="vx-suggest">
+            {["How much is left today?", "Ideas for dinner?"].map((q) => (
+              <button key={q} onPointerDown={() => ask(q)}>{q}</button>
+            ))}
+          </div>
         )}
-        <button
-          className="vx-mic"
-          onPointerDown={voiceState === S.THINKING ? undefined : handleOrbTap}
-          disabled={voiceState === S.THINKING}
-          aria-label={micLabel}
-        >
-          <span className="vx-mic-ring" aria-hidden />
-          {voiceState === S.THINKING
-            ? <Loader2 className="vx-spin" size={26} />
-            : voiceState === S.RECORDING || voiceState === S.SPEAKING
-              ? <Square size={22} fill="currentColor" />
-              : <Mic size={26} />}
-        </button>
+        <div className="vx-mic-row">
+          {busy && <button className="vx-end" onPointerDown={endSession}>End</button>}
+          <button
+            className="vx-mic"
+            onPointerDown={voiceState === S.THINKING ? undefined : handleOrbTap}
+            disabled={voiceState === S.THINKING}
+            aria-label={micLabel}
+          >
+            <span className="vx-mic-ring" aria-hidden />
+            {voiceState === S.THINKING
+              ? <Loader2 className="vx-spin" size={28} />
+              : voiceState === S.RECORDING || voiceState === S.SPEAKING
+                ? <Square size={24} fill="currentColor" />
+                : <Mic size={30} />}
+          </button>
+        </div>
         <div className="vx-mic-label">{micLabel}</div>
       </div>
 
-      {/* DEBUG (subtle) */}
-      <button className="vx-debug-btn" onPointerDown={() => setDebugOpen((v) => !v)}>debug</button>
       {debugOpen && (
         <div className="vx-debug">
           <div className="vx-debug-head">
-            <strong>VOICE DEBUG</strong>
+            <strong>Voice diagnostics</strong>
             <div style={{ display: "flex", gap: 8 }}>
-              <button onPointerDown={runTtsDebug}>Test TTS</button>
+              <button onPointerDown={runTtsDebug}>Test voice</button>
               <button onPointerDown={() => setDebugLogs([])}>Clear</button>
             </div>
           </div>
           <div className="vx-debug-body">
-            {debugLogs.length ? debugLogs.map((line, idx) => <div key={idx}>{line}</div>) : <div style={{ color: "#94a3b8" }}>No logs yet. Tap the mic to start.</div>}
+            {debugLogs.length ? debugLogs.map((line, idx) => <div key={idx}>{line}</div>) : <div style={{ color: "var(--text-faint)" }}>No logs yet. Tap the mic to start.</div>}
           </div>
         </div>
       )}
 
       <style>{`
-        .vx { position: relative; height: 100dvh; overflow: hidden; display: flex; flex-direction: column; color: #fff;
-          font-family: system-ui, -apple-system, sans-serif; -webkit-user-select: none; user-select: none;
-          -webkit-tap-highlight-color: transparent; background: #05050b; --c: #6d7cff; }
-        .vx-idle { --c: #6d7cff; } .vx-recording { --c: #fb5f7a; } .vx-thinking { --c: #f5a623; } .vx-speaking { --c: #22d3a5; }
+        .vx { --c: var(--accent); position: relative; height: 100dvh; overflow: hidden; display: flex; flex-direction: column;
+          background: var(--bg); color: var(--text); -webkit-user-select: none; user-select: none; -webkit-tap-highlight-color: transparent;
+          max-width: 640px; margin: 0 auto; }
+        .vx-recording { --c: var(--danger); } .vx-thinking { --c: var(--text-muted); }
 
-        .vx-bg { position: absolute; inset: 0; pointer-events: none; transition: background .7s ease; background:
-          radial-gradient(58% 42% at 50% 30%, color-mix(in srgb, var(--c) 24%, transparent), transparent 72%),
-          radial-gradient(90% 60% at 50% 118%, color-mix(in srgb, var(--c) 13%, transparent), transparent 70%),
-          #06060d; }
-
-        .vx-header { position: relative; z-index: 3; display: flex; align-items: center; justify-content: space-between;
-          padding: max(env(safe-area-inset-top,0px),14px) 18px 6px; flex-shrink: 0; }
-        .vx-back { display: flex; align-items: center; gap: 7px; background: rgba(255,255,255,0.06);
-          border: 1px solid rgba(255,255,255,0.10); color: #d2d2e4; padding: 8px 14px; border-radius: 20px;
-          font-size: 0.82rem; cursor: pointer; transition: background .2s; }
-        .vx-back:hover { background: rgba(255,255,255,0.11); }
-        .vx-badge { display: flex; align-items: center; gap: 8px; padding: 7px 15px;
-          background: color-mix(in srgb, var(--c) 13%, transparent); border: 1px solid color-mix(in srgb, var(--c) 42%, transparent);
-          border-radius: 20px; font-size: 0.78rem; font-weight: 600; color: color-mix(in srgb, var(--c) 70%, #fff);
-          min-width: 108px; justify-content: center; transition: all .4s; }
-        .vx-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--c); box-shadow: 0 0 10px var(--c); }
-        .vx-idle .vx-dot { box-shadow: none; opacity: .65; }
+        .vx-header { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-shrink: 0;
+          padding: calc(12px + env(safe-area-inset-top, 0px)) 16px 8px; }
+        .vx-done { background: none; border: none; color: var(--accent-text); font: inherit; font-size: 16px; font-weight: 600; padding: 8px 4px; cursor: pointer; min-width: 56px; text-align: left; }
+        .vx-badge { display: flex; align-items: center; gap: 8px; padding: 6px 14px; border-radius: 99px; background: var(--surface);
+          border: 1px solid var(--border); font-size: 13px; color: var(--text-muted); }
+        .vx-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--c); }
         .vx:not(.vx-idle) .vx-dot { animation: vx-pulse 1.2s ease-in-out infinite; }
+        .vx-debug-btn { min-width: 56px; text-align: right; background: none; border: none; color: var(--text-faint); font-size: 18px; letter-spacing: 1px; padding: 8px 4px; cursor: pointer; }
 
-        .vx-stage { position: relative; z-index: 1; flex-shrink: 0; display: flex; flex-direction: column; align-items: center; padding: 8px 16px 0; }
-        .vx-halo { position: absolute; top: 4px; width: min(70vw, 300px); height: min(70vw, 300px); border-radius: 50%;
-          background: radial-gradient(circle, color-mix(in srgb, var(--c) 26%, transparent), transparent 60%);
-          filter: blur(12px); animation: vx-halo 4s ease-in-out infinite; }
-        .vx-halo2 { width: min(48vw, 210px); height: min(48vw, 210px); animation-delay: .6s; opacity: .8; }
-        .vx-recording .vx-halo { animation-duration: 1.5s; } .vx-speaking .vx-halo { animation-duration: 2.1s; }
-        .vx-coach { position: relative; z-index: 1; background: none; border: none; padding: 0; touch-action: manipulation; }
-        .vx-platform { margin-top: -8px; width: min(50vw, 220px); height: 24px; border-radius: 50%;
-          background: radial-gradient(circle, color-mix(in srgb, var(--c) 42%, transparent), transparent 68%); filter: blur(6px); opacity: .85; }
-        .vx-title { margin-top: 8px; font-size: 1.1rem; font-weight: 800; letter-spacing: -0.01em;
-          background: linear-gradient(90deg, #ffffff, color-mix(in srgb, var(--c) 65%, #ffffff)); -webkit-background-clip: text; background-clip: text; color: transparent; }
-        .vx-status { margin-top: 3px; font-size: 0.85rem; min-height: 20px; text-align: center; transition: color .3s;
-          color: color-mix(in srgb, var(--c) 55%, #c8c8dc); }
-
-        .vx-chat { position: relative; z-index: 1; flex: 1; min-height: 0; overflow-y: auto; width: 100%; max-width: 560px;
-          margin: 8px auto 0; padding: 8px 18px; display: flex; flex-direction: column; gap: 10px; }
-        .vx-chat::-webkit-scrollbar { width: 5px; } .vx-chat::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.12); border-radius: 4px; }
-        .vx-empty { margin: auto; text-align: center; color: #56566b; font-size: 0.92rem; line-height: 1.9; max-width: 340px; }
-        .vx-empty b { color: color-mix(in srgb, var(--c) 45%, #b7b7cc); font-weight: 600; }
+        .vx-chat { flex: 1; min-height: 0; overflow-y: auto; padding: 12px 20px; display: flex; flex-direction: column; gap: 14px; }
+        .vx-empty { margin: auto 0; display: flex; flex-direction: column; gap: 10px; text-align: center; color: var(--text-muted); font-size: 15px; line-height: 1.5; }
+        .vx-empty-title { font-size: 20px; font-weight: 600; color: var(--text); letter-spacing: -0.2px; margin-bottom: 6px; }
         .vx-row { display: flex; }
-        .vx-row.user { justify-content: flex-end; } .vx-row.coach { justify-content: flex-start; }
-        .vx-bubble { max-width: 82%; padding: 11px 15px; border-radius: 18px; font-size: 0.92rem; line-height: 1.5; animation: vx-in .25s ease; }
-        .vx-bubble.user { background: color-mix(in srgb, var(--c) 22%, transparent); border: 1px solid color-mix(in srgb, var(--c) 42%, transparent);
-          border-bottom-right-radius: 6px; color: #f1f1f9; }
-        .vx-bubble.coach { background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.11); border-bottom-left-radius: 6px; color: #ececf6; }
-        .vx-who { display: block; font-size: 0.55rem; font-weight: 800; letter-spacing: .1em; text-transform: uppercase; color: var(--c); margin-bottom: 3px; opacity: .95; }
-        .vx-error { margin: 4px auto 0; font-size: 0.8rem; color: #fda4af; background: rgba(190,30,50,0.14);
-          border: 1px solid rgba(244,63,94,0.32); padding: 10px 16px; border-radius: 12px; max-width: 340px; text-align: center; }
+        .vx-row.user { justify-content: flex-end; }
+        .vx-bubble { max-width: 86%; font-size: 16px; line-height: 1.5; animation: vx-in .2s ease; }
+        .vx-bubble.user { padding: 10px 14px; border-radius: 18px 18px 6px 18px; background: var(--surface-highlight); color: var(--text); }
+        .vx-bubble.coach { color: var(--text); padding: 2px 0; }
+        .vx-receipt { padding: 14px 16px; border-radius: 16px; background: var(--surface); border: 1px solid var(--border); animation: vx-in .2s ease; }
+        .vx-receipt-head { display: flex; align-items: center; gap: 8px; font-size: 14px; font-weight: 600; color: var(--accent-text); }
+        .vx-receipt.undone .vx-receipt-head { color: var(--text-muted); }
+        .vx-receipt-items { margin-top: 6px; font-size: 15px; }
+        .vx-receipt.undone .vx-receipt-items { text-decoration: line-through; color: var(--text-muted); }
+        .vx-receipt-foot { display: flex; align-items: center; justify-content: space-between; margin-top: 6px; font-size: 13px; color: var(--text-muted); }
+        .vx-receipt-foot button { background: none; border: none; color: var(--accent-text); font: inherit; font-size: 14px; font-weight: 600; padding: 4px 0 4px 12px; cursor: pointer; }
+        .vx-error { font-size: 14px; color: var(--danger); background: var(--danger-soft); padding: 12px 14px; border-radius: 12px; }
 
-        .vx-controls { position: relative; z-index: 3; flex-shrink: 0; display: flex; flex-direction: column; align-items: center; gap: 8px;
-          padding: 8px 16px max(env(safe-area-inset-bottom,0px),20px); }
-        .vx-mic { position: relative; width: 70px; height: 70px; border-radius: 50%; border: none; cursor: pointer; display: grid; place-items: center; color: #fff;
-          background: radial-gradient(circle at 40% 34%, color-mix(in srgb, var(--c) 92%, #fff), var(--c) 72%);
-          box-shadow: 0 14px 36px -6px var(--c), inset 0 -4px 12px rgba(0,0,0,.28), inset 0 3px 10px rgba(255,255,255,.35);
-          transition: transform .12s ease, box-shadow .3s; touch-action: manipulation; }
-        .vx-mic:active { transform: scale(0.93); }
-        .vx-mic:disabled { cursor: default; }
-        .vx-mic-ring { position: absolute; inset: -9px; border-radius: 50%; border: 2px solid color-mix(in srgb, var(--c) 55%, transparent); opacity: 0; }
-        .vx-recording .vx-mic-ring, .vx-speaking .vx-mic-ring { opacity: 1; animation: vx-ring 1.3s ease-out infinite; }
-        .vx-mic-label { font-size: 0.78rem; color: #8686a0; letter-spacing: .01em; }
-        .vx-end { position: absolute; left: 18px; bottom: max(env(safe-area-inset-bottom,0px),20px);
-          background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.10); color: #9a9ab0;
-          padding: 9px 16px; border-radius: 20px; font-size: 0.76rem; cursor: pointer; }
-
+        .vx-controls { flex-shrink: 0; display: flex; flex-direction: column; align-items: center; gap: 12px;
+          padding: 8px 20px calc(20px + env(safe-area-inset-bottom, 0px)); }
+        .vx-suggest { display: flex; gap: 8px; flex-wrap: wrap; justify-content: center; }
+        .vx-suggest button { padding: 8px 14px; border-radius: 99px; border: 1px solid var(--border); background: transparent; color: var(--text-muted);
+          font: inherit; font-size: 14px; cursor: pointer; }
+        .vx-mic-row { position: relative; width: 100%; display: flex; justify-content: center; }
+        .vx-mic { position: relative; width: 80px; height: 80px; border-radius: 50%; border: none; display: grid; place-items: center; cursor: pointer;
+          background: var(--c); color: var(--on-accent); transition: transform .12s ease, background .25s; touch-action: manipulation; }
+        .vx-recording .vx-mic { color: #fff; }
+        .vx-thinking .vx-mic { background: var(--surface-highlight); color: var(--text-muted); cursor: default; }
+        .vx-mic:active { transform: scale(0.94); }
+        .vx-mic-ring { position: absolute; inset: -8px; border-radius: 50%; border: 2px solid var(--c); opacity: 0; }
+        .vx-recording .vx-mic-ring, .vx-speaking .vx-mic-ring { animation: vx-ring 1.4s ease-out infinite; }
+        .vx-mic-label { font-size: 14px; color: var(--text-muted); }
+        .vx-end { position: absolute; left: 0; top: 50%; transform: translateY(-50%); background: none; border: 1px solid var(--border);
+          color: var(--text-muted); padding: 10px 16px; border-radius: 99px; font: inherit; font-size: 14px; cursor: pointer; }
         .vx-spin { animation: vx-spin 0.9s linear infinite; }
 
-        .vx-debug-btn { position: fixed; right: 12px; bottom: max(12px, env(safe-area-inset-bottom,0px)); z-index: 70;
-          background: rgba(255,255,255,0.05); color: #6b6b80; border: 1px solid rgba(255,255,255,0.08); border-radius: 999px;
-          padding: 5px 11px; font-size: 0.66rem; letter-spacing: .06em; text-transform: uppercase; cursor: pointer; }
-        .vx-debug { position: fixed; left: 12px; right: 12px; bottom: max(46px, calc(env(safe-area-inset-bottom,0px) + 42px));
-          max-height: 40dvh; background: rgba(8,10,20,0.97); border: 1px solid rgba(255,255,255,0.14); border-radius: 12px; z-index: 80;
-          display: flex; flex-direction: column; overflow: hidden; box-shadow: 0 18px 40px rgba(0,0,0,0.5); }
-        .vx-debug-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 10px 12px; border-bottom: 1px solid rgba(255,255,255,0.10); }
-        .vx-debug-head strong { font-size: 0.72rem; letter-spacing: .06em; color: #cfcfe0; }
-        .vx-debug-head button { background: rgba(255,255,255,0.08); color: #f1f5f9; border: 1px solid rgba(255,255,255,0.18); border-radius: 8px; padding: 5px 8px; font-size: 0.72rem; cursor: pointer; }
-        .vx-debug-body { overflow-y: auto; padding: 10px 12px 14px; font-family: ui-monospace, Menlo, Monaco, Consolas, monospace; font-size: 0.69rem; color: #e2e8f0; line-height: 1.5; }
+        .vx-debug { position: fixed; left: 12px; right: 12px; top: calc(60px + env(safe-area-inset-top, 0px)); max-height: 40dvh; z-index: 80;
+          background: var(--sheet); border: 1px solid var(--border); border-radius: 14px; display: flex; flex-direction: column; overflow: hidden; }
+        .vx-debug-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 10px 12px; border-bottom: 1px solid var(--border); font-size: 13px; }
+        .vx-debug-head button { background: var(--surface); color: var(--text); border: 1px solid var(--border); border-radius: 8px; padding: 5px 9px; font: inherit; font-size: 12px; cursor: pointer; }
+        .vx-debug-body { overflow-y: auto; padding: 10px 12px 14px; font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 11px; color: var(--text-muted); line-height: 1.5; -webkit-user-select: text; user-select: text; }
 
         @keyframes vx-pulse { 0%,100% { opacity: 1 } 50% { opacity: .35 } }
-        @keyframes vx-halo { 0%,100% { transform: scale(.94); opacity: .7 } 50% { transform: scale(1.06); opacity: 1 } }
-        @keyframes vx-ring { 0% { transform: scale(1); opacity: .7 } 100% { transform: scale(1.55); opacity: 0 } }
+        @keyframes vx-ring { 0% { transform: scale(1); opacity: .6 } 100% { transform: scale(1.45); opacity: 0 } }
         @keyframes vx-in { from { opacity: 0; transform: translateY(6px) } to { opacity: 1; transform: none } }
         @keyframes vx-spin { to { transform: rotate(360deg) } }
-        @media (prefers-reduced-motion: reduce) { .vx *, .vx-bg { animation: none !important; } }
+        @media (prefers-reduced-motion: reduce) { .vx * { animation: none !important; } }
       `}</style>
     </div>
   );

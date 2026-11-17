@@ -1,545 +1,319 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+/**
+ * Insights (Direction A).
+ *
+ *   Monday review (Mon/Tue, dismissible per week)
+ *   The week — average, days within 10% of goal, 7 bars (today dashed,
+ *              "in progress", never graded). Tap a bar for that day.
+ *   Weight + protein tiles · Blood markers · "Ask Coach about this week"
+ *   Details — the existing 30-day trend charts and macro breakdown.
+ *
+ * Fixes vs the old dashboard:
+ *  - Targets include medical conditions (renal protein cap, lipid fat cap…),
+ *    same as Today and Coach. They didn't before, so numbers disagreed.
+ *  - Past-day targets use the goal snapshot's real axes (calorie_adjustment,
+ *    protein_priority), not just its label.
+ *  - No graded "D · Under eating" for an unfinished day; no AI briefing call on
+ *    every visit and no second chat drawer — Coach is the one AI place.
+ */
+
+import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
+import Link from "next/link";
+import { Info, Sparkles, Loader2 } from "lucide-react";
 import { FLATTENED_DB } from "../food-data";
-import { calculateTargets } from "../lib/nutrition";
-import { AlertCircle } from "lucide-react";
 import { supabase } from "../supabase";
+import { calculateTargets } from "../lib/nutrition";
+import { deriveConditions, conditionsFromProfile, mergeConditions } from "../lib/conditions";
+import { dayKey, dayKeyDaysAgo } from "../lib/day";
+import { weekSummary, weightSummary, weeklyReview, mondayOf } from "../lib/insights";
+import { useLocalStorageValue } from "../hooks/useLocalStorageValue";
 import { COLORS } from "../components/dashboard/ui";
 import ResearchModal from "../components/dashboard/ResearchModal";
-import DashboardHeader from "../components/dashboard/DashboardHeader";
-import DailyScoreCard from "../components/dashboard/DailyScoreCard";
-import AiBriefingCard from "../components/dashboard/AiBriefingCard";
-import GoalPaceCard from "../components/dashboard/GoalPaceCard";
 import TrendCharts from "../components/dashboard/TrendCharts";
 import MacroBreakdown from "../components/dashboard/MacroBreakdown";
-import BiomarkerTimeline from "../components/dashboard/BiomarkerTimeline";
-import ChatDrawer from "../components/dashboard/ChatDrawer";
-import { dayKey, dayKeyDaysAgo } from "../lib/day";
+import { WeekCard, WeeklyReview, InsightTiles, MarkersCard } from "../components/insights/InsightsCards";
 
-export default function UserDashboard() {
+export default function Insights() {
   const router = useRouter();
+  const today = dayKey();
   const [loading, setLoading] = useState(true);
   const [profile, setProfile] = useState(null);
+  const [allLogs, setAllLogs] = useState([]);
+  const [days, setDays] = useState([]); // [{ date, cals, protein, …, targetCals, targetP, targetFib }]
+  const [latestReport, setLatestReport] = useState(null);
+  const [conditions, setConditions] = useState([]);
+  const [showResearch, setShowResearch] = useState(false);
 
+  // Details section (existing charts)
+  const [calendarData, setCalendarData] = useState([]);
+  const [trendData, setTrendData] = useState([]);
+  const [trendMetric, setTrendMetric] = useState("calories");
+  const [trendRange, setTrendRange] = useState(7);
+  const [selectedDate, setSelectedDate] = useState(null);
+  const [selectedLogs, setSelectedLogs] = useState([]);
   const [metrics, setMetrics] = useState({
     eaten: 0,
     target: 0,
-    status: "Loading...",
-    statusColor: "#666",
     macros: { p: 0, c: 0, f: 0, fib: 0 },
     targets: { p: 0, c: 0, f: 0, fib: 0 },
     water: { current: 0, target: 0 },
   });
 
-  const [calendarData, setCalendarData] = useState([]);
-  const [trendData, setTrendData] = useState([]);
-  const [trendMetric, setTrendMetric] = useState("calories");
-  const [trendRange, setTrendRange] = useState(7);
-  const [allLogs, setAllLogs] = useState([]);
-  const [selectedDate, setSelectedDate] = useState(null);
-  const [selectedLogs, setSelectedLogs] = useState([]);
-  const [showResearch, setShowResearch] = useState(false);
-  const [briefing, setBriefing] = useState(null);
-  const [briefingLoading, setBriefingLoading] = useState(false);
-  const [briefingTools, setBriefingTools] = useState([]);
-  const [scoreExpanded, setScoreExpanded] = useState(false);
-  
-  // Chat drawer state
-  const [chatOpen, setChatOpen] = useState(false);
-  const [chatMessages, setChatMessages] = useState([]);
-  const [chatInput, setChatInput] = useState("");
-  const [chatLoading, setChatLoading] = useState(false);
-  const chatEndRef = useRef(null);
+  const reviewKey = `nt_week_review_dismissed_${mondayOf(today)}`;
+  const [reviewDismissed, setReviewDismissed] = useLocalStorageValue(reviewKey);
 
-  const fetchBriefing = async (session) => {
-    setBriefingLoading(true);
-    setBriefing("");
-    setBriefingTools([]);
-    try {
-      const res = await fetch("/api/agent", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          // Updated prompt: conversational, smooth paragraph, no lists.
-          message:
-            "You are my personal expert nutritionist. Give me a brief, conversational 2-3 sentence daily briefing based on today's data. Acknowledge a win, gently point out a gap, and suggest a specific, realistic food action for my next meal. Do not use lists, bullet points, or strict formatting—write it as a natural, encouraging paragraph. Use bold text to highlight key numbers or specific food items.",
-          userId: session.user.id,
-          accessToken: session.access_token,
-          skipHistory: true,  // one-shot widget — must not pollute agent page history
-        }),
-      });
-
-      if (!res.ok) throw new Error("Stream failed");
-
-      setBriefingLoading(false); 
-      
-      const reader = res.body.getReader();
-      const decoder = new TextDecoder();
-      let buffer = "";
-      let accumulatedText = "";
-
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        
-        buffer += decoder.decode(value, { stream: true });
-        const lines = buffer.split("\n\n");
-        buffer = lines.pop() ?? "";
-
-        for (const line of lines) {
-          if (!line.startsWith("data: ")) continue;
-          try {
-            const event = JSON.parse(line.slice(6));
-            if (event.type === "tool") {
-              setBriefingTools((prev) => [...prev, event.name]);
-            } else if (event.type === "chunk") {
-              accumulatedText += event.text;
-              setBriefing(accumulatedText);
-            }
-          } catch {}
-        }
+  const targetsFor = (prof, conds, goalHistory) => {
+    const current = calculateTargets(prof, conds);
+    return (dateStr) => {
+      // Today is always the CURRENT profile: the newest goal_history snapshot
+      // can lag behind (onboarding / settings edits don't always write one),
+      // which made Insights show a different goal from Today.
+      if (dateStr >= dayKey()) return current;
+      let snap = null;
+      for (const s of goalHistory || []) {
+        if (s.effective_from <= dateStr) snap = s;
+        else break;
       }
-    } catch {
-      setBriefing("Failed to load briefing. Please try again.");
-    } finally {
-      setBriefingLoading(false);
-    }
+      if (!snap) return current;
+      return calculateTargets(
+        {
+          ...prof,
+          goal: snap.goal ?? prof.goal,
+          activity: snap.activity || prof.activity,
+          target_calories: snap.target_calories,
+          calorie_adjustment: snap.calorie_adjustment ?? prof.calorie_adjustment,
+          protein_priority: snap.protein_priority ?? prof.protein_priority,
+        },
+        conds,
+      );
+    };
   };
 
-  const sendChatMessage = async () => {
-    const text = chatInput.trim();
-    if (!text || chatLoading) return;
-    
-    const { data: { session } } = await supabase.auth.getSession();
-    if (!session) return;
-
-    const userMsg = { role: "user", content: text };
-    const nextHistory = [...chatMessages, userMsg];
-    
-    setChatInput("");
-    setChatLoading(true);
-
-    setChatMessages([
-      ...nextHistory,
-      { role: "model", content: "", toolsUsed: [], streaming: true },
-    ]);
-
-    setTimeout(() => chatEndRef.current?.scrollIntoView({ behavior: "smooth" }), 50);
-
-    try {
-      const res = await fetch("/api/agent", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          message: text,
-          userId: session.user.id,
-          accessToken: session.access_token,
-          skipHistory: true,  // dashboard inline chat — uses its own in-memory state, must not write to chat_sessions
-          history: nextHistory.slice(-10).map((m) => ({ role: m.role, content: m.content })),
-        }),
-      });
-
-      if (!res.ok) {
-        throw new Error("Stream failed");
-      }
-
-      const reader = res.body.getReader();
-      const decoder = new TextDecoder();
-      let buffer = "";
-
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-
-        buffer += decoder.decode(value, { stream: true });
-        const lines = buffer.split("\n\n");
-        buffer = lines.pop() ?? "";
-
-        for (const line of lines) {
-          if (!line.startsWith("data: ")) continue;
-          try {
-            const event = JSON.parse(line.slice(6));
-
-            if (event.type === "tool") {
-              setChatMessages((prev) => {
-                const arr = [...prev];
-                const last = { ...arr[arr.length - 1] };
-                last.toolsUsed = [...(last.toolsUsed || []), event.name];
-                arr[arr.length - 1] = last;
-                return arr;
-              });
-            } else if (event.type === "chunk") {
-              setChatMessages((prev) => {
-                const arr = [...prev];
-                const last = { ...arr[arr.length - 1] };
-                last.content = (last.content || "") + event.text;
-                arr[arr.length - 1] = last;
-                return arr;
-              });
-            } else if (event.type === "done") {
-              setChatMessages((prev) => {
-                const arr = [...prev];
-                const last = { ...arr[arr.length - 1] };
-                last.streaming = false;
-                arr[arr.length - 1] = last;
-                return arr;
-              });
-            }
-          } catch {
-            // malformed SSE skip
-          }
-        }
-        chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
-      }
-    } catch {
-      setChatMessages((prev) => {
-        const arr = [...prev];
-        arr[arr.length - 1] = { role: "model", content: "Connection error. Try again.", streaming: false };
-        return arr;
-      });
-    } finally {
-      setChatLoading(false);
-      setTimeout(() => chatEndRef.current?.scrollIntoView({ behavior: "smooth" }), 100);
-    }
-  };
-
-  const init = async () => {
-   try {
-    const {
-      data: { session },
-    } = await supabase.auth.getSession();
-    if (!session) {
-      router.push("/");
-      return;
-    }
-
-    const today = dayKey();
-    const { data: profileData } = await supabase
-      .from("user_profiles")
-      .select("*")
-      .eq("user_id", session.user.id)
-      .single();
-
-    const startStr = dayKeyDaysAgo(30);
-
-    const { data: logData } = await supabase
-      .from("food_logs")
-      .select("*")
-      .eq("user_id", session.user.id)
-      .gte("date", startStr)
-      .order("created_at", { ascending: true });
-
-    const { data: weightData } = await supabase
-      .from("weight_logs")
-      .select("*")
-      .eq("user_id", session.user.id)
-      .gte("date", startStr)
-      .order("date", { ascending: true });
-
-    const { data: goalHistory } = await supabase
-      .from("goal_history")
-      .select("goal, activity, target_calories, effective_from")
-      .eq("user_id", session.user.id)
-      .order("effective_from", { ascending: true });
-
-    setProfile(profileData);
-    setAllLogs(logData || []);
-
-    const calculatedTargets = processCalendarData(
-      profileData,
-      logData || [],
-      weightData || [],
-      goalHistory || [],
-    );
-    handleDateSelect(today, logData || [], calculatedTargets);
-   } catch (e) {
-     console.error("Dashboard init failed:", e);
-   } finally {
-     setLoading(false);
-   }
-  };
-
-  useEffect(() => {
-    init();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  const handleDateSelect = (dateStr, logsSource, preCalcTargets) => {
-    const logsToFilter = logsSource || allLogs;
-    const dailyLogs = logsToFilter.filter((l) => l.date === dateStr);
+  const selectDate = (dateStr, logsSource, prof, conds) => {
+    const p = prof || profile;
+    const c = conds || conditions;
+    const dailyLogs = (logsSource || allLogs).filter((l) => l.date === dateStr);
     setSelectedDate(dateStr);
     setSelectedLogs(dailyLogs);
-    const eatenCals = Math.round(dailyLogs.reduce(
-      (sum, item) => sum + (item.calories || 0),
-      0,
-    ));
-    const rawMacros = dailyLogs.reduce(
+    const macros = dailyLogs.reduce(
       (acc, item) => {
         let fib = item.fiber || 0;
         if (!fib && item.name && item.name !== "Water") {
-          const dbItem = FLATTENED_DB[item.name.toLowerCase()];
-          if (dbItem?.fiber) fib = Math.round(dbItem.fiber * item.qty);
+          const db = FLATTENED_DB[item.name.toLowerCase()];
+          if (db?.fiber) fib = Math.round(db.fiber * item.qty);
         }
-        return {
-          p: acc.p + (item.protein || 0),
-          c: acc.c + (item.carbs || 0),
-          f: acc.f + (item.fats || 0),
-          fib: acc.fib + fib,
-        };
+        return { p: acc.p + (item.protein || 0), c: acc.c + (item.carbs || 0), f: acc.f + (item.fats || 0), fib: acc.fib + fib };
       },
       { p: 0, c: 0, f: 0, fib: 0 },
     );
-    const macrosEaten = {
-      p: Math.round(rawMacros.p * 10) / 10,
-      c: Math.round(rawMacros.c * 10) / 10,
-      f: Math.round(rawMacros.f * 10) / 10,
-      fib: Math.round(rawMacros.fib * 10) / 10,
-    };
-    const waterConsumed = dailyLogs
-      .filter((i) => i.name === "Water")
-      .reduce((acc, item) => acc + item.qty * 0.25, 0);
-    const targets = preCalcTargets || calculateTargets(profile);
-    let status = "On Track";
-    let statusColor = "#3b82f6";
-    const diff = eatenCals - targets.targetCals;
-    if (Math.abs(diff) < 200) {
-      if (macrosEaten.p >= targets.targetMacros.p * 0.9) {
-        status = "Perfect Zone";
-        statusColor = "#22c55e";
-      } else {
-        status = "Low Protein";
-        statusColor = "#f59e0b";
-      }
-    } else if (diff < -500) {
-      status = "Under Eating";
-      statusColor = "#f59e0b";
-    } else if (diff > 500) {
-      status = "Over Eating";
-      statusColor = "#ef4444";
-    } else {
-      status = diff > 0 ? "Slight Surplus" : "Slight Deficit";
-      statusColor = "#3b82f6";
-    }
+    const t = calculateTargets(p, c);
     setMetrics({
-      eaten: eatenCals,
-      target: targets.targetCals,
-      status,
-      statusColor,
-      macros: macrosEaten,
-      targets: targets.targetMacros,
-      water: { current: waterConsumed, target: targets.waterTarget },
+      eaten: Math.round(dailyLogs.reduce((s, i) => s + (i.calories || 0), 0)),
+      target: t.targetCals,
+      macros: { p: Math.round(macros.p), c: Math.round(macros.c), f: Math.round(macros.f), fib: Math.round(macros.fib) },
+      targets: t.targetMacros,
+      water: { current: dailyLogs.filter((i) => i.name === "Water").reduce((a, i) => a + i.qty * 0.25, 0), target: t.waterTarget },
     });
   };
 
-  const processCalendarData = (prof, logs, weightLogsData = [], goalHistory = []) => {
-    if (!prof) return;
-    const currentTargets = calculateTargets(prof);
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const {
+          data: { session },
+        } = await supabase.auth.getSession();
+        if (!session) {
+          router.push("/");
+          return;
+        }
+        const uid = session.user.id;
+        const startStr = dayKeyDaysAgo(30);
+        const [{ data: prof }, { data: logs }, { data: weights }, { data: goalHistory }, { data: reports }] = await Promise.all([
+          supabase.from("user_profiles").select("*").eq("user_id", uid).maybeSingle(),
+          supabase.from("food_logs").select("*").eq("user_id", uid).gte("date", startStr).order("created_at", { ascending: true }),
+          supabase.from("weight_logs").select("date, weight").eq("user_id", uid).gte("date", startStr).order("date", { ascending: true }),
+          supabase
+            .from("goal_history")
+            .select("goal, activity, target_calories, calorie_adjustment, protein_priority, effective_from")
+            .eq("user_id", uid)
+            .order("effective_from", { ascending: true }),
+          supabase.from("medical_reports").select("flags, report_date, created_at, file_name").eq("user_id", uid).order("created_at", { ascending: false }),
+        ]);
+        if (cancelled) return;
+        if (!prof) {
+          setLoading(false);
+          return;
+        }
 
-    const getTargetsForDate = (dateStr) => {
-      if (!goalHistory || goalHistory.length === 0) return currentTargets;
-      let activeSnapshot = null;
-      for (const snap of goalHistory) {
-        if (snap.effective_from <= dateStr) activeSnapshot = snap;
-        else break;
-      }
-      if (!activeSnapshot) return currentTargets;
-      const snapProfile = {
-        ...prof,
-        goal: activeSnapshot.goal,
-        activity: activeSnapshot.activity || prof.activity,
-        target_calories: activeSnapshot.target_calories,
-      };
-      return calculateTargets(snapProfile);
-    };
+        const conds = mergeConditions(deriveConditions(reports || []), conditionsFromProfile(prof));
+        const target = targetsFor(prof, conds, goalHistory || []);
 
-    const calendarMap = {};
-
-    for (let i = 29; i >= 0; i--) {
-      const dateStr = dayKeyDaysAgo(i); // logical day (4am rollover), matches log dates
-      const d = new Date(`${dateStr}T00:00:00`); // for display formatting only
-      calendarMap[dateStr] = {
-        cals: 0,
-        protein: 0,
-        carbs: 0,
-        fats: 0,
-        fiber: 0,
-        weight: null,
-        dateFormatted: d.toLocaleDateString("en-US", {
-          month: "short",
-          day: "numeric",
-        }),
-      };
-    }
-
-    logs.forEach((l) => {
-      if (calendarMap[l.date]) {
-        let p = l.protein || 0;
-        let c = l.carbs || 0;
-        let f = l.fats || 0;
-        let fib = l.fiber || 0;
-        let cals = l.calories || 0;
-
-        if (l.name && l.name !== "Water" && (!p || !c || !f)) {
-          const dbItem = FLATTENED_DB[l.name.toLowerCase()];
-          if (dbItem) {
-            if (!p) p = Math.round(dbItem.protein * l.qty);
-            if (!c) c = Math.round(dbItem.carbs * l.qty);
-            if (!f) f = Math.round(dbItem.fats * l.qty);
-            if (!fib && dbItem.fiber) fib = Math.round(dbItem.fiber * l.qty);
-            if (!cals) cals = Math.round(dbItem.calories * l.qty);
+        // One entry per logical day, oldest → today.
+        const map = {};
+        for (let i = 29; i >= 0; i--) {
+          const date = dayKeyDaysAgo(i);
+          map[date] = { date, cals: 0, protein: 0, carbs: 0, fats: 0, fiber: 0, weight: null };
+        }
+        (logs || []).forEach((l) => {
+          const d = map[l.date];
+          if (!d) return;
+          let { protein: p = 0, carbs: c = 0, fats: f = 0, fiber: fib = 0, calories: cals = 0 } = l;
+          if (l.name && l.name !== "Water" && (!p || !c || !f)) {
+            const db = FLATTENED_DB[l.name.toLowerCase()];
+            if (db) {
+              p ||= Math.round(db.protein * l.qty);
+              c ||= Math.round(db.carbs * l.qty);
+              f ||= Math.round(db.fats * l.qty);
+              fib ||= Math.round((db.fiber || 0) * l.qty);
+              cals ||= Math.round(db.calories * l.qty);
+            }
           }
-        }
+          d.cals += Number(cals) || 0;
+          d.protein += Number(p) || 0;
+          d.carbs += Number(c) || 0;
+          d.fats += Number(f) || 0;
+          d.fiber += Number(fib) || 0;
+        });
+        (weights || []).forEach((w) => {
+          if (map[w.date]) map[w.date].weight = Number(w.weight);
+        });
 
-        calendarMap[l.date].cals += cals;
-        calendarMap[l.date].protein += p;
-        calendarMap[l.date].carbs += c;
-        calendarMap[l.date].fats += f;
-        calendarMap[l.date].fiber += fib;
+        const dayList = Object.values(map)
+          .sort((a, b) => a.date.localeCompare(b.date))
+          .map((d) => {
+            const t = target(d.date);
+            return { ...d, cals: Math.round(d.cals), targetCals: t.targetCals, targetP: t.targetMacros.p, targetFib: t.targetMacros.fib };
+          });
+
+        setProfile(prof);
+        setConditions(conds);
+        setAllLogs(logs || []);
+        setDays(dayList);
+        setLatestReport((reports || [])[0] || null);
+        setCalendarData(
+          dayList.map((d) => ({
+            date: d.date,
+            cals: d.cals,
+            color: !d.cals ? "var(--track)" : Math.abs(d.cals - d.targetCals) <= d.targetCals * 0.1 ? "var(--accent)" : "var(--accent-muted)",
+          })),
+        );
+        setTrendData(
+          dayList.map((d) => ({
+            date: new Date(`${d.date}T00:00:00`).toLocaleDateString("en-US", { month: "short", day: "numeric" }),
+            rawDate: d.date,
+            // Unlogged days are gaps, not zeros — a 0 would read as "ate nothing".
+            calories: d.cals || null,
+            protein: d.cals ? d.protein : null,
+            carbs: d.cals ? d.carbs : null,
+            fats: d.cals ? d.fats : null,
+            fiber: d.cals ? d.fiber : null,
+            weight: d.weight,
+          })),
+        );
+        selectDate(dayKey(), logs || [], prof, conds);
+      } catch (e) {
+        console.error("Insights load failed:", e);
+      } finally {
+        if (!cancelled) setLoading(false);
       }
-    });
+    })();
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
-    weightLogsData.forEach((w) => {
-      if (calendarMap[w.date]) calendarMap[w.date].weight = Number(w.weight);
-    });
-
-    const calData = Object.keys(calendarMap)
-      .sort()
-      .map((date) => {
-        const day = calendarMap[date];
-        const targets = getTargetsForDate(date);
-        let color = "#27272a";
-        if (day.cals > 0) {
-          const calDiff = Math.abs(day.cals - targets.targetCals);
-          if (calDiff < 300 && day.protein >= targets.targetMacros.p * 0.8)
-            color = "#22c55e";
-          else if (calDiff < 300) color = "#f59e0b";
-          else color = "#ef4444";
-        }
-        return { date, color, cals: day.cals };
-      });
-    setCalendarData(calData);
-
-    const tData = Object.keys(calendarMap)
-      .sort()
-      .map((date) => ({
-        date: calendarMap[date].dateFormatted,
-        rawDate: date,
-        calories: calendarMap[date].cals,
-        protein: calendarMap[date].protein,
-        carbs: calendarMap[date].carbs,
-        fats: calendarMap[date].fats,
-        fiber: calendarMap[date].fiber,
-        weight: calendarMap[date].weight,
-      }));
-    setTrendData(tData);
-
-    return currentTargets;
-  };
+  const summary = useMemo(() => (days.length ? weekSummary(days, today) : null), [days, today]);
+  const weight = useMemo(() => weightSummary(days), [days]);
+  const review = useMemo(() => {
+    const dow = new Date(`${today}T00:00:00Z`).getUTCDay(); // 1 = Monday
+    if (dow !== 1 && dow !== 2) return null; // Monday review shows Mon–Tue
+    return weeklyReview(days, allLogs, today);
+  }, [days, allLogs, today]);
 
   const getCurrentTarget = () => {
-    if (!metrics || !metrics.targets) return 0;
     switch (trendMetric) {
-      case "protein":
-        return metrics.targets.p;
-      case "carbs":
-        return metrics.targets.c;
-      case "fats":
-        return metrics.targets.f;
-      case "fiber":
-        return metrics.targets.fib;
-      case "weight":
-        return profile?.target_weight || null;
-      case "calories":
-      default:
-        return metrics.target;
+      case "protein": return metrics.targets.p;
+      case "carbs": return metrics.targets.c;
+      case "fats": return metrics.targets.f;
+      case "fiber": return metrics.targets.fib;
+      case "weight": return profile?.target_weight || null;
+      default: return metrics.target;
     }
   };
+  const getTrendColor = () =>
+    ({ protein: COLORS.pro, carbs: COLORS.carb, fats: COLORS.fat, fiber: COLORS.fib, weight: COLORS.weight })[trendMetric] || COLORS.cals;
 
-  if (loading)
+  if (loading) {
     return (
-      <div style={{ padding: 20, color: "#666", textAlign: "center" }}>
-        Loading analytics...
+      <div style={{ minHeight: "60dvh", width: "100%", display: "grid", placeItems: "center", color: "var(--text-faint)" }}>
+        <Loader2 className="animate-spin" size={22} />
       </div>
     );
-
-  const getTrendColor = () => {
-    switch (trendMetric) {
-      case "protein":
-        return COLORS.pro;
-      case "carbs":
-        return COLORS.carb;
-      case "fats":
-        return COLORS.fat;
-      case "fiber":
-        return COLORS.fib;
-      case "weight":
-        return COLORS.weight;
-      default:
-        return COLORS.cals;
-    }
-  };
-
-  const visibleTrendData = trendRange === 7 ? trendData.slice(-7) : trendData;
+  }
 
   return (
     <div
-      className="app-wrapper"
-      style={{ maxWidth: 1000, margin: "0 auto", padding: "calc(20px + env(safe-area-inset-top, 0px)) 20px 20px" }}
+      style={{
+        width: "100%",
+        maxWidth: 600,
+        margin: "0 auto",
+        boxSizing: "border-box",
+        padding: "calc(24px + env(safe-area-inset-top, 0px)) 20px calc(110px + env(safe-area-inset-bottom, 0px))",
+        display: "flex",
+        flexDirection: "column",
+        gap: 20,
+        color: "var(--text)",
+      }}
     >
-      {/* Chart-grid, scrollbar and keyframe styles live in globals.css.
-          They cannot be a <style jsx> block here: styled-jsx is component-scoped,
-          and this page's chart/chat markup now lives in components/dashboard/*. */}
+      <ResearchModal showResearch={showResearch} setShowResearch={setShowResearch} />
 
-      <ResearchModal
-        showResearch={showResearch}
-        setShowResearch={setShowResearch}
-      />
-
-      <DashboardHeader
-        chatOpen={chatOpen}
-        setChatOpen={setChatOpen}
-        setShowResearch={setShowResearch}
-      />
+      <header style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+        <h1 style={{ margin: 0, fontSize: 26, fontWeight: 600, letterSpacing: -0.4 }}>Insights</h1>
+        <button
+          onClick={() => setShowResearch(true)}
+          aria-label="How your targets are calculated"
+          title="How your targets are calculated"
+          style={{ width: 38, height: 38, borderRadius: 12, border: "1px solid var(--border)", background: "var(--surface)", color: "var(--text-muted)", display: "grid", placeItems: "center", cursor: "pointer" }}
+        >
+          <Info size={18} />
+        </button>
+      </header>
 
       {!profile ? (
-        <div
-          style={{
-            background: "#27272a",
-            padding: 30,
-            borderRadius: 12,
-            textAlign: "center",
-            color: "#aaa",
-          }}
-        >
-          <AlertCircle size={40} style={{ marginBottom: 10, opacity: 0.5 }} />
-          <p>Please set your Weight & Goal on the main page.</p>
+        <div style={{ padding: 20, borderRadius: 16, background: "var(--surface)", border: "1px solid var(--border)", color: "var(--text-muted)", fontSize: 15, lineHeight: 1.5 }}>
+          Set your weight and goal first — then Insights can show how your week is going.{" "}
+          <Link href="/" style={{ color: "var(--accent-text)", fontWeight: 600 }}>Go to Today</Link>
         </div>
       ) : (
         <>
-          <DailyScoreCard
-            metrics={metrics}
-            calendarData={calendarData}
-            selectedDate={selectedDate}
-            scoreExpanded={scoreExpanded}
-            setScoreExpanded={setScoreExpanded}
+          {review && reviewDismissed === null && <WeeklyReview review={review} onDismiss={() => setReviewDismissed("1")} />}
+
+          {summary && <WeekCard summary={summary} today={today} selectedDate={selectedDate} onSelect={(d) => selectDate(d)} />}
+
+          <InsightTiles
+            weight={weight}
+            profileWeight={profile.weight}
+            avgProtein={summary?.avgProtein || 0}
+            targetP={summary?.targetP || 0}
+            hasLoggedDays={(summary?.loggedDays || 0) > 0}
           />
 
-          <AiBriefingCard
-            briefing={briefing}
-            briefingLoading={briefingLoading}
-            briefingTools={briefingTools}
-            fetchBriefing={fetchBriefing}
-          />
+          <MarkersCard report={latestReport} />
 
-          {/* ROW 2: ANALYSIS & TRENDS */}
-          <GoalPaceCard profile={profile} trendData={trendData} />
+          <Link
+            href="/agent"
+            style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 8, height: 48, borderRadius: 14, border: "1px solid var(--border)", color: "var(--text)", textDecoration: "none", fontSize: 14, fontWeight: 600 }}
+          >
+            <Sparkles size={17} color="var(--accent-text)" /> Ask Coach about this week
+          </Link>
 
-          <div style={{ marginBottom: 20 }}>
-            <BiomarkerTimeline />
-          </div>
-
+          <h2 style={{ margin: "12px 0 -6px", fontSize: 13, fontWeight: 600, color: "var(--text-muted)", textTransform: "uppercase", letterSpacing: 0.8 }}>
+            Details
+          </h2>
           <TrendCharts
             calendarData={calendarData}
             metrics={metrics}
@@ -548,30 +322,14 @@ export default function UserDashboard() {
             setTrendMetric={setTrendMetric}
             trendRange={trendRange}
             setTrendRange={setTrendRange}
-            visibleTrendData={visibleTrendData}
+            visibleTrendData={trendRange === 7 ? trendData.slice(-7) : trendData}
             getTrendColor={getTrendColor}
             getCurrentTarget={getCurrentTarget}
-            handleDateSelect={handleDateSelect}
+            handleDateSelect={(d) => selectDate(d)}
           />
-
-          <MacroBreakdown
-            metrics={metrics}
-            selectedDate={selectedDate}
-            selectedLogs={selectedLogs}
-          />
+          <MacroBreakdown metrics={metrics} selectedDate={selectedDate} selectedLogs={selectedLogs} />
         </>
       )}
-
-      <ChatDrawer
-        chatOpen={chatOpen}
-        setChatOpen={setChatOpen}
-        chatMessages={chatMessages}
-        chatInput={chatInput}
-        setChatInput={setChatInput}
-        chatLoading={chatLoading}
-        sendChatMessage={sendChatMessage}
-        chatEndRef={chatEndRef}
-      />
     </div>
   );
 }

@@ -1,37 +1,30 @@
 "use client";
 
-import { Trophy, X } from "lucide-react";
+import Sheet from "../Sheet";
 
-const RulesModal = ({ showGlobalRules, setShowGlobalRules }) =>
-  !showGlobalRules ? null : (
-    <div className="modal-overlay" style={{ zIndex: 9999 }}>
-      <div className="modal-content">
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 18 }}>
-          <h3 style={{ margin: 0, display: "flex", alignItems: "center", gap: 7, fontSize: "0.95rem" }}>
-            <Trophy size={16} color="#f59e0b" /> Scoring System
-          </h3>
-          <button onClick={() => setShowGlobalRules(false)} style={{ background: "none", border: "none", color: "#555", cursor: "pointer" }}>
-            <X size={20} />
-          </button>
-        </div>
-        <div style={{ background: "rgba(245,158,11,0.08)", border: "1px solid rgba(245,158,11,0.2)", borderRadius: 10, padding: "10px 14px", marginBottom: 14 }}>
-          <div style={{ fontSize: "0.65rem", color: "#888", marginBottom: 2 }}>Max Possible</div>
-          <div style={{ fontSize: "1.5rem", fontWeight: 900, color: "#f59e0b" }}>135 pts</div>
-        </div>
-        {[
-          { label: "Base Score (max 100)", color: "#3b82f6", items: ["Average % across all 6 daily goals, each capped at 100%"] },
-          { label: "Bonuses (+35 max)", color: "#22c55e", items: ["+15 pts — Hit 90%+ Protein", "+10 pts — Hit 90%+ Fiber", "+10 pts — Hit 90%+ Water"] },
-          { label: "Penalties (unlimited)", color: "#ef4444", items: ["−5 per 10% over Calories", "−5 per 10% over Fats", "−3 per 10% over Carbs"] },
-        ].map(({ label, color, items }) => (
-          <div key={label} style={{ marginBottom: 12 }}>
-            <div style={{ fontWeight: 700, color, fontSize: "0.78rem", marginBottom: 5 }}>{label}</div>
-            {items.map((item) => (
-              <div key={item} style={{ fontSize: "0.73rem", color: "#bbb", marginBottom: 2, paddingLeft: 8, borderLeft: `2px solid ${color}55` }}>{item}</div>
+const GROUPS = [
+  { label: "Base · up to 100", tone: "var(--text)", items: ["Average of your 6 daily goals (calories, protein, carbs, fat, fibre, water), each capped at 100%"] },
+  { label: "Bonuses · up to +35", tone: "var(--accent-text)", items: ["+15 for 90% of your protein", "+10 for 90% of your fibre", "+10 for 90% of your water"] },
+  { label: "Penalties", tone: "var(--warn)", items: ["−5 for every 10% over calories", "−5 for every 10% over fat", "−3 for every 10% over carbs"] },
+];
+
+export default function RulesModal({ showGlobalRules, setShowGlobalRules }) {
+  if (!showGlobalRules) return null;
+  return (
+    <Sheet title="How points work" subtitle="Scores reset every day · best possible 135" onClose={() => setShowGlobalRules(false)}>
+      <div style={{ display: "flex", flexDirection: "column", gap: 18 }}>
+        {GROUPS.map((g) => (
+          <div key={g.label}>
+            <div style={{ fontSize: 14, fontWeight: 600, color: g.tone, marginBottom: 6 }}>{g.label}</div>
+            {g.items.map((it) => (
+              <div key={it} style={{ fontSize: 14, lineHeight: 1.5, color: "var(--text-muted)", padding: "3px 0" }}>{it}</div>
             ))}
           </div>
         ))}
+        <p style={{ margin: 0, fontSize: 13, color: "var(--text-faint)", lineHeight: 1.5 }}>
+          Everyone is scored against their own targets, so a small eater and a big eater compete fairly.
+        </p>
       </div>
-    </div>
+    </Sheet>
   );
-
-export default RulesModal;
+}

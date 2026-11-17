@@ -1,7 +1,15 @@
 import "./globals.css";
+import { Inter } from "next/font/google";
 import BottomNav from "./components/BottomNav";
 import Telemetry from "./components/Telemetry";
 import SwCleanup from "./components/SwCleanup";
+import NavTracker from "./components/NavTracker";
+import ThemeSync from "./components/ThemeSync";
+import { THEME_BOOT_SCRIPT } from "./lib/theme";
+
+// Direction A typeface. Self-hosted by next/font at build time (no runtime
+// request to Google); exposed as --font-inter for globals.css.
+const inter = Inter({ subsets: ["latin"], variable: "--font-inter", display: "swap" });
 
 export const metadata = {
   title: "NutriTrack",
@@ -16,7 +24,11 @@ export const metadata = {
 
 // ✅ Move themeColor and viewport settings here
 export const viewport = {
-  themeColor: "#000000",
+  // --bg per theme; ThemeSync overrides when the user picks one explicitly.
+  themeColor: [
+    { media: "(prefers-color-scheme: light)", color: "#F7F7F5" },
+    { media: "(prefers-color-scheme: dark)", color: "#0E0F11" },
+  ],
   width: "device-width",
   initialScale: 1,
   maximumScale: 1,
@@ -31,9 +43,15 @@ export const viewport = {
 
 export default function RootLayout({ children }) {
   return (
-    <html lang="en">
+    // data-theme is set by the boot script before paint, so React's value differs.
+    <html lang="en" className={inter.variable} suppressHydrationWarning>
+      <head>
+        <script dangerouslySetInnerHTML={{ __html: THEME_BOOT_SCRIPT }} />
+      </head>
       <body>
+        <ThemeSync />
         <SwCleanup />
+        <NavTracker />
         {children}
         <BottomNav />
         <Telemetry />

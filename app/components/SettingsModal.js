@@ -1,8 +1,52 @@
 "use client";
 
-import { Target, X, Shield, Calculator, AlertTriangle } from "lucide-react";
+/**
+ * Profile & goals (Direction A) — one sheet, two tabs:
+ *   Profile & goals: body stats, activity, goal presets, fine-tuning
+ *                    (calorie adjustment, protein priority, exact target),
+ *                    diet & health, medical caps/conflicts, live daily target.
+ *   Account:         username and password.
+ * Same props as before, so Today and Me use it unchanged.
+ */
+
+import { AlertTriangle, Info } from "lucide-react";
 import { calculateTargets, GOAL_PRESETS } from "../lib/nutrition";
 import HealthProfileFields from "./HealthProfileFields";
+import Sheet, { sheetInput, sheetLabel, primaryBtn } from "./Sheet";
+
+const ACTIVITY = [
+  { id: "sedentary", label: "Desk" },
+  { id: "light", label: "Light" },
+  { id: "moderate", label: "Moderate" },
+  { id: "active", label: "Active" },
+];
+const PRIORITY = [
+  { id: "preserve", label: "Preserve", hint: "2.0 g/kg · keep muscle in a deficit" },
+  { id: "balanced", label: "Balanced", hint: "1.8 g/kg · standard for most goals" },
+  { id: "maximize", label: "Maximize", hint: "2.4 g/kg · building or recomposition" },
+];
+const fmt = (n) => Math.round(n || 0).toLocaleString("en-IN");
+
+function Segmented({ options, value, onChange, label }) {
+  return (
+    <div role="radiogroup" aria-label={label} style={{ display: "grid", gridTemplateColumns: `repeat(${options.length}, minmax(0, 1fr))`, padding: 3, borderRadius: 12, background: "var(--surface)", border: "1px solid var(--border)" }}>
+      {options.map((o) => (
+        <button
+          key={o.id}
+          role="radio"
+          aria-checked={value === o.id}
+          onClick={() => onChange(o.id)}
+          style={{ height: 34, border: "none", borderRadius: 9, background: value === o.id ? "var(--surface-highlight)" : "none", color: value === o.id ? "var(--text)" : "var(--text-muted)", fontFamily: "inherit", fontSize: 13, fontWeight: value === o.id ? 600 : 400, cursor: "pointer" }}
+        >
+          {o.label}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+const section = { display: "flex", flexDirection: "column", gap: 8 };
+const sectionTitle = { fontSize: 13, color: "var(--text-muted)" };
 
 export default function SettingsModal({
   conditions = [],
@@ -18,898 +62,178 @@ export default function SettingsModal({
   handleUpdatePassword,
   saveGoal,
 }) {
+  const p = userProfile || {};
+  const set = (patch) => setUserProfile({ ...p, ...patch });
+  const preview = calculateTargets(p, conditions);
+  const { conflicts = [], adjustments = [] } = preview.medical || {};
+  const adj = p.calorie_adjustment ?? 0;
+  const onAccount = settingsTab === "security";
+
+  const num = (key, label, unit) => (
+    <label style={{ ...sheetLabel, fontSize: 12, gap: 4 }}>
+      {label}
+      <div style={{ position: "relative" }}>
+        <input
+          inputMode="decimal"
+          value={p[key] ?? ""}
+          onChange={(e) => set({ [key]: e.target.value })}
+          aria-label={`${label}${unit ? ` in ${unit}` : ""}`}
+          style={{ ...sheetInput, height: 44, paddingRight: unit ? 34 : 14 }}
+        />
+        {unit && <span style={{ position: "absolute", right: 12, top: 13, fontSize: 12, color: "var(--text-faint)" }}>{unit}</span>}
+      </div>
+    </label>
+  );
+
   return (
-        <div
-          className="modal-overlay"
-          style={{ alignItems: "flex-end", paddingBottom: 62 }}
-          onClick={(e) => {
-            if (e.target === e.currentTarget) setIsSettingGoal(false);
-          }}
-        >
-          <div
-            style={{
-              background: "var(--surface)",
-              border: "1px solid var(--border)",
-              borderRadius: "20px 20px 0 0",
-              width: "100%",
-              maxWidth: 480,
-              maxHeight: "calc(90dvh - 62px)",
-              display: "flex",
-              flexDirection: "column",
-              boxShadow: "0 -10px 40px rgba(0,0,0,0.5)",
-              margin: "0 auto",
-            }}
-          >
-            {/* ── Drag handle ─────────────────────────────────────── */}
-            <div
-              style={{
-                display: "flex",
-                justifyContent: "center",
-                padding: "10px 0 4px",
-              }}
-            >
-              <div
-                style={{
-                  width: 36,
-                  height: 4,
-                  borderRadius: 2,
-                  background: "#333",
-                }}
-              />
+    <Sheet
+      title={onAccount ? "Account" : "Profile & goals"}
+      onClose={() => setIsSettingGoal(false)}
+      tall
+      footer={
+        onAccount ? (
+          <button onClick={handleUpdatePassword} style={{ ...primaryBtn, flex: 1 }}>Save account</button>
+        ) : (
+          <div style={{ flex: 1, display: "flex", flexDirection: "column", gap: 10 }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: 8 }}>
+              <span style={{ fontSize: 13, color: "var(--text-muted)" }}>Daily target</span>
+              <span style={{ fontSize: 15, fontWeight: 600, textAlign: "right" }}>
+                {fmt(preview.cals)} kcal · P {fmt(preview.p)} · C {fmt(preview.c)} · F {fmt(preview.f)}
+              </span>
+            </div>
+            {conflicts[0] && <div style={{ fontSize: 12, color: "var(--warn)" }}>{conflicts[0].title}</div>}
+            <button onClick={saveGoal} style={primaryBtn}>Save</button>
+          </div>
+        )
+      }
+    >
+      <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
+        <div role="tablist" style={{ display: "grid", gridTemplateColumns: "repeat(2, minmax(0, 1fr))", padding: 3, borderRadius: 12, background: "var(--surface)", border: "1px solid var(--border)" }}>
+          {[
+            ["profile", "Profile & goals"],
+            ["security", "Account"],
+          ].map(([id, label]) => {
+            const active = (id === "security") === onAccount;
+            return (
+              <button key={id} role="tab" aria-selected={active} onClick={() => setSettingsTab(id)} style={{ height: 34, border: "none", borderRadius: 9, background: active ? "var(--surface-highlight)" : "none", color: active ? "var(--text)" : "var(--text-muted)", fontFamily: "inherit", fontSize: 14, fontWeight: active ? 600 : 400, cursor: "pointer" }}>
+                {label}
+              </button>
+            );
+          })}
+        </div>
+
+        {onAccount ? (
+          <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+            <label style={sheetLabel}>
+              Username
+              <input value={username || ""} onChange={(e) => setUsername(e.target.value)} placeholder="Shown to friends on Social" autoComplete="username" style={sheetInput} />
+            </label>
+            <label style={sheetLabel}>
+              New password
+              <input type="password" value={newPassword || ""} onChange={(e) => setNewPassword(e.target.value)} placeholder="Leave empty to keep your current one" autoComplete="new-password" style={sheetInput} />
+            </label>
+            <p style={{ margin: 0, fontSize: 12, color: "var(--text-faint)", lineHeight: 1.5 }}>A password lets you sign in without an email code.</p>
+          </div>
+        ) : (
+          <>
+            <div style={section}>
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(3, minmax(0, 1fr))", gap: 8 }}>
+                {num("weight", "Weight", "kg")}
+                {num("height", "Height", "cm")}
+                {num("age", "Age")}
+              </div>
+              <Segmented label="Sex" options={[{ id: "male", label: "Male" }, { id: "female", label: "Female" }]} value={p.gender} onChange={(g) => set({ gender: g })} />
             </div>
 
-            {/* ── Header ──────────────────────────────────────────── */}
-            <div
-              style={{
-                display: "flex",
-                justifyContent: "space-between",
-                alignItems: "center",
-                padding: "4px 20px 12px",
-                borderBottom: "1px solid var(--border)",
-                flexShrink: 0,
-              }}
-            >
-              <h3
-                style={{
-                  margin: 0,
-                  fontSize: "1.1rem",
-                  display: "flex",
-                  alignItems: "center",
-                  gap: 8,
-                }}
-              >
-                <Target size={18} color="#f59e0b" /> Settings
-              </h3>
-              <button
-                onClick={() => setIsSettingGoal(false)}
-                style={{
-                  background: "none",
-                  border: "none",
-                  color: "#666",
-                  cursor: "pointer",
-                }}
-              >
-                <X size={20} />
-              </button>
+            <div style={section}>
+              <div style={sectionTitle}>Activity</div>
+              <Segmented label="Activity" options={ACTIVITY} value={p.activity} onChange={(a) => set({ activity: a })} />
             </div>
 
-            {/* ── Tab switcher ────────────────────────────────────── */}
-            <div
-              style={{
-                display: "flex",
-                background: "#1f1f22",
-                padding: 4,
-                borderRadius: 8,
-                margin: "12px 16px 0",
-                flexShrink: 0,
-              }}
-            >
-              <button
-                onClick={() => setSettingsTab("profile")}
-                style={{
-                  flex: 1,
-                  padding: 8,
-                  background:
-                    settingsTab === "profile" ? "#333" : "transparent",
-                  border: "none",
-                  color: "#fff",
-                  borderRadius: 6,
-                  cursor: "pointer",
-                  fontSize: "0.85rem",
-                }}
-              >
-                Profile
-              </button>
-              <button
-                onClick={() => setSettingsTab("security")}
-                style={{
-                  flex: 1,
-                  padding: 8,
-                  background:
-                    settingsTab === "security" ? "#333" : "transparent",
-                  border: "none",
-                  color: "#fff",
-                  borderRadius: 6,
-                  cursor: "pointer",
-                  fontSize: "0.85rem",
-                }}
-              >
-                Security
-              </button>
-            </div>
-
-            {/* ── Scrollable body ─────────────────────────────────── */}
-            <div
-              style={{ overflowY: "auto", flex: 1, padding: "12px 16px 32px" }}
-            >
-              {settingsTab === "security" ? (
-                <div
-                  style={{ display: "flex", flexDirection: "column", gap: 20 }}
-                >
-                  <div
-                    style={{
-                      background: "#1f1f22",
-                      padding: 16,
-                      borderRadius: 12,
-                      border: "1px solid #333",
-                      textAlign: "center",
-                    }}
-                  >
-                    <Shield
-                      size={32}
-                      color="#3b82f6"
-                      style={{ marginBottom: 10 }}
-                    />
-                    <h4 style={{ margin: "0 0 10px 0" }}>Account Details</h4>
-                    <p
-                      style={{
-                        color: "#888",
-                        fontSize: "0.85rem",
-                        marginBottom: 15,
-                      }}
-                    >
-                      Update your public username or login password.
-                    </p>
-
-                    <input
-                      type="text"
-                      placeholder="Username"
-                      value={username}
-                      onChange={(e) => setUsername(e.target.value)}
-                      style={{
-                        width: "100%",
-                        padding: 12,
-                        background: "#000",
-                        border: "1px solid #444",
-                        color: "#fff",
-                        borderRadius: 8,
-                        marginBottom: 10,
-                      }}
-                    />
-
-                    <input
-                      type="password"
-                      placeholder="New Password (optional)"
-                      value={newPassword}
-                      onChange={(e) => setNewPassword(e.target.value)}
-                      style={{
-                        width: "100%",
-                        padding: 12,
-                        background: "#000",
-                        border: "1px solid #444",
-                        color: "#fff",
-                        borderRadius: 8,
-                        marginBottom: 10,
-                      }}
-                    />
+            <div style={section}>
+              <div style={sectionTitle}>Goal</div>
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+                {GOAL_PRESETS.map((g) => {
+                  const on = p.goal === g.id;
+                  return (
                     <button
-                      onClick={handleUpdatePassword}
-                      style={{
-                        width: "100%",
-                        padding: 12,
-                        background: "var(--brand)",
-                        border: "none",
-                        borderRadius: 8,
-                        color: "#fff",
-                        fontWeight: 600,
-                        cursor: "pointer",
-                      }}
+                      key={g.id}
+                      aria-pressed={on}
+                      title={g.desc}
+                      onClick={() => set({ goal: g.id, calorie_adjustment: g.calorie_adjustment, protein_priority: g.protein_priority })}
+                      style={{ padding: "8px 14px", borderRadius: 99, border: on ? "1.5px solid var(--accent)" : "1px solid var(--border)", background: on ? "var(--accent-soft)" : "transparent", color: "var(--text)", fontFamily: "inherit", fontSize: 14, fontWeight: on ? 600 : 400, cursor: "pointer" }}
                     >
-                      Update Account
+                      {g.label}
                     </button>
-                  </div>
-                </div>
-              ) : (
-                <div
-                  style={{ display: "flex", flexDirection: "column", gap: 12 }}
-                >
-                  <div
-                    style={{
-                      background: "#1f1f22",
-                      padding: 12,
-                      borderRadius: 12,
-                      border: "1px solid #333",
-                    }}
-                  >
-                    <label
-                      style={{
-                        fontSize: "0.85rem",
-                        color: "#f59e0b",
-                        fontWeight: 600,
-                        marginBottom: 8,
-                        display: "block",
-                      }}
-                    >
-                      🎯 Manual Calorie Target
-                    </label>
-                    <input
-                      type="number"
-                      placeholder="e.g. 2200"
-                      value={userProfile.target_calories || ""}
-                      onChange={(e) =>
-                        setUserProfile({
-                          ...userProfile,
-                          target_calories: e.target.value,
-                        })
-                      }
-                      style={{
-                        width: "100%",
-                        padding: 12,
-                        background: "#000",
-                        border: "1px solid #444",
-                        color: "#fff",
-                        borderRadius: 8,
-                        fontSize: "1rem",
-                        fontWeight: 600,
-                      }}
-                    />
-                  </div>
-                  <div
-                    style={{ opacity: userProfile.target_calories ? 0.5 : 1 }}
-                  >
-                    <div
-                      style={{
-                        display: "flex",
-                        alignItems: "center",
-                        gap: 6,
-                        marginBottom: 8,
-                      }}
-                    >
-                      <Calculator size={14} color="#3b82f6" />
-                      <span style={{ fontSize: "0.82rem", fontWeight: 600 }}>
-                        Auto-Calculate
-                      </span>
-                    </div>
-                    <div
-                      style={{
-                        display: "grid",
-                        gridTemplateColumns: "1fr 1fr",
-                        gap: 8,
-                        marginBottom: 8,
-                      }}
-                    >
-                      <div>
-                        <label
-                          style={{
-                            fontSize: "0.7rem",
-                            color: "#888",
-                            marginBottom: 3,
-                            display: "block",
-                          }}
-                        >
-                          Weight (kg)
-                        </label>
-                        <input
-                          type="number"
-                          value={userProfile.weight}
-                          onChange={(e) =>
-                            setUserProfile({
-                              ...userProfile,
-                              weight: e.target.value,
-                            })
-                          }
-                          style={{
-                            width: "100%",
-                            padding: 8,
-                            background: "#000",
-                            border: "1px solid #333",
-                            color: "#fff",
-                            borderRadius: 8,
-                          }}
-                        />
-                      </div>
-                      <div>
-                        <label
-                          style={{
-                            fontSize: "0.7rem",
-                            color: "#888",
-                            marginBottom: 3,
-                            display: "block",
-                          }}
-                        >
-                          Height (cm)
-                        </label>
-                        <input
-                          type="number"
-                          value={userProfile.height}
-                          onChange={(e) =>
-                            setUserProfile({
-                              ...userProfile,
-                              height: e.target.value,
-                            })
-                          }
-                          style={{
-                            width: "100%",
-                            padding: 8,
-                            background: "#000",
-                            border: "1px solid #333",
-                            color: "#fff",
-                            borderRadius: 8,
-                          }}
-                        />
-                      </div>
-                    </div>
-                    <div
-                      style={{
-                        display: "grid",
-                        gridTemplateColumns: "1fr 1.5fr",
-                        gap: 8,
-                        marginBottom: 8,
-                      }}
-                    >
-                      <div>
-                        <label
-                          style={{
-                            fontSize: "0.7rem",
-                            color: "#888",
-                            marginBottom: 3,
-                            display: "block",
-                          }}
-                        >
-                          Age
-                        </label>
-                        <input
-                          type="number"
-                          value={userProfile.age}
-                          onChange={(e) =>
-                            setUserProfile({
-                              ...userProfile,
-                              age: e.target.value,
-                            })
-                          }
-                          style={{
-                            width: "100%",
-                            padding: 8,
-                            background: "#000",
-                            border: "1px solid #333",
-                            color: "#fff",
-                            borderRadius: 8,
-                          }}
-                        />
-                      </div>
-                      <div>
-                        <label
-                          style={{
-                            fontSize: "0.7rem",
-                            color: "#888",
-                            marginBottom: 4,
-                            display: "block",
-                          }}
-                        >
-                          Gender
-                        </label>
-                        <div
-                          style={{
-                            display: "flex",
-                            height: 42,
-                            background: "#000",
-                            borderRadius: 8,
-                            border: "1px solid #333",
-                            overflow: "hidden",
-                          }}
-                        >
-                          {["male", "female"].map((g) => (
-                            <button
-                              key={g}
-                              onClick={() =>
-                                setUserProfile({ ...userProfile, gender: g })
-                              }
-                              style={{
-                                flex: 1,
-                                background:
-                                  userProfile.gender === g
-                                    ? "#333"
-                                    : "transparent",
-                                border: "none",
-                                color:
-                                  userProfile.gender === g ? "#fff" : "#666",
-                                textTransform: "capitalize",
-                                fontSize: "0.85rem",
-                                cursor: "pointer",
-                                fontWeight:
-                                  userProfile.gender === g ? 600 : 400,
-                              }}
-                            >
-                              {g}
-                            </button>
-                          ))}
-                        </div>
-                      </div>
-                    </div>
-                    <div style={{ marginBottom: 8 }}>
-                      <label
-                        style={{
-                          fontSize: "0.7rem",
-                          color: "#888",
-                          marginBottom: 3,
-                          display: "block",
-                        }}
-                      >
-                        Activity Level
-                      </label>
-                      <select
-                        value={userProfile.activity}
-                        onChange={(e) =>
-                          setUserProfile({
-                            ...userProfile,
-                            activity: e.target.value,
-                          })
-                        }
-                        style={{
-                          width: "100%",
-                          padding: 8,
-                          background: "#000",
-                          border: "1px solid #333",
-                          color: "#fff",
-                          borderRadius: 8,
-                          cursor: "pointer",
-                          fontSize: "0.82rem",
-                        }}
-                      >
-                        <option value="sedentary">
-                          Sedentary (Office Job)
-                        </option>
-                        <option value="light">Light Exercise (1-3 days)</option>
-                        <option value="moderate">
-                          Moderate Exercise (3-5 days)
-                        </option>
-                        <option value="active">Active (6-7 days)</option>
-                      </select>
-                    </div>
-                    <div>
-                      <label
-                        style={{
-                          fontSize: "0.75rem",
-                          color: "#888",
-                          marginBottom: 4,
-                          display: "block",
-                        }}
-                      >
-                        Goal Preset
-                      </label>
-                      <div
-                        style={{
-                          display: "grid",
-                          gridTemplateColumns: "1fr 1fr",
-                          gap: 8,
-                        }}
-                      >
-                        {GOAL_PRESETS.map((g) => (
-                          <button
-                            key={g.id}
-                            onClick={() =>
-                              setUserProfile({
-                                ...userProfile,
-                                goal: g.id,
-                                calorie_adjustment: g.calorie_adjustment,
-                                protein_priority: g.protein_priority,
-                              })
-                            }
-                            style={{
-                              padding: "10px 12px",
-                              background:
-                                userProfile.goal === g.id
-                                  ? g.color + "22"
-                                  : "#000",
-                              border:
-                                userProfile.goal === g.id
-                                  ? `2px solid ${g.color}`
-                                  : "1px solid #333",
-                              borderRadius: 10,
-                              color:
-                                userProfile.goal === g.id ? g.color : "#aaa",
-                              textAlign: "left",
-                              cursor: "pointer",
-                              transition: "all 0.15s",
-                            }}
-                          >
-                            <div
-                              style={{ fontWeight: 700, fontSize: "0.82rem" }}
-                            >
-                              {g.label}
-                            </div>
-                            <div
-                              style={{
-                                fontSize: "0.68rem",
-                                opacity: 0.75,
-                                marginTop: 2,
-                              }}
-                            >
-                              {g.desc}
-                            </div>
-                          </button>
-                        ))}
-                      </div>
-                    </div>
-
-                    {/* ── Health profile (self-reported → drives targets) ── */}
-                    <div
-                      style={{
-                        borderTop: "1px solid #27272a",
-                        paddingTop: 14,
-                        marginTop: 2,
-                      }}
-                    >
-                      <HealthProfileFields
-                        profile={userProfile}
-                        onChange={setUserProfile}
-                      />
-                    </div>
-
-                    {/* ── Medical conflicts & adjustments ──────────────────
-                        Shown immediately under the goal picker, because this is
-                        exactly where a goal can contradict the user's blood
-                        work (e.g. muscle-gain protein with flagged kidney
-                        markers). Wording stays observational — it cites the
-                        marker and defers to their doctor, never diagnoses. */}
-                    {(() => {
-                      const { conflicts, adjustments } = calculateTargets(
-                        userProfile,
-                        conditions,
-                      ).medical;
-                      if (!conflicts.length && !adjustments.length) return null;
-
-                      return (
-                        <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-                          {conflicts.map((c) => (
-                            <div
-                              key={c.title}
-                              style={{
-                                background: "rgba(239,68,68,0.08)",
-                                border: "1px solid rgba(239,68,68,0.3)",
-                                borderRadius: 10,
-                                padding: "10px 12px",
-                              }}
-                            >
-                              <div
-                                style={{
-                                  display: "flex",
-                                  alignItems: "center",
-                                  gap: 6,
-                                  fontWeight: 700,
-                                  fontSize: "0.8rem",
-                                  color: "#ef4444",
-                                  marginBottom: 3,
-                                }}
-                              >
-                                <AlertTriangle size={13} /> {c.title}
-                              </div>
-                              <div style={{ fontSize: "0.75rem", color: "#a1a1aa", lineHeight: 1.55 }}>
-                                {c.detail}
-                              </div>
-                            </div>
-                          ))}
-
-                          {adjustments.map((a) => (
-                            <div
-                              key={a.title}
-                              style={{
-                                background: "rgba(59,130,246,0.07)",
-                                border: "1px solid rgba(59,130,246,0.25)",
-                                borderRadius: 10,
-                                padding: "9px 12px",
-                                fontSize: "0.75rem",
-                                color: "#93c5fd",
-                                lineHeight: 1.5,
-                              }}
-                            >
-                              <strong style={{ color: "#bfdbfe" }}>{a.title}.</strong>{" "}
-                              {a.detail}
-                            </div>
-                          ))}
-
-                          <div style={{ fontSize: "0.68rem", color: "#52525b", lineHeight: 1.5 }}>
-                            Based on markers flagged on your uploaded reports. This
-                            is not a diagnosis — your doctor&apos;s advice takes
-                            precedence.
-                          </div>
-                        </div>
-                      );
-                    })()}
-
-                    {/* ── Fine-tune dials ─────────────────────────────────── */}
-                    <div>
-                      <label
-                        style={{
-                          fontSize: "0.75rem",
-                          color: "#888",
-                          marginBottom: 4,
-                          display: "block",
-                        }}
-                      >
-                        Calorie Adjustment from TDEE
-                      </label>
-                      <div
-                        style={{
-                          display: "flex",
-                          alignItems: "center",
-                          gap: 10,
-                        }}
-                      >
-                        <input
-                          type="range"
-                          min="-700"
-                          max="500"
-                          step="50"
-                          value={userProfile.calorie_adjustment ?? 0}
-                          onChange={(e) =>
-                            setUserProfile({
-                              ...userProfile,
-                              calorie_adjustment: Number(e.target.value),
-                              goal: "custom",
-                            })
-                          }
-                          style={{ flex: 1, accentColor: "var(--brand)" }}
-                        />
-                        <span
-                          style={{
-                            minWidth: 56,
-                            textAlign: "right",
-                            fontWeight: 700,
-                            fontSize: "0.82rem",
-                            color:
-                              (userProfile.calorie_adjustment ?? 0) < 0
-                                ? "#ef4444"
-                                : (userProfile.calorie_adjustment ?? 0) > 0
-                                  ? "#3b82f6"
-                                  : "#22c55e",
-                          }}
-                        >
-                          {(userProfile.calorie_adjustment ?? 0) > 0 ? "+" : ""}
-                          {userProfile.calorie_adjustment ?? 0} kcal
-                        </span>
-                      </div>
-                      <div
-                        style={{
-                          display: "flex",
-                          justifyContent: "space-between",
-                          fontSize: "0.65rem",
-                          color: "#555",
-                          marginTop: 2,
-                        }}
-                      >
-                        <span>Aggressive cut</span>
-                        <span>TDEE</span>
-                        <span>Bulk</span>
-                      </div>
-                    </div>
-
-                    <div>
-                      <label
-                        style={{
-                          fontSize: "0.75rem",
-                          color: "#888",
-                          marginBottom: 6,
-                          display: "block",
-                        }}
-                      >
-                        Protein Priority
-                      </label>
-                      <div
-                        style={{
-                          display: "grid",
-                          gridTemplateColumns: "1fr 1fr 1fr",
-                          gap: 6,
-                        }}
-                      >
-                        {[
-                          {
-                            id: "preserve",
-                            label: "Preserve",
-                            sub: "2.0g/kg",
-                            tip: "Deep deficit — protect muscle",
-                          },
-                          {
-                            id: "balanced",
-                            label: "Balanced",
-                            sub: "1.8g/kg",
-                            tip: "Standard for most goals",
-                          },
-                          {
-                            id: "maximize",
-                            label: "Maximize",
-                            sub: "2.4g/kg",
-                            tip: "Recomp / aggressive build",
-                          },
-                        ].map((p) => (
-                          <button
-                            key={p.id}
-                            onClick={() =>
-                              setUserProfile({
-                                ...userProfile,
-                                protein_priority: p.id,
-                                goal:
-                                  userProfile.goal === "custom"
-                                    ? "custom"
-                                    : userProfile.goal,
-                              })
-                            }
-                            title={p.tip}
-                            style={{
-                              padding: "8px 6px",
-                              background:
-                                userProfile.protein_priority === p.id
-                                  ? "#6366f122"
-                                  : "#000",
-                              border:
-                                userProfile.protein_priority === p.id
-                                  ? "2px solid #6366f1"
-                                  : "1px solid #333",
-                              borderRadius: 8,
-                              color:
-                                userProfile.protein_priority === p.id
-                                  ? "#6366f1"
-                                  : "#aaa",
-                              cursor: "pointer",
-                              textAlign: "center",
-                            }}
-                          >
-                            <div
-                              style={{ fontWeight: 700, fontSize: "0.78rem" }}
-                            >
-                              {p.label}
-                            </div>
-                            <div
-                              style={{
-                                fontSize: "0.65rem",
-                                opacity: 0.7,
-                                marginTop: 1,
-                              }}
-                            >
-                              {p.sub}
-                            </div>
-                          </button>
-                        ))}
-                      </div>
-                    </div>
-
-                    {/* ── Live target preview ─────────────────────────────── */}
-                    {(() => {
-                      const preview = calculateTargets(userProfile, conditions);
-                      return (
-                        <div
-                          style={{
-                            background: "#0a0a0a",
-                            border: "1px solid #27272a",
-                            borderRadius: 10,
-                            padding: "10px 14px",
-                          }}
-                        >
-                          <div
-                            style={{
-                              fontSize: "0.7rem",
-                              color: "#52525b",
-                              marginBottom: 6,
-                              fontWeight: 600,
-                              letterSpacing: "0.05em",
-                              textTransform: "uppercase",
-                            }}
-                          >
-                            Target Preview
-                          </div>
-                          <div
-                            style={{
-                              display: "grid",
-                              gridTemplateColumns: "repeat(5, 1fr)",
-                              gap: 4,
-                              textAlign: "center",
-                            }}
-                          >
-                            {[
-                              {
-                                label: "Cals",
-                                val: preview.cals,
-                                unit: "",
-                                color: "#f59e0b",
-                              },
-                              {
-                                label: "Protein",
-                                val: preview.p,
-                                unit: "g",
-                                color: "#6366f1",
-                              },
-                              {
-                                label: "Carbs",
-                                val: preview.c,
-                                unit: "g",
-                                color: "#22c55e",
-                              },
-                              {
-                                label: "Fat",
-                                val: preview.f,
-                                unit: "g",
-                                color: "#f97316",
-                              },
-                              {
-                                label: "Fiber",
-                                val: preview.fib,
-                                unit: "g",
-                                color: "#8b5cf6",
-                              },
-                            ].map((m) => (
-                              <div key={m.label}>
-                                <div
-                                  style={{
-                                    fontWeight: 800,
-                                    fontSize: "0.88rem",
-                                    color: m.color,
-                                  }}
-                                >
-                                  {m.val}
-                                  {m.unit}
-                                </div>
-                                <div
-                                  style={{
-                                    fontSize: "0.6rem",
-                                    color: "#52525b",
-                                    marginTop: 1,
-                                  }}
-                                >
-                                  {m.label}
-                                </div>
-                              </div>
-                            ))}
-                          </div>
-                        </div>
-                      );
-                    })()}
-                  </div>
-                </div>
-              )}
+                  );
+                })}
+                {p.goal === "custom" && (
+                  <span style={{ padding: "8px 14px", borderRadius: 99, border: "1.5px solid var(--accent)", background: "var(--accent-soft)", fontSize: 14, fontWeight: 600 }}>Custom</span>
+                )}
+              </div>
             </div>
-            {/* end scrollable body */}
 
-            {/* ── Pinned save button ───────────────────────────────── */}
-            {settingsTab === "profile" && (
-              <div
-                style={{
-                  padding: "12px 16px",
-                  paddingBottom:
-                    "calc(24px + env(safe-area-inset-bottom, 0px))",
-                  flexShrink: 0,
-                  borderTop: "1px solid var(--border)",
-                }}
-              >
-                <button
-                  onClick={saveGoal}
-                  style={{
-                    width: "100%",
-                    padding: 14,
-                    background: "var(--brand)",
-                    border: "none",
-                    color: "#fff",
-                    borderRadius: 10,
-                    fontWeight: 700,
-                    cursor: "pointer",
-                    fontSize: "0.95rem",
-                  }}
-                >
-                  Save Profile
-                </button>
+            <div style={section}>
+              <div style={{ display: "flex", justifyContent: "space-between", fontSize: 13 }}>
+                <span style={{ color: "var(--text-muted)" }}>Calorie adjustment</span>
+                <span style={{ fontWeight: 600 }}>{adj > 0 ? "+" : ""}{adj} kcal</span>
+              </div>
+              <input
+                type="range"
+                min="-700"
+                max="500"
+                step="50"
+                value={adj}
+                onChange={(e) => set({ calorie_adjustment: Number(e.target.value), goal: "custom" })}
+                aria-label="Calorie adjustment from maintenance"
+                style={{ width: "100%", accentColor: "var(--accent)" }}
+              />
+              <div style={{ display: "flex", justifyContent: "space-between", fontSize: 11, color: "var(--text-faint)" }}>
+                <span>−700 · lose</span><span>maintain</span><span>+500 · gain</span>
+              </div>
+            </div>
+
+            <div style={section}>
+              <div style={sectionTitle}>Protein priority</div>
+              <Segmented label="Protein priority" options={PRIORITY} value={p.protein_priority || "balanced"} onChange={(id) => set({ protein_priority: id })} />
+              <div style={{ fontSize: 12, color: "var(--text-faint)" }}>{PRIORITY.find((x) => x.id === (p.protein_priority || "balanced"))?.hint}</div>
+            </div>
+
+            <label style={sheetLabel}>
+              Exact daily target (optional)
+              <input
+                inputMode="numeric"
+                value={p.target_calories || ""}
+                onChange={(e) => set({ target_calories: e.target.value })}
+                placeholder="Leave empty to calculate from your goal"
+                style={sheetInput}
+              />
+            </label>
+
+            <div style={section}>
+              <div style={sectionTitle}>Diet &amp; health</div>
+              <HealthProfileFields profile={p} onChange={setUserProfile} />
+            </div>
+
+            {(conflicts.length > 0 || adjustments.length > 0) && (
+              <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                {conflicts.map((c) => (
+                  <div key={c.title} style={{ display: "flex", gap: 10, padding: 12, borderRadius: 12, background: "var(--warn-soft)", fontSize: 13, lineHeight: 1.5 }}>
+                    <AlertTriangle size={16} color="var(--warn)" style={{ flexShrink: 0, marginTop: 2 }} />
+                    <span><strong style={{ color: "var(--warn)" }}>{c.title}.</strong> {c.detail}</span>
+                  </div>
+                ))}
+                {adjustments.map((a) => (
+                  <div key={a.title} style={{ display: "flex", gap: 10, padding: 12, borderRadius: 12, background: "var(--surface)", border: "1px solid var(--border)", fontSize: 13, lineHeight: 1.5, color: "var(--text-muted)" }}>
+                    <Info size={16} color="var(--accent-text)" style={{ flexShrink: 0, marginTop: 2 }} />
+                    <span><strong style={{ color: "var(--text)" }}>{a.title}.</strong> {a.detail}</span>
+                  </div>
+                ))}
               </div>
             )}
-          </div>
-          {/* end bottom sheet */}
-        </div>
+          </>
+        )}
+      </div>
+    </Sheet>
   );
 }

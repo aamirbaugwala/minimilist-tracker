@@ -1,208 +1,122 @@
 "use client";
 
-import { useState, useEffect } from "react";
 import { usePathname, useRouter } from "next/navigation";
-import Link from "next/link";
 import { useAuth } from "../hooks/useAuth";
 
+/**
+ * Bottom tab bar: Today · Insights · Coach · Social · Me.
+ *
+ * Every screen in the app belongs to exactly one tab (see `routes`), so the
+ * right tab stays lit on nested screens. The most specific match wins:
+ * /medical/trends is analysis (Insights) while /medical is your vault (Me).
+ * The old "More" drawer is gone — Recipes live under Coach, and Medical,
+ * Reminders and Log out live under Me.
+ */
+
 // Lucide icons inlined as SVG to avoid a heavy import in the layout
-const HomeIcon = () => (
-  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-    <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" /><polyline points="9 22 9 12 15 12 15 22" />
+const svg = (children) => (
+  <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+    {children}
   </svg>
 );
-const DashIcon = () => (
-  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-    <rect x="3" y="3" width="7" height="7" /><rect x="14" y="3" width="7" height="7" /><rect x="14" y="14" width="7" height="7" /><rect x="3" y="14" width="7" height="7" />
-  </svg>
-);
-const SparkIcon = () => (
-  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-    <path d="M12 3l1.88 5.76a1 1 0 0 0 .95.69H21l-4.94 3.57a1 1 0 0 0-.36 1.12L17.56 21 12 17.27 6.44 21l1.86-6.86a1 1 0 0 0-.36-1.12L3 9.45h6.17a1 1 0 0 0 .95-.69Z" />
-  </svg>
-);
-const UsersIcon = () => (
-  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-    <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" /><circle cx="9" cy="7" r="4" /><path d="M23 21v-2a4 4 0 0 0-3-3.87" /><path d="M16 3.13a4 4 0 0 1 0 7.75" />
-  </svg>
-);
-const ChefIcon = () => (
-  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-    <path d="M6 13.87A4 4 0 0 1 7.41 6a5.11 5.11 0 0 1 1.05-1.54 5 5 0 0 1 7.08 0A5.11 5.11 0 0 1 16.59 6 4 4 0 0 1 18 13.87V21H6Z" /><line x1="6" y1="17" x2="18" y2="17" />
-  </svg>
-);
-const ShieldIcon = () => (
-  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-    <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" /><polyline points="9 12 11 14 15 10" />
-  </svg>
-);
-const LogOutIcon = () => (
-  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-    <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" /><polyline points="16 17 21 12 16 7" /><line x1="21" y1="12" x2="9" y2="12" />
-  </svg>
-);
-const BellIcon = () => (
-  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-    <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9" /><path d="M13.73 21a2 2 0 0 1-3.46 0" />
-  </svg>
-);
+const TodayIcon = () => svg(<><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" /><polyline points="9 22 9 12 15 12 15 22" /></>);
+const InsightsIcon = () => svg(<><line x1="18" y1="20" x2="18" y2="10" /><line x1="12" y1="20" x2="12" y2="4" /><line x1="6" y1="20" x2="6" y2="14" /></>);
+const CoachIcon = () => svg(<path d="M12 3l1.88 5.76a1 1 0 0 0 .95.69H21l-4.94 3.57a1 1 0 0 0-.36 1.12L17.56 21 12 17.27 6.44 21l1.86-6.86a1 1 0 0 0-.36-1.12L3 9.45h6.17a1 1 0 0 0 .95-.69Z" />);
+const SocialIcon = () => svg(<><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" /><circle cx="9" cy="7" r="4" /><path d="M23 21v-2a4 4 0 0 0-3-3.87" /><path d="M16 3.13a4 4 0 0 1 0 7.75" /></>);
+const MeIcon = () => svg(<><circle cx="12" cy="8" r="4" /><path d="M4 21v-1a6 6 0 0 1 6-6h4a6 6 0 0 1 6 6v1" /></>);
+
+const TABS = [
+  { label: "Today",    icon: <TodayIcon />, href: "/",          routes: ["/"] },
+  { label: "Insights", icon: <InsightsIcon />, href: "/dashboard", routes: ["/dashboard", "/medical/trends"] },
+  { label: "Coach",    icon: <CoachIcon />, href: "/agent",     routes: ["/agent", "/recipes"] },
+  { label: "Social",   icon: <SocialIcon />, href: "/social",    routes: ["/social"] },
+  { label: "Me",       icon: <MeIcon />,    href: "/me",        routes: ["/me", "/medical", "/notifications"] },
+];
+
+// Screens that own the full viewport: /voice is fullscreen, /admin is a
+// desktop-style portal with its own navigation.
+const FULLSCREEN_ROUTES = ["/voice", "/admin"];
+
+function matchLength(pathname, route) {
+  if (pathname === route) return route.length;
+  if (route !== "/" && pathname.startsWith(route + "/")) return route.length;
+  return -1;
+}
+
+/** The tab whose most specific route matches the current path. */
+function activeTabFor(pathname) {
+  let best = null;
+  let bestLen = -1;
+  for (const tab of TABS) {
+    for (const r of tab.routes) {
+      const len = matchLength(pathname, r);
+      if (len > bestLen) {
+        best = tab;
+        bestLen = len;
+      }
+    }
+  }
+  return best;
+}
 
 export default function BottomNav() {
   const pathname = usePathname();
   const router = useRouter();
-  const [showMore, setShowMore] = useState(false);
+  // Shared app-wide auth (a second Supabase client here would fight over the
+  // stored session). Show the nav only when logged in.
+  const { session } = useAuth();
 
-  // Auth state comes from the shared app-wide Supabase client via useAuth.
-  // This component previously called createClient() itself, which put a second
-  // GoTrueClient in the same tab — two clients competing over the same stored
-  // session and token refresh. Show the nav only when logged in.
-  const { session, signOut } = useAuth();
-  const hasSession = !!session;
+  if (!session || FULLSCREEN_ROUTES.includes(pathname)) return null;
 
-  // Close the drawer whenever the route changes
-  useEffect(() => {
-    const timer = setTimeout(() => setShowMore(false), 0);
-    return () => clearTimeout(timer);
-  }, [pathname]);
-
-  // Hide when not authenticated, and on screens that own the full viewport:
-  // /voice is fullscreen, /admin is a desktop-style portal with its own
-  // navigation where the app tab bar is just clutter.
-  const FULLSCREEN_ROUTES = ["/voice", "/admin"];
-  if (!hasSession || FULLSCREEN_ROUTES.includes(pathname)) return null;
-
-  const moreRoutes = ["/recipes", "/medical"];
-  const isMoreActive = moreRoutes.includes(pathname);
-
-  const tabs = [
-    { label: "Home",      icon: <HomeIcon />,  color: "#f59e0b", href: "/"          },
-    { label: "Dashboard", icon: <DashIcon />,  color: "#6366f1", href: "/dashboard" },
-    { label: "AI Coach",  icon: <SparkIcon />, color: "#8b5cf6", href: "/agent"     },
-    { label: "Social",    icon: <UsersIcon />, color: "#3b82f6", href: "/social"    },
-    { label: "More",      icon: <span style={{ fontSize: 22, lineHeight: 1 }}>⋯</span>, color: "#71717a", href: null },
-  ];
-
-  const moreItems = [
-    { label: "Recipe Studio",   icon: <ChefIcon />,   color: "#f59e0b", href: "/recipes"       },
-    { label: "Medical Reports", icon: <ShieldIcon />, color: "#10b981", href: "/medical"       },
-    { label: "Reminders",       icon: <BellIcon />,   color: "#6366f1", href: "/notifications" },
-  ];
+  const active = activeTabFor(pathname);
 
   return (
-    <>
-      {/* ── BOTTOM TAB BAR ──────────────────────────────────────────── */}
-      <nav style={{
+    <nav
+      aria-label="Main"
+      className="app-nav"
+      style={{
         position: "fixed", bottom: 0, left: "50%", transform: "translateX(-50%)",
         width: "100%", maxWidth: 600, zIndex: 100,
-        background: "rgba(9,9,11,0.92)", backdropFilter: "blur(16px)",
-        borderTop: "1px solid #27272a",
+        background: "var(--bg)",
+        borderTop: "1px solid var(--border)",
         display: "flex", alignItems: "stretch",
         paddingBottom: "env(safe-area-inset-bottom, 0px)",
-      }}>
-        {tabs.map(({ label, icon, color, href }) => {
-          const isMore = label === "More";
-          const isActive = !isMore && href && pathname === href;
-          const moreHighlight = isMore && (showMore || isMoreActive);
-          const activeColor = isMore ? "#e879f9" : color; // purple for More
-
-          return (
-            <button
-              key={label}
-              onClick={() => {
-                if (isMore) { setShowMore((v) => !v); return; }
-                setShowMore(false);
-                router.push(href);
-              }}
-              style={{
-                flex: 1, display: "flex", flexDirection: "column",
-                alignItems: "center", justifyContent: "center",
-                gap: 3, padding: "10px 4px",
-                background: "transparent", border: "none", cursor: "pointer",
-                color: (isActive || moreHighlight) ? activeColor : "#71717a",
-                transition: "color 0.15s",
-              }}
-            >
-              <span style={{ color: (isActive || moreHighlight) ? activeColor : "#71717a" }}>
-                {icon}
-              </span>
-              <span style={{
-                fontSize: "0.62rem", fontWeight: (isActive || moreHighlight) ? 700 : 500,
-                letterSpacing: 0.2,
-                color: (isActive || moreHighlight) ? activeColor : "#71717a",
-              }}>
-                {label}
-              </span>
-            </button>
-          );
-        })}
-      </nav>
-
-      {/* ── MORE DRAWER ─────────────────────────────────────────────── */}
-      {showMore && (
-        <>
-          {/* backdrop */}
-          <div
-            onClick={() => setShowMore(false)}
-            style={{
-              position: "fixed", inset: 0, zIndex: 98,
-              background: "rgba(0,0,0,0.55)", backdropFilter: "blur(3px)",
+      }}
+    >
+      {/* Desktop sidebar only (hidden on phones via CSS) */}
+      <div className="app-nav-brand" aria-hidden="true">
+        <span style={{ width: 30, height: 30, borderRadius: 9, background: "var(--accent)", color: "var(--on-accent)", display: "grid", placeItems: "center", fontWeight: 700, fontSize: 15 }}>N</span>
+        NutriTrack
+      </div>
+      {TABS.map((tab) => {
+        const isActive = active === tab;
+        // Direction A: one accent for the active tab, quiet neutrals otherwise.
+        const color = isActive ? "var(--accent-text)" : "var(--text-faint)";
+        return (
+          <button
+            key={tab.label}
+            className="app-nav-tab"
+            aria-current={isActive ? "page" : undefined}
+            onClick={() => {
+              // Re-tapping the active tab from a nested screen returns to the
+              // tab's root (e.g. Recipes → Coach), like native tab bars.
+              if (pathname !== tab.href) router.push(tab.href);
             }}
-          />
-          <div style={{
-            position: "fixed", bottom: "calc(62px + env(safe-area-inset-bottom, 0px))", left: "50%", transform: "translateX(-50%)",
-            width: "calc(100% - 32px)", maxWidth: 568, zIndex: 99,
-            background: "#18181b", borderRadius: 20,
-            border: "1px solid #27272a",
-            padding: 12, display: "flex", flexDirection: "column", gap: 2,
-          }}>
-            <div style={{
-              fontSize: "0.68rem", color: "#52525b", fontWeight: 700,
-              letterSpacing: 1, textTransform: "uppercase",
-              marginBottom: 4, paddingLeft: 4,
-            }}>
-              More
-            </div>
-
-            {moreItems.map(({ label, icon, color, href }) => (
-              <Link key={label} href={href} onClick={() => setShowMore(false)}>
-                <button style={{
-                  width: "100%", display: "flex", alignItems: "center", gap: 12,
-                  padding: "13px 14px", borderRadius: 12,
-                  background: pathname === href ? "#27272a" : "transparent",
-                  border: "none", cursor: "pointer",
-                  color: pathname === href ? "#fff" : "#e4e4e7",
-                  fontSize: "0.9rem", fontWeight: 600, textAlign: "left",
-                }}
-                  onMouseEnter={(e) => e.currentTarget.style.background = "#27272a"}
-                  onMouseLeave={(e) => e.currentTarget.style.background = pathname === href ? "#27272a" : "transparent"}
-                >
-                  <span style={{ color }}>{icon}</span>
-                  {label}
-                </button>
-              </Link>
-            ))}
-
-            <div style={{ height: 1, background: "#27272a", margin: "4px 0" }} />
-
-            <button
-              onClick={async () => {
-                setShowMore(false);
-                await signOut();
-                router.push("/");
-              }}
-              style={{
-                width: "100%", display: "flex", alignItems: "center", gap: 12,
-                padding: "13px 14px", borderRadius: 12,
-                background: "transparent", border: "none", cursor: "pointer",
-                color: "#ef4444", fontSize: "0.9rem", fontWeight: 600, textAlign: "left",
-              }}
-            >
-              <LogOutIcon />
-              Log Out
-            </button>
-          </div>
-        </>
-      )}
-    </>
+            style={{
+              flex: 1, display: "flex", flexDirection: "column",
+              alignItems: "center", justifyContent: "center",
+              gap: 4, padding: "10px 4px 12px",
+              background: "transparent", border: "none", cursor: "pointer",
+              color, transition: "color 0.15s",
+            }}
+          >
+            {tab.icon}
+            <span style={{ fontSize: 11, fontWeight: isActive ? 600 : 500 }}>
+              {tab.label}
+            </span>
+          </button>
+        );
+      })}
+    </nav>
   );
 }

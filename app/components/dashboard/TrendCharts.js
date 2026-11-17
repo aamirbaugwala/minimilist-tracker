@@ -1,20 +1,43 @@
 "use client";
-import {
-  Calendar,
-  Droplets,
-  BarChart2,
-} from "lucide-react";
-import {
-  ResponsiveContainer,
-  Tooltip,
-  LineChart,
-  Line,
-  XAxis,
-  YAxis,
-  CartesianGrid,
-  ReferenceLine,
-} from "recharts";
-const TrendCharts = ({
+
+/**
+ * Insights → Details (Direction A): history trend line, 30-day consistency
+ * calendar (tap a day to see it below) and today's water. Same props as before.
+ */
+
+import { ResponsiveContainer, Tooltip, LineChart, Line, XAxis, YAxis, CartesianGrid, ReferenceLine } from "recharts";
+import { COLORS } from "./ui";
+
+const card = { padding: 20, borderRadius: 20, background: "var(--surface)", border: "1px solid var(--border)" };
+const title = { margin: 0, fontSize: 16, fontWeight: 600 };
+const METRICS = [
+  ["calories", "Calories"],
+  ["protein", "Protein"],
+  ["carbs", "Carbs"],
+  ["fats", "Fat"],
+  ["fiber", "Fibre"],
+  ["weight", "Weight"],
+];
+
+function Segmented({ options, value, onChange, label }) {
+  return (
+    <div role="radiogroup" aria-label={label} style={{ display: "flex", padding: 3, borderRadius: 12, background: "var(--bg)", border: "1px solid var(--border)" }}>
+      {options.map(([id, l]) => (
+        <button
+          key={id}
+          role="radio"
+          aria-checked={value === id}
+          onClick={() => onChange(id)}
+          style={{ padding: "6px 12px", border: "none", borderRadius: 9, background: value === id ? "var(--surface-highlight)" : "none", color: value === id ? "var(--text)" : "var(--text-muted)", fontFamily: "inherit", fontSize: 13, fontWeight: value === id ? 600 : 400, cursor: "pointer" }}
+        >
+          {l}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+export default function TrendCharts({
   calendarData,
   metrics,
   selectedDate,
@@ -26,324 +49,91 @@ const TrendCharts = ({
   getTrendColor,
   getCurrentTarget,
   handleDateSelect,
-}) => (
-          <div className="chart-grid-container">
-            <div
-              className="chart-card trend-card-span"
-              style={{
-                padding: 24,
-                display: "flex",
-                flexDirection: "column",
-                border: "1px solid #27272a",
-                borderRadius: 16,
-                background: "#18181b",
-                minHeight: 350,
-              }}
-            >
-              <div
-                style={{
-                  display: "flex",
-                  justifyContent: "space-between",
-                  alignItems: "center",
-                  marginBottom: 20,
-                  flexWrap: "wrap",
-                  gap: 10,
-                }}
-              >
-                <h3
-                  style={{
-                    fontSize: "1.1rem",
-                    fontWeight: 700,
-                    display: "flex",
-                    alignItems: "center",
-                    gap: 8,
-                  }}
-                >
-                  <BarChart2 size={18} color={getTrendColor()} /> History Trends
-                </h3>
-                <div style={{ display: "flex", gap: 10 }}>
-                  <select
-                    value={trendMetric}
-                    onChange={(e) => setTrendMetric(e.target.value)}
-                    style={{
-                      background: "#000",
-                      color: "#fff",
-                      border: "1px solid #333",
-                      padding: "6px 12px",
-                      borderRadius: 8,
-                      fontSize: "0.85rem",
-                      cursor: "pointer",
-                      textTransform: "capitalize",
-                    }}
-                  >
-                    <option value="calories">Calories</option>
-                    <option value="weight">Weight</option>
-                    <option value="protein">Protein</option>
-                    <option value="carbs">Carbs</option>
-                    <option value="fats">Fats</option>
-                    <option value="fiber">Fiber</option>
-                  </select>
+}) {
+  const unit = trendMetric === "calories" ? " kcal" : trendMetric === "weight" ? " kg" : " g";
+  const target = getCurrentTarget();
+  const color = getTrendColor();
+  const waterPct = Math.round((metrics.water.current / (metrics.water.target || 1)) * 100) || 0;
 
-                  <div
-                    style={{
-                      display: "flex",
-                      background: "#000",
-                      borderRadius: 8,
-                      border: "1px solid #333",
-                      padding: 2,
-                    }}
-                  >
-                    <button
-                      onClick={() => setTrendRange(7)}
-                      style={{
-                        padding: "4px 12px",
-                        fontSize: "0.8rem",
-                        background: trendRange === 7 ? "#333" : "transparent",
-                        color: trendRange === 7 ? "#fff" : "#666",
-                        border: "none",
-                        borderRadius: 6,
-                        cursor: "pointer",
-                        fontWeight: trendRange === 7 ? 600 : 400,
-                      }}
-                    >
-                      7D
-                    </button>
-                    <button
-                      onClick={() => setTrendRange(30)}
-                      style={{
-                        padding: "4px 12px",
-                        fontSize: "0.8rem",
-                        background: trendRange === 30 ? "#333" : "transparent",
-                        color: trendRange === 30 ? "#fff" : "#666",
-                        border: "none",
-                        borderRadius: 6,
-                        cursor: "pointer",
-                        fontWeight: trendRange === 30 ? 600 : 400,
-                      }}
-                    >
-                      30D
-                    </button>
-                  </div>
-                </div>
-              </div>
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+      <section style={card}>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, flexWrap: "wrap" }}>
+          <h3 style={title}>History</h3>
+          <Segmented label="Range" options={[[7, "7 days"], [30, "30 days"]]} value={trendRange} onChange={setTrendRange} />
+        </div>
+        <div className="chip-scroll" role="radiogroup" aria-label="Metric" style={{ display: "flex", gap: 8, overflowX: "auto", margin: "14px -20px 0", padding: "0 20px" }}>
+          {METRICS.map(([id, l]) => {
+            const on = trendMetric === id;
+            return (
+              <button key={id} role="radio" aria-checked={on} onClick={() => setTrendMetric(id)} style={{ flexShrink: 0, padding: "7px 12px", borderRadius: 99, border: on ? "1.5px solid var(--accent)" : "1px solid var(--border)", background: on ? "var(--accent-soft)" : "transparent", color: on ? "var(--text)" : "var(--text-muted)", fontFamily: "inherit", fontSize: 14, fontWeight: on ? 600 : 400, cursor: "pointer" }}>
+                {l}
+              </button>
+            );
+          })}
+        </div>
+        <div style={{ width: "100%", height: 240, marginTop: 16 }}>
+          <ResponsiveContainer width="100%" height="100%" initialDimension={{ width: 320, height: 240 }}>
+            <LineChart data={visibleTrendData} margin={{ top: 10, right: 6, bottom: 0, left: -18 }}>
+              <CartesianGrid stroke={COLORS.grid} vertical={false} />
+              <XAxis dataKey="date" tick={{ fill: COLORS.axis, fontSize: 12 }} axisLine={false} tickLine={false} minTickGap={16} />
+              <YAxis tick={{ fill: COLORS.axis, fontSize: 12 }} axisLine={false} tickLine={false} domain={trendMetric === "weight" ? ["auto", "auto"] : [0, "auto"]} />
+              <Tooltip
+                contentStyle={{ background: "var(--sheet)", border: "1px solid var(--border)", borderRadius: 12, color: "var(--text)", fontSize: 13 }}
+                labelStyle={{ color: "var(--text-muted)" }}
+                itemStyle={{ color: "var(--text)" }}
+                formatter={(v) => [`${v}${unit}`, METRICS.find(([id]) => id === trendMetric)?.[1]]}
+              />
+              {target && <ReferenceLine y={target} stroke={COLORS.axis} strokeDasharray="4 4" label={{ position: "insideTopRight", value: "Goal", fill: COLORS.axis, fontSize: 12 }} />}
+              <Line type="monotone" dataKey={trendMetric} stroke={color} strokeWidth={2.5} connectNulls={trendMetric === "weight"} dot={{ r: 3, fill: "var(--surface)", stroke: color, strokeWidth: 2 }} activeDot={{ r: 5, fill: color }} />
+            </LineChart>
+          </ResponsiveContainer>
+        </div>
+      </section>
 
-              <div style={{ flex: 1, width: "100%", minHeight: 250 }}>
-                <ResponsiveContainer>
-                  <LineChart data={visibleTrendData}>
-                    <CartesianGrid
-                      strokeDasharray="3 3"
-                      stroke="#333"
-                      vertical={false}
-                    />
-                    <XAxis
-                      dataKey="date"
-                      stroke="#666"
-                      tick={{ fill: "#666", fontSize: 12 }}
-                      axisLine={false}
-                      tickLine={false}
-                    />
-                    <YAxis
-                      stroke="#666"
-                      tick={{ fill: "#666", fontSize: 12 }}
-                      axisLine={false}
-                      tickLine={false}
-                      domain={
-                        trendMetric === "weight"
-                          ? ["auto", "auto"]
-                          : [0, "auto"]
-                      }
-                    />
-                    <Tooltip
-                      contentStyle={{
-                        background: "#000",
-                        border: "1px solid #333",
-                        borderRadius: 8,
-                        color: "#fff",
-                      }}
-                      itemStyle={{ color: getTrendColor() }}
-                      formatter={(value) => [
-                        `${value}${
-                          trendMetric === "calories"
-                            ? " kcal"
-                            : trendMetric === "weight"
-                              ? " kg"
-                              : "g"
-                        }`,
-                        trendMetric.charAt(0).toUpperCase() +
-                          trendMetric.slice(1),
-                      ]}
-                      labelStyle={{ color: "#888" }}
-                    />
-                    {getCurrentTarget() && (
-                      <ReferenceLine
-                        y={getCurrentTarget()}
-                        stroke="#ef4444"
-                        strokeDasharray="3 3"
-                        label={{
-                          position: "top",
-                          value: "Goal",
-                          fill: "#ef4444",
-                          fontSize: 12,
-                        }}
-                      />
-                    )}
-                    <Line
-                      type="monotone"
-                      dataKey={trendMetric}
-                      stroke={getTrendColor()}
-                      strokeWidth={3}
-                      connectNulls={true}
-                      dot={{
-                        r: 4,
-                        fill: "#18181b",
-                        stroke: getTrendColor(),
-                        strokeWidth: 2,
-                      }}
-                      activeDot={{ r: 6, fill: getTrendColor() }}
-                    />
-                  </LineChart>
-                </ResponsiveContainer>
-              </div>
-            </div>
+      <section style={card}>
+        <h3 style={title}>Last 30 days</h3>
+        <div style={{ fontSize: 13, color: "var(--text-muted)", marginTop: 4 }}>Tap a day to see what you ate</div>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(7, minmax(0, 1fr))", gap: 6, marginTop: 14 }}>
+          {calendarData.map((day) => {
+            const on = day.date === selectedDate;
+            return (
+              <button
+                key={day.date}
+                onClick={() => handleDateSelect(day.date)}
+                aria-label={`${day.date}: ${day.cals ? `${day.cals} kcal` : "nothing logged"}`}
+                aria-pressed={on}
+                style={{ aspectRatio: "1 / 1", borderRadius: 8, background: day.color, border: on ? "2px solid var(--text)" : "none", padding: 0, cursor: "pointer" }}
+              />
+            );
+          })}
+        </div>
+        <div style={{ display: "flex", gap: 16, flexWrap: "wrap", marginTop: 12, fontSize: 12, color: "var(--text-muted)" }}>
+          {[
+            ["var(--accent)", "On target (±10%)"],
+            ["var(--accent-muted)", "Logged"],
+            ["var(--track)", "Nothing logged"],
+          ].map(([c, l]) => (
+            <span key={l} style={{ display: "flex", alignItems: "center", gap: 6 }}>
+              <span style={{ width: 10, height: 10, borderRadius: 3, background: c }} /> {l}
+            </span>
+          ))}
+        </div>
+      </section>
 
-            <div
-              className="chart-card"
-              style={{
-                padding: 24,
-                display: "flex",
-                flexDirection: "column",
-                border: "1px solid #27272a",
-                borderRadius: 16,
-                background: "#18181b",
-              }}
-            >
-              <h3
-                style={{
-                  fontSize: "1.1rem",
-                  fontWeight: 700,
-                  marginBottom: 15,
-                  display: "flex",
-                  gap: 8,
-                }}
-              >
-                <Calendar size={18} color="#22c55e" /> 30-Day Consistency
-              </h3>
-              <div
-                style={{
-                  display: "grid",
-                  gridTemplateColumns: "repeat(7, 1fr)",
-                  gap: 6,
-                  flex: 1,
-                }}
-              >
-                {calendarData.map((day, i) => (
-                  <div
-                    key={i}
-                    onClick={() => handleDateSelect(day.date)}
-                    style={{
-                      aspectRatio: "1/1",
-                      background: day.color,
-                      borderRadius: 4,
-                      cursor: "pointer",
-                      opacity: day.date === selectedDate ? 1 : 0.4,
-                      border:
-                        day.date === selectedDate
-                          ? "2px solid white"
-                          : "1px solid transparent",
-                      transition: "all 0.2s",
-                    }}
-                    title={`${day.date}: ${day.cals} kcal`}
-                  ></div>
-                ))}
-              </div>
-            </div>
-
-            <div
-              className="chart-card"
-              style={{
-                padding: 24,
-                display: "flex",
-                flexDirection: "column",
-                justifyContent: "center",
-                border: "1px solid #27272a",
-                borderRadius: 16,
-                background: "#18181b",
-              }}
-            >
-              <div
-                style={{
-                  display: "flex",
-                  justifyContent: "space-between",
-                  alignItems: "center",
-                  marginBottom: 20,
-                }}
-              >
-                <h3
-                  style={{
-                    fontSize: "1.1rem",
-                    display: "flex",
-                    alignItems: "center",
-                    gap: 10,
-                    fontWeight: 700,
-                  }}
-                >
-                  <Droplets size={20} color="#3b82f6" /> Hydration
-                </h3>
-                <span
-                  style={{
-                    fontSize: "0.9rem",
-                    color: "#3b82f6",
-                    background: "rgba(59, 130, 246, 0.1)",
-                    padding: "4px 8px",
-                    borderRadius: 6,
-                    fontWeight: 600,
-                  }}
-                >
-                  {Math.round(
-                    (metrics.water.current / metrics.water.target) * 100,
-                  ) || 0}
-                  %
-                </span>
-              </div>
-              <div
-                style={{
-                  display: "flex",
-                  alignItems: "baseline",
-                  gap: 4,
-                  marginBottom: 16,
-                }}
-              >
-                <span
-                  style={{ fontSize: "2.5rem", fontWeight: 800, color: "#fff" }}
-                >
-                  {metrics.water.current}L
-                </span>
-                <span style={{ fontSize: "1.2rem", color: "#666" }}>
-                  / {metrics.water.target}L
-                </span>
-              </div>
-              <div
-                style={{
-                  background: "#27272a",
-                  height: 16,
-                  borderRadius: 8,
-                  overflow: "hidden",
-                  position: "relative",
-                }}
-              >
-                <div
-                  style={{
-                    width: `${Math.min(
-                      100,
-                      (metrics.water.current / metrics.water.target) * 100,
-                    )}%`,
-                    height: "100%",
-                    background: "#3b82f6",
-                    transition: "width 1s ease",
-                  }}
-                ></div>
-              </div>
-            </div>
-          </div>
-);
-export default TrendCharts;
+      <section style={card}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
+          <h3 style={title}>Water</h3>
+          <span style={{ fontSize: 14, color: "var(--text-muted)" }}>{waterPct}%</span>
+        </div>
+        <div style={{ display: "flex", alignItems: "baseline", gap: 6, marginTop: 10 }}>
+          <span style={{ fontSize: 28, fontWeight: 600 }}>{metrics.water.current} L</span>
+          <span style={{ fontSize: 15, color: "var(--text-muted)" }}>of {metrics.water.target} L</span>
+        </div>
+        <div style={{ height: 8, borderRadius: 99, background: "var(--track)", marginTop: 12, overflow: "hidden" }}>
+          <div style={{ width: `${Math.min(100, waterPct)}%`, height: "100%", borderRadius: 99, background: "var(--water)", transition: "width 0.6s ease" }} />
+        </div>
+      </section>
+    </div>
+  );
+}

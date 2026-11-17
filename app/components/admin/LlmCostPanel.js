@@ -31,22 +31,22 @@ function Section({ icon: Icon, title, hint, children }) {
   return (
     <div style={{ ...card, marginBottom: 12 }}>
       <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: hint ? 3 : 11 }}>
-        <Icon size={15} color="#22c55e" />
+        <Icon size={15} color="var(--accent-text)" />
         <span style={{ fontWeight: 700, fontSize: "0.88rem" }}>{title}</span>
       </div>
-      {hint && <div style={{ fontSize: "0.68rem", color: "#3f3f46", marginBottom: 11 }}>{hint}</div>}
+      {hint && <div style={{ fontSize: "0.68rem", color: "var(--text-faint)", marginBottom: 11 }}>{hint}</div>}
       {children}
     </div>
   );
 }
 
 function Table({ head, rows, empty }) {
-  if (!rows.length) return <div style={{ color: "#52525b", fontSize: "0.8rem" }}>{empty}</div>;
+  if (!rows.length) return <div style={{ color: "var(--text-faint)", fontSize: "0.8rem" }}>{empty}</div>;
   return (
     <div style={{ overflowX: "auto", WebkitOverflowScrolling: "touch" }}>
       <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "0.8rem", minWidth: 300 }}>
         <thead>
-          <tr style={{ color: "#52525b" }}>
+          <tr style={{ color: "var(--text-faint)" }}>
             {head.map((h, i) => (
               <th key={h} style={{ textAlign: i === 0 ? "left" : "right", fontWeight: 600, paddingBottom: 6, whiteSpace: "nowrap" }}>
                 {h}
@@ -56,12 +56,12 @@ function Table({ head, rows, empty }) {
         </thead>
         <tbody>
           {rows.map((r, i) => (
-            <tr key={i} style={{ borderTop: "1px solid #1f1f23" }}>
+            <tr key={i} style={{ borderTop: "1px solid var(--surface)" }}>
               {r.map((cell, j) => (
                 <td key={j} style={{
                   padding: "7px 0", paddingLeft: j === 0 ? 0 : 10,
                   textAlign: j === 0 ? "left" : "right",
-                  color: j === 0 ? "#e4e4e7" : "#a1a1aa",
+                  color: j === 0 ? "var(--text)" : "var(--text-muted)",
                   fontWeight: j === 0 ? 600 : 400,
                   maxWidth: j === 0 ? 190 : undefined,
                   overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
@@ -139,8 +139,8 @@ export default function LlmCostPanel() {
   if (loading) {
     return (
       <div style={{ ...card, display: "flex", alignItems: "center", gap: 10 }}>
-        <Loader2 size={16} className="animate-spin" color="#22c55e" />
-        <span style={{ color: "#71717a", fontSize: "0.85rem" }}>Loading spend…</span>
+        <Loader2 size={16} className="animate-spin" color="var(--accent-text)" />
+        <span style={{ color: "var(--text-faint)", fontSize: "0.85rem" }}>Loading spend…</span>
       </div>
     );
   }
@@ -149,27 +149,27 @@ export default function LlmCostPanel() {
     const body =
       problem.kind === "missing" ? (
         <>
-          Run <code style={{ color: "#818cf8" }}>docs/llm-usage.sql</code> in the Supabase
+          Run <code style={{ color: "var(--accent-text)" }}>docs/llm-usage.sql</code> in the Supabase
           SQL editor. Recording starts on the next AI call.
         </>
       ) : problem.kind === "forbidden" ? (
-        <>Your account isn&apos;t in the <code style={{ color: "#818cf8" }}>is_admin()</code> allowlist.</>
+        <>Your account isn&apos;t in the <code style={{ color: "var(--accent-text)" }}>is_admin()</code> allowlist.</>
       ) : (
         <>
-          <code style={{ color: "#818cf8" }}>{problem.fns.join(", ")}</code> failed. Whatever
+          <code style={{ color: "var(--accent-text)" }}>{problem.fns.join(", ")}</code> failed. Whatever
           Postgres reported is shown below — it&apos;s the real cause.
         </>
       );
     return (
       <div style={{ ...card, textAlign: "center", padding: 24 }}>
-        <DollarSign size={26} color="#3f3f46" style={{ marginBottom: 10 }} />
-        <div style={{ fontWeight: 700, color: "#a1a1aa" }}>
+        <DollarSign size={26} color="var(--text-faint)" style={{ marginBottom: 10 }} />
+        <div style={{ fontWeight: 700, color: "var(--text-muted)" }}>
           {problem.kind === "missing" ? "Cost tracking not set up" : "Cost data unavailable"}
         </div>
-        <div style={{ fontSize: "0.8rem", color: "#52525b", marginTop: 6, lineHeight: 1.6, maxWidth: 480, margin: "6px auto 0" }}>
+        <div style={{ fontSize: "0.8rem", color: "var(--text-faint)", marginTop: 6, lineHeight: 1.6, maxWidth: 480, margin: "6px auto 0" }}>
           {body}
           {problem.message && (
-            <div style={{ marginTop: 10, color: "#fca5a5", fontSize: "0.74rem", wordBreak: "break-word" }}>
+            <div style={{ marginTop: 10, color: "var(--danger)", fontSize: "0.74rem", wordBreak: "break-word" }}>
               Postgres said: {problem.message}
             </div>
           )}
@@ -184,7 +184,7 @@ export default function LlmCostPanel() {
   const change = prev > 0 ? Math.round(((cost - prev) / prev) * 100) : null;
   const up = change !== null && change > 0;
   // Rising spend is bad news, so the arrow colours invert versus traffic.
-  const changeColor = change === null ? "#71717a" : up ? "#ef4444" : "#22c55e";
+  const changeColor = change === null ? "var(--text-faint)" : up ? "var(--danger)" : "var(--accent-text)";
   const Arrow = up ? TrendingUp : TrendingDown;
 
   const peak = Math.max(0.000001, ...data.daily.map((d) => Number(d.cost || 0)));
@@ -207,9 +207,9 @@ export default function LlmCostPanel() {
             style={{
               padding: "8px 15px", minHeight: 38, borderRadius: 20, cursor: "pointer",
               fontSize: "0.78rem", fontWeight: 700,
-              border: `1px solid ${days === r ? "#22c55e" : "var(--border)"}`,
-              background: days === r ? "#22c55e20" : "transparent",
-              color: days === r ? "#4ade80" : "#71717a",
+              border: `1px solid ${days === r ? "var(--accent-text)" : "var(--border)"}`,
+              background: days === r ? "var(--accent-soft)" : "transparent",
+              color: days === r ? "var(--accent-text)" : "var(--text-faint)",
             }}
           >
             {r}d
@@ -219,11 +219,11 @@ export default function LlmCostPanel() {
 
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(140px, 1fr))", gap: 10, marginBottom: 12 }}>
         <div style={card}>
-          <div style={{ fontSize: "0.64rem", color: "#52525b", textTransform: "uppercase", letterSpacing: 0.6 }}>
+          <div style={{ fontSize: "0.64rem", color: "var(--text-faint)", textTransform: "uppercase", letterSpacing: 0.6 }}>
             Spend ({days}d)
           </div>
           <div style={{ display: "flex", alignItems: "baseline", gap: 7, marginTop: 4, flexWrap: "wrap" }}>
-            <span style={{ fontSize: "1.45rem", fontWeight: 800, color: "#e4e4e7", lineHeight: 1.1 }}>
+            <span style={{ fontSize: "1.45rem", fontWeight: 800, color: "var(--text)", lineHeight: 1.1 }}>
               {usd(cost, 2)}
             </span>
             {change !== null && (
@@ -233,7 +233,7 @@ export default function LlmCostPanel() {
               </span>
             )}
           </div>
-          <div style={{ fontSize: "0.66rem", color: "#3f3f46", marginTop: 3 }}>
+          <div style={{ fontSize: "0.66rem", color: "var(--text-faint)", marginTop: 3 }}>
             ≈ {usd(monthly, 2)}/month at this rate
           </div>
         </div>
@@ -252,13 +252,13 @@ export default function LlmCostPanel() {
           },
         ].map((m) => (
           <div key={m.label} style={card}>
-            <div style={{ fontSize: "0.64rem", color: "#52525b", textTransform: "uppercase", letterSpacing: 0.6 }}>
+            <div style={{ fontSize: "0.64rem", color: "var(--text-faint)", textTransform: "uppercase", letterSpacing: 0.6 }}>
               {m.label}
             </div>
-            <div style={{ fontSize: "1.45rem", fontWeight: 800, color: "#e4e4e7", marginTop: 4, lineHeight: 1.1 }}>
+            <div style={{ fontSize: "1.45rem", fontWeight: 800, color: "var(--text)", marginTop: 4, lineHeight: 1.1 }}>
               {m.value}
             </div>
-            <div style={{ fontSize: "0.66rem", color: "#3f3f46", marginTop: 3 }}>{m.sub}</div>
+            <div style={{ fontSize: "0.66rem", color: "var(--text-faint)", marginTop: 3 }}>{m.sub}</div>
           </div>
         ))}
       </div>
@@ -266,11 +266,11 @@ export default function LlmCostPanel() {
       {cachedShare > 0 && (
         <div style={{
           ...card, marginBottom: 12, display: "flex", gap: 9, alignItems: "flex-start",
-          background: "#22c55e0d", border: "1px solid #22c55e30",
+          background: "var(--accent-soft)", border: "1px solid var(--border)",
         }}>
-          <Cpu size={14} color="#22c55e" style={{ marginTop: 2, flexShrink: 0 }} />
-          <span style={{ fontSize: "0.79rem", color: "#d4d4d8", lineHeight: 1.6 }}>
-            <strong style={{ color: "#4ade80" }}>{cachedShare}%</strong> of tokens were served
+          <Cpu size={14} color="var(--accent-text)" style={{ marginTop: 2, flexShrink: 0 }} />
+          <span style={{ fontSize: "0.79rem", color: "var(--text)", lineHeight: 1.6 }}>
+            <strong style={{ color: "var(--accent-text)" }}>{cachedShare}%</strong> of tokens were served
             from the agent&apos;s context cache, billed at roughly a quarter of the normal
             input rate. Without it this bill would be materially higher.
           </span>
@@ -279,17 +279,17 @@ export default function LlmCostPanel() {
 
       <Section icon={TrendingUp} title="Daily spend" hint="Spot a runaway before the invoice does.">
         {data.daily.length === 0 ? (
-          <div style={{ color: "#52525b", fontSize: "0.8rem" }}>No AI calls recorded yet.</div>
+          <div style={{ color: "var(--text-faint)", fontSize: "0.8rem" }}>No AI calls recorded yet.</div>
         ) : (
           <>
-            <div style={{ fontSize: "0.66rem", color: "#3f3f46", marginBottom: 8, textAlign: "right" }}>
+            <div style={{ fontSize: "0.66rem", color: "var(--text-faint)", marginBottom: 8, textAlign: "right" }}>
               peak {usd(peak, 4)}/day
             </div>
             <div
               style={{
                 display: "flex", alignItems: "flex-end", justifyContent: "flex-start",
                 gap: 3, height: 80, overflowX: "auto",
-                borderBottom: "1px solid #27272a", paddingBottom: 2,
+                borderBottom: "1px solid var(--border)", paddingBottom: 2,
               }}
             >
               {data.daily.map((d) => (
@@ -302,13 +302,13 @@ export default function LlmCostPanel() {
                     // of data and stops reading as a chart.
                     flex: "0 1 26px", maxWidth: 26, minWidth: 6,
                     height: `${Math.max(4, (Number(d.cost) / peak) * 100)}%`,
-                    background: "linear-gradient(180deg,#4ade80,#15803d)",
+                    background: "linear-gradient(180deg,var(--accent-text),var(--accent))",
                     borderRadius: "3px 3px 0 0",
                   }}
                 />
               ))}
             </div>
-            <div style={{ display: "flex", justifyContent: "space-between", fontSize: "0.62rem", color: "#3f3f46", marginTop: 5 }}>
+            <div style={{ display: "flex", justifyContent: "space-between", fontSize: "0.62rem", color: "var(--text-faint)", marginTop: 5 }}>
               <span>{data.daily[0]?.day}</span>
               <span>{data.daily[data.daily.length - 1]?.day}</span>
             </div>
@@ -332,11 +332,11 @@ export default function LlmCostPanel() {
         />
       </Section>
 
-      <div style={{ display: "flex", gap: 8, alignItems: "flex-start", fontSize: "0.68rem", color: "#3f3f46", lineHeight: 1.6, padding: "0 2px" }}>
+      <div style={{ display: "flex", gap: 8, alignItems: "flex-start", fontSize: "0.68rem", color: "var(--text-faint)", lineHeight: 1.6, padding: "0 2px" }}>
         <AlertCircle size={12} style={{ marginTop: 2, flexShrink: 0 }} />
         <span>
           Cost is computed at write time from Gemini&apos;s reported token counts using the
-          rates in <code style={{ color: "#52525b" }}>app/lib/llmCost.js</code>, so historical
+          rates in <code style={{ color: "var(--text-faint)" }}>app/lib/llmCost.js</code>, so historical
           rows keep the price that applied when the call happened. Re-check those rates
           against Google&apos;s current pricing when you change models.
         </span>

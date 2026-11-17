@@ -1,85 +1,87 @@
 "use client";
 
+/**
+ * Reminders (Direction A).
+ *   This phone — on/off for push on this device, plus a test send.
+ *   Habits     — the four built-in reminders: a switch each; when on, the time
+ *                and days fold out under it.
+ *   Yours      — custom reminders (vitamins, workouts…): switch to pause, tap
+ *                to edit in a sheet, "New reminder" to add one.
+ */
+
 import { useState, useEffect, useCallback } from "react";
 import { useRouter } from "next/navigation";
-import {
-  ArrowLeft,
-  BellOff,
-  BellRing,
-  Plus,
-  Trash2,
-  CheckCircle2,
-  XCircle,
-  Loader2,
-  Send,
-  Pencil,
-  X,
-  Check,
-} from "lucide-react";
+import { BellRing, Check, ChevronRight, Loader2, Plus } from "lucide-react";
+import PageHeader from "../components/PageHeader";
+import Sheet, { sheetInput, sheetLabel, primaryBtn, secondaryBtn, dangerBtn } from "../components/Sheet";
 import { supabase } from "../supabase";
+import { effectiveMinutes, dinnerMinutes, toHHMM, LUNCH_SLOT } from "../lib/reminderRules";
 import { useNotifications } from "../hooks/useNotifications";
 
 const DAY_LABELS = ["M", "T", "W", "T", "F", "S", "S"];
+const DAY_NAMES = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 const ALL_DAYS = [1, 2, 3, 4, 5, 6, 7];
 const WEEKDAYS = [1, 2, 3, 4, 5];
 
 const PRESETS = [
-  {
-    type: "food_log",
-    emoji: "🍽️",
-    title: "Food Log Reminder",
-    body: "Time to log your meals! Stay on track with your nutrition goals.",
-    default_time: "20:00",
-    days: ALL_DAYS,
-    desc: "Daily reminder to log your meals",
-  },
-  {
-    type: "water",
-    emoji: "💧",
-    title: "Water Reminder",
-    body: "Stay hydrated! Have you had enough water today?",
-    default_time: "12:00",
-    days: WEEKDAYS,
-    desc: "Midday hydration check-in",
-  },
-  {
-    type: "streak",
-    emoji: "🔥",
-    title: "Streak Guard",
-    body: "Don't break your streak! Log today's meals before midnight.",
-    default_time: "21:00",
-    days: ALL_DAYS,
-    desc: "Evening streak protection",
-  },
-  {
-    type: "weekly",
-    emoji: "📊",
-    title: "Weekly Report",
-    body: "Your weekly nutrition summary is ready. Check your Dashboard!",
-    default_time: "09:00",
-    days: [1],
-    desc: "Monday progress summary",
-  },
-];
+  { type: "food_log", label: "Log your meals", rule: "only if not logged", title: "Meal check-in", body: "Log your meal in a few taps.", default_time: "20:45", days: ALL_DAYS },
+  { type: "water", label: "Water check-in", rule: "if under half your goal", title: "Water check-in", body: "Had a glass recently? Tap to log it.", default_time: "15:00", days: ALL_DAYS },
+  { type: "streak", label: "Streak guard", rule: "if nothing logged today", title: "Keep your streak", body: "Nothing logged yet today — one meal keeps it going.", default_time: "21:30", days: ALL_DAYS },
+  { type: "weekly", label: "Monday review", rule: "your week in 3 numbers", title: "Your week in review", body: "See how last week went — three numbers, one tip.", default_time: "09:00", days: [1] },
+]
 
-const blankForm = () => ({
-  title: "",
-  body: "",
-  time_hhmm: "08:00",
-  days: ALL_DAYS,
-});
+const blankForm = () => ({ title: "", body: "", time_hhmm: "08:00", days: ALL_DAYS });
+
+const fmtTime = (hhmm = "08:00") => {
+  const [h, m] = hhmm.split(":").map(Number);
+  return `${((h + 11) % 12) + 1}:${String(m).padStart(2, "0")} ${h < 12 ? "am" : "pm"}`;
+};
+const fmtDays = (days) => {
+  const d = [...(Array.isArray(days) && days.length ? days : ALL_DAYS)].sort((a, b) => a - b);
+  if (d.length === 7) return "every day";
+  if (d.join() === WEEKDAYS.join()) return "Mon – Fri";
+  if (d.join() === "6,7") return "weekends";
+  if (d.length === 6) return `every day but ${DAY_NAMES[ALL_DAYS.find((n) => !d.includes(n)) - 1]}`;
+  return d.map((n) => DAY_NAMES[n - 1]).join(", ");
+};
+
+function Switch({ on, onChange, label, disabled }) {
+  return (
+    <button
+      role="switch"
+      aria-checked={on}
+      aria-label={label}
+      disabled={disabled}
+      onClick={onChange}
+      style={{ width: 48, height: 28, flexShrink: 0, borderRadius: 99, border: "none", padding: 3, background: on ? "var(--accent)" : "var(--track)", cursor: disabled ? "not-allowed" : "pointer", opacity: disabled ? 0.5 : 1, transition: "background 0.2s" }}
+    >
+      <span style={{ display: "block", width: 22, height: 22, borderRadius: "50%", background: on ? "var(--on-accent)" : "var(--text-muted)", transform: on ? "translateX(20px)" : "none", transition: "transform 0.2s" }} />
+    </button>
+  );
+}
+
+function DayPicker({ days, onToggle }) {
+  const set = Array.isArray(days) && days.length ? days : ALL_DAYS;
+  return (
+    <div role="group" aria-label="Days" style={{ display: "grid", gridTemplateColumns: "repeat(7, minmax(0, 1fr))", gap: 6 }}>
+      {DAY_LABELS.map((l, i) => {
+        const on = set.includes(i + 1);
+        return (
+          <button key={i} type="button" aria-pressed={on} aria-label={DAY_NAMES[i]} onClick={() => onToggle(i + 1)} style={{ height: 38, borderRadius: 10, border: on ? "1.5px solid var(--accent)" : "1px solid var(--border)", background: on ? "var(--accent-soft)" : "transparent", color: on ? "var(--text)" : "var(--text-muted)", fontFamily: "inherit", fontSize: 13, fontWeight: on ? 600 : 400, cursor: "pointer" }}>
+            {l}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+const card = { borderRadius: 16, background: "var(--surface)", border: "1px solid var(--border)" };
+const sectionTitle = { fontSize: 13, color: "var(--text-muted)", margin: "0 0 10px" };
 
 export default function NotificationsPage() {
   const router = useRouter();
-  const {
-    permission,
-    isSubscribed,
-    isSupported,
-    loading: subLoading,
-    subscribe,
-    unsubscribe,
-    sendTest,
-  } = useNotifications();
+  const { permission, isSubscribed, isSupported, loading: subLoading, subscribe, unsubscribe, sendTest } = useNotifications();
 
   const [session, setSession] = useState(null);
   const [reminders, setReminders] = useState([]);
@@ -89,6 +91,7 @@ export default function NotificationsPage() {
   const [editingId, setEditingId] = useState(null);
   const [form, setForm] = useState(blankForm());
   const [testLoading, setTestLoading] = useState(false);
+  const [expandedPreset, setExpandedPreset] = useState(null);
 
   const loadReminders = useCallback(async (s) => {
     setPageLoading(true);
@@ -120,15 +123,15 @@ export default function NotificationsPage() {
     if (isSubscribed) {
       const result = await unsubscribe();
       if (result?.ok) {
-        flash("Notifications disabled on this device.", false);
+        flash("Notifications are off for this phone.");
       } else {
         flash(result?.error || "Could not disable notifications. Try again.", false);
       }
     } else {
       const result = await subscribe();
-      if (result.ok) flash("Notifications enabled.");
+      if (result.ok) flash("Notifications are on.");
       else if (result.reason === "denied") {
-        flash("Permission denied. Enable notifications from browser settings.", false);
+        flash("Notifications are blocked. Allow them in your browser’s site settings.", false);
       } else {
         flash(result.error || "Failed to subscribe.", false);
       }
@@ -139,7 +142,7 @@ export default function NotificationsPage() {
     setTestLoading(true);
     const result = await sendTest();
     setTestLoading(false);
-    if (result.ok) flash("Test notification sent.");
+    if (result.ok) flash("Test sent — it should arrive in a few seconds.");
     else flash(result.error || "Test failed.", false);
   };
 
@@ -228,40 +231,14 @@ export default function NotificationsPage() {
     }
   };
 
-  const updateCustomDays = async (existing, dayNum) => {
-    if (!session) return;
-    const currentDays = Array.isArray(existing.days) ? existing.days : ALL_DAYS;
-    const hasDay = currentDays.includes(dayNum);
-    const nextDays = hasDay
-      ? currentDays.filter((d) => d !== dayNum)
-      : [...currentDays, dayNum].sort((a, b) => a - b);
-
-    // Keep at least one day active.
-    if (nextDays.length === 0) return;
-
-    const res = await fetch("/api/notifications/reminders", {
-      method: "PUT",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        userId: session.user.id,
-        accessToken: session.access_token,
-        reminder: { ...existing, days: nextDays },
-      }),
-    });
-    const json = await res.json();
-    if (json.reminder) {
-      setReminders((prev) => prev.map((r) => (r.id === json.reminder.id ? json.reminder : r)));
-    }
-  };
-
   const handleAddCustom = async (e) => {
     e.preventDefault();
     if (!form.title.trim() || !form.body.trim()) {
-      flash("Title and message are required.", false);
+      flash("Add a title and a message.", false);
       return;
     }
     if (!form.days.length) {
-      flash("Select at least one day.", false);
+      flash("Pick at least one day.", false);
       return;
     }
 
@@ -280,7 +257,7 @@ export default function NotificationsPage() {
       setReminders((prev) => [...prev, json.reminder]);
       setForm(blankForm());
       setAddingCustom(false);
-      flash("Custom reminder added.");
+      flash("Reminder added.");
     } else {
       flash(json.error || "Failed to add reminder.", false);
     }
@@ -317,789 +294,228 @@ export default function NotificationsPage() {
     setReminders((prev) => prev.filter((r) => r.id !== id));
   };
 
+  const toggleCustom = async (r) => {
+    if (!session) return;
+    const res = await fetch("/api/notifications/reminders", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ userId: session.user.id, accessToken: session.access_token, reminder: { ...r, active: !r.active } }),
+    });
+    const json = await res.json();
+    if (json.reminder) setReminders((prev) => prev.map((x) => (x.id === json.reminder.id ? json.reminder : x)));
+  };
+
+  const openEditor = (r) => {
+    if (r) {
+      setEditingId(r.id);
+      setForm({ title: r.title || "", body: r.body || "", time_hhmm: r.time_hhmm || "08:00", days: Array.isArray(r.days) && r.days.length ? r.days : ALL_DAYS });
+    } else {
+      setEditingId(null);
+      setForm(blankForm());
+      setAddingCustom(true);
+    }
+  };
+  const closeEditor = () => {
+    setEditingId(null);
+    setAddingCustom(false);
+    setForm(blankForm());
+  };
+  const toggleFormDay = (n) =>
+    setForm((f) => {
+      const next = f.days.includes(n) ? f.days.filter((d) => d !== n) : [...f.days, n].sort((a, b) => a - b);
+      return next.length ? { ...f, days: next } : f;
+    });
+
   const customReminders = reminders.filter((r) => r.type === "custom");
   const permDenied = permission === "denied";
+  const editorOpen = addingCustom || editingId;
 
   return (
-    <div className="app-wrapper notifications-root">
-      <style jsx>{`
-        .notifications-root {
-          max-width: 760px;
-          margin: 0 auto;
-          padding: calc(10px + env(safe-area-inset-top, 0px)) 14px 110px;
-        }
-        .header {
-          display: flex;
-          flex-direction: column;
-          gap: 10px;
-          margin-bottom: 18px;
-        }
-        .back-btn {
-          background: none;
-          border: none;
-          color: #9ca3af;
-          cursor: pointer;
-          display: inline-flex;
-          align-items: center;
-          gap: 6px;
-          width: fit-content;
-          padding: 4px 0;
-        }
-        .title {
-          font-size: clamp(1.4rem, 4vw, 1.9rem);
-          font-weight: 800;
-          margin: 0;
-        }
-        .subtitle {
-          color: #71717a;
-          margin: 0;
-          font-size: 0.9rem;
-          line-height: 1.45;
-        }
-        .status-toast {
-          position: fixed;
-          top: 76px;
-          left: 50%;
-          transform: translateX(-50%);
-          z-index: 999;
-          width: min(92vw, 560px);
-          border-radius: 12px;
-          padding: 10px 14px;
-          color: #fff;
-          font-size: 0.88rem;
-          font-weight: 500;
-          box-shadow: 0 10px 30px rgba(0, 0, 0, 0.45);
-          display: flex;
-          align-items: center;
-          gap: 8px;
-        }
-        .status-ok { background: #166534; border: 1px solid #22c55e; }
-        .status-err { background: #7f1d1d; border: 1px solid #ef4444; }
+    <div style={{ minHeight: "100dvh", background: "var(--bg)", color: "var(--text)", maxWidth: 640, margin: "0 auto", paddingBottom: "calc(110px + env(safe-area-inset-bottom, 0px))" }}>
+      <PageHeader back="/me" title="Reminders" subtitle="Only when they help · never 10 pm – 7 am" />
 
-        .flow-grid {
-          display: grid;
-          gap: 14px;
-        }
-        .panel {
-          background: linear-gradient(180deg, #1a1a1f 0%, #16161a 100%);
-          border: 1px solid #2a2a30;
-          border-radius: 16px;
-          padding: 16px;
-        }
-        .panel-head {
-          display: flex;
-          align-items: center;
-          justify-content: space-between;
-          gap: 10px;
-          margin-bottom: 12px;
-        }
-        .panel-title {
-          display: flex;
-          align-items: center;
-          gap: 10px;
-          font-size: 0.96rem;
-          color: #f4f4f5;
-          font-weight: 700;
-        }
-        .step-chip {
-          width: 24px;
-          height: 24px;
-          border-radius: 999px;
-          font-size: 0.75rem;
-          font-weight: 800;
-          display: inline-flex;
-          align-items: center;
-          justify-content: center;
-          background: rgba(99, 102, 241, 0.2);
-          color: #818cf8;
-        }
-        .panel-sub {
-          font-size: 0.8rem;
-          color: #71717a;
-          margin: 0;
-          line-height: 1.4;
-        }
-
-        .toggle {
-          position: relative;
-          width: 52px;
-          height: 30px;
-          border-radius: 999px;
-          border: 1px solid #4b5563;
-          background: #2f3340;
-          cursor: pointer;
-          transition: background 0.2s, border-color 0.2s, box-shadow 0.2s;
-          flex-shrink: 0;
-          -webkit-appearance: none;
-          appearance: none;
-          padding: 0;
-          box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.35);
-        }
-        .toggle:hover {
-          border-color: #6366f1;
-        }
-        .toggle:focus-visible {
-          outline: none;
-          box-shadow: 0 0 0 2px rgba(99, 102, 241, 0.45), inset 0 1px 3px rgba(0, 0, 0, 0.35);
-        }
-        .toggle:disabled {
-          opacity: 0.7;
-          cursor: not-allowed;
-        }
-        .toggle-thumb {
-          position: absolute;
-          top: 4px;
-          width: 20px;
-          height: 20px;
-          border-radius: 50%;
-          background: #fff;
-          transition: left 0.2s, transform 0.2s;
-          box-shadow: 0 1px 3px rgba(0, 0, 0, 0.35);
-        }
-        .device-state {
-          margin-top: 10px;
-          display: flex;
-          align-items: center;
-          gap: 10px;
-          font-size: 0.82rem;
-          color: #a1a1aa;
-          flex-wrap: wrap;
-        }
-        .pill {
-          background: #27272a;
-          border: 1px solid #3f3f46;
-          border-radius: 999px;
-          padding: 2px 9px;
-          font-size: 0.72rem;
-        }
-        .test-btn {
-          margin-top: 10px;
-          width: 100%;
-          background: #22222a;
-          border: 1px solid #3f3f46;
-          color: #d4d4d8;
-          border-radius: 10px;
-          padding: 10px;
-          cursor: pointer;
-          font-size: 0.84rem;
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          gap: 6px;
-        }
-
-        .preset-grid {
-          display: grid;
-          gap: 10px;
-          grid-template-columns: 1fr;
-        }
-        .preset-card {
-          background: #15151a;
-          border: 1px solid #2a2a2f;
-          border-radius: 12px;
-          padding: 12px;
-        }
-        .preset-row {
-          display: flex;
-          align-items: flex-start;
-          justify-content: space-between;
-          gap: 10px;
-        }
-        .preset-title {
-          display: flex;
-          gap: 8px;
-          align-items: flex-start;
-        }
-        .preset-name {
-          color: #fafafa;
-          font-weight: 700;
-          font-size: 0.9rem;
-          margin-bottom: 1px;
-        }
-        .preset-desc {
-          color: #71717a;
-          font-size: 0.75rem;
-          line-height: 1.35;
-        }
-        .preset-config {
-          margin-top: 10px;
-          display: flex;
-          gap: 8px;
-          flex-wrap: wrap;
-          align-items: center;
-        }
-        .time-input {
-          width: 118px;
-          background: #27272a;
-          border: 1px solid #3f3f46;
-          color: #fff;
-          border-radius: 8px;
-          padding: 5px 8px;
-          font-size: 0.8rem;
-        }
-        .day-chip {
-          display: inline-flex;
-          align-items: center;
-          justify-content: center;
-          width: 24px;
-          height: 24px;
-          border-radius: 999px;
-          border: 1px solid #35353a;
-          color: #666;
-          font-size: 0.68rem;
-          font-weight: 700;
-        }
-        .day-chip.active {
-          color: #818cf8;
-          border-color: #4f46e5;
-          background: rgba(99, 102, 241, 0.18);
-        }
-        .day-chip-btn {
-          width: 32px;
-          height: 32px;
-          border-radius: 999px;
-          border: 1px solid #35353a;
-          background: transparent;
-          color: #666;
-          font-size: 0.72rem;
-          font-weight: 700;
-          cursor: pointer;
-          display: inline-flex;
-          align-items: center;
-          justify-content: center;
-          touch-action: manipulation;
-          -webkit-appearance: none;
-          appearance: none;
-          padding: 0;
-          line-height: 1;
-          flex-shrink: 0;
-        }
-        .day-chip-btn.active {
-          color: #818cf8;
-          border-color: #4f46e5;
-          background: rgba(99, 102, 241, 0.18);
-        }
-
-        .section-head {
-          display: flex;
-          align-items: center;
-          justify-content: space-between;
-          gap: 8px;
-          margin-bottom: 10px;
-        }
-        .section-title {
-          color: #c7c7d1;
-          text-transform: uppercase;
-          letter-spacing: 0.06em;
-          font-size: 0.72rem;
-          font-weight: 700;
-        }
-        .add-btn {
-          background: rgba(99, 102, 241, 0.18);
-          border: 1px solid #4f46e5;
-          color: #818cf8;
-          border-radius: 8px;
-          padding: 5px 10px;
-          cursor: pointer;
-          font-size: 0.78rem;
-          display: inline-flex;
-          align-items: center;
-          gap: 4px;
-        }
-
-        .form-card {
-          background: #15151b;
-          border: 1px solid #4f46e5;
-          border-radius: 14px;
-          padding: 14px;
-          margin-bottom: 10px;
-        }
-        .form-grid {
-          display: grid;
-          gap: 10px;
-        }
-        .form-time-row {
-          display: grid;
-          gap: 8px;
-          grid-template-columns: auto 1fr;
-          align-items: center;
-        }
-        .form-time-row input[type="time"] {
-          width: auto;
-          min-width: 110px;
-          max-width: 140px;
-        }
-        .form-label {
-          font-size: 0.75rem;
-          font-weight: 700;
-          color: #71717a;
-          text-transform: uppercase;
-          letter-spacing: 0.05em;
-          margin-bottom: 5px;
-        }
-        input[type="text"], textarea, input[type="time"] {
-          width: 100%;
-          box-sizing: border-box;
-          background: #27272a;
-          border: 1px solid #3f3f46;
-          color: #fff;
-          border-radius: 9px;
-          padding: 10px 11px;
-          font-size: 0.88rem;
-          outline: none;
-        }
-        textarea {
-          min-height: 66px;
-          resize: vertical;
-          font-family: inherit;
-        }
-        input[type="text"]:focus,
-        textarea:focus,
-        input[type="time"]:focus {
-          border-color: #6366f1;
-        }
-        .custom-day-row {
-          display: flex;
-          gap: 6px;
-          flex-wrap: wrap;
-        }
-        .form-actions {
-          display: flex;
-          gap: 8px;
-          justify-content: flex-end;
-        }
-        .btn-primary {
-          background: #6366f1;
-          color: #fff;
-          border: none;
-          border-radius: 10px;
-          padding: 9px 15px;
-          cursor: pointer;
-          font-size: 0.84rem;
-          font-weight: 600;
-          display: inline-flex;
-          align-items: center;
-          gap: 5px;
-        }
-        .btn-ghost {
-          background: transparent;
-          border: 1px solid #3f3f46;
-          color: #a1a1aa;
-          border-radius: 10px;
-          padding: 9px 15px;
-          cursor: pointer;
-          font-size: 0.84rem;
-        }
-
-        .custom-list {
-          display: grid;
-          gap: 9px;
-        }
-        .custom-card {
-          background: #15151a;
-          border: 1px solid #2a2a30;
-          border-radius: 12px;
-          padding: 12px;
-        }
-        .custom-title {
-          color: #fff;
-          font-weight: 700;
-          font-size: 0.9rem;
-          margin-bottom: 1px;
-        }
-        .custom-body {
-          color: #a1a1aa;
-          font-size: 0.77rem;
-          margin-bottom: 8px;
-          line-height: 1.4;
-        }
-        .custom-meta {
-          display: flex;
-          gap: 8px;
-          align-items: center;
-          flex-wrap: wrap;
-        }
-        .custom-actions {
-          display: flex;
-          gap: 6px;
-          margin-top: 8px;
-          justify-content: flex-end;
-        }
-        .icon-btn {
-          border: none;
-          border-radius: 8px;
-          padding: 6px 8px;
-          cursor: pointer;
-        }
-
-        .empty {
-          color: #71717a;
-          text-align: center;
-          padding: 18px;
-          font-size: 0.84rem;
-        }
-        .setup-note {
-          margin-top: 14px;
-          background: #18181b;
-          border: 1px solid #2a2a30;
-          border-radius: 14px;
-          padding: 14px;
-          color: #9ca3af;
-          font-size: 0.82rem;
-          line-height: 1.55;
-        }
-
-        @media (min-width: 700px) {
-          .preset-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-          .flow-grid { gap: 16px; }
-          .panel { padding: 18px; }
-        }
-        @media (max-width: 460px) {
-          .notifications-root { padding-left: 10px; padding-right: 10px; }
-          .status-toast { top: 64px; font-size: 0.8rem; }
-          .day-chip-btn { width: 28px; height: 28px; font-size: 0.66rem; }
-          .custom-day-row { gap: 4px; }
-          .form-actions { justify-content: stretch; }
-          .form-actions button { flex: 1; }
-        }
-      `}</style>
-
-      {statusMsg && (
-        <div className={`status-toast ${statusMsg.ok ? "status-ok" : "status-err"}`}>
-          {statusMsg.ok ? <CheckCircle2 size={14} /> : <XCircle size={14} />}
-          {statusMsg.text}
-        </div>
-      )}
-
-      <header className="header">
-        <button className="back-btn" onClick={() => router.back()}>
-          <ArrowLeft size={18} /> Back
-        </button>
-        <h1 className="title">🔔 Reminders</h1>
-        <p className="subtitle">
-          Set once, get nudged automatically. Start with device notifications,
-          then enable built-in habits or add your own custom reminders.
-        </p>
-      </header>
-
-      <div className="flow-grid">
-        <section className="panel">
-          <div className="panel-head">
-            <div>
-              <div className="panel-title">
-                <span className="step-chip">1</span>
-                Enable Notifications On This Device
-              </div>
-              <p className="panel-sub">
-                Required before any reminder can alert you.
+      <div style={{ padding: "8px 20px 0", display: "flex", flexDirection: "column", gap: 24 }}>
+        {/* ── THIS PHONE ── */}
+        <section style={{ ...card, padding: 18 }}>
+          {!isSupported ? (
+            <>
+              <div style={{ fontSize: 16, fontWeight: 600 }}>This browser can’t show notifications</div>
+              <p style={{ margin: "6px 0 0", fontSize: 14, lineHeight: 1.55, color: "var(--text-muted)" }}>
+                Add NutriTrack to your home screen and open it from there. Android Chrome: menu → Add to Home screen. iPhone Safari: Share → Add to Home Screen.
               </p>
-            </div>
-            {isSupported && !permDenied && (
-              <button
-                className="toggle"
-                onClick={handleToggleSubscription}
-                disabled={subLoading}
-                style={{ background: isSubscribed ? "#6366f1" : "#3f3f46" }}
-              >
-                {subLoading ? (
-                  <span style={{ position: "absolute", top: 5, left: isSubscribed ? 28 : 4 }}>
-                    <Loader2 size={20} style={{ animation: "spin 1s linear infinite" }} />
-                  </span>
-                ) : (
-                  <span className="toggle-thumb" style={{ left: isSubscribed ? 28 : 4 }} />
-                )}
-              </button>
-            )}
-          </div>
-
-          <div className="device-state">
-            <span>{isSubscribed ? <BellRing size={16} color="#818cf8" /> : <BellOff size={16} color="#71717a" />}</span>
-            <span>
-              {!isSupported
-                ? "Push not supported on this browser"
-                : permDenied
-                ? "Permission blocked in browser settings"
-                : isSubscribed
-                ? "Active on this device"
-                : permission === "granted"
-                ? "Permission granted, but this device is not subscribed"
-                : "Disabled"}
-            </span>
-            <span className="pill">Permission: {permission}</span>
-          </div>
-
-          {permission === "granted" && !isSubscribed && (
-            <p className="panel-sub" style={{ marginTop: 8 }}>
-              If you are on iPhone, install to Home Screen and open the app from there before enabling notifications.
-            </p>
-          )}
-
-          {isSubscribed && (
-            <button className="test-btn" onClick={handleTest} disabled={testLoading}>
-              {testLoading ? <Loader2 size={14} style={{ animation: "spin 1s linear infinite" }} /> : <Send size={14} />}
-              Send Test Notification
-            </button>
-          )}
-        </section>
-
-        <section className="panel">
-          <div className="panel-head" style={{ alignItems: "flex-start" }}>
-            <div>
-              <div className="panel-title">
-                <span className="step-chip">2</span>
-                Built-in Habit Reminders
-              </div>
-              <p className="panel-sub">Tap toggle to enable. Adjust time only when enabled.</p>
-            </div>
-          </div>
-
-          <div className="preset-grid">
-            {PRESETS.map((preset) => {
-              const existing = getPresetReminder(preset.type);
-              const isOn = existing?.active ?? false;
-
-              return (
-                <div key={preset.type} className="preset-card">
-                  <div className="preset-row">
-                    <div className="preset-title">
-                      <span style={{ fontSize: 20 }}>{preset.emoji}</span>
-                      <div>
-                        <div className="preset-name">{preset.title}</div>
-                        <div className="preset-desc">{preset.desc}</div>
-                      </div>
-                    </div>
-
-                    <button
-                      className="toggle"
-                      onClick={() => togglePreset(preset)}
-                      style={{ background: isOn ? "#6366f1" : "#3f3f46" }}
-                    >
-                      <span className="toggle-thumb" style={{ left: isOn ? 28 : 4 }} />
-                    </button>
-                  </div>
-
-                  {isOn && existing && (
-                    <div className="preset-config">
-                      <input
-                        className="time-input"
-                        type="time"
-                        value={existing.time_hhmm}
-                        onChange={(e) => updatePresetTime(existing, e.target.value)}
-                      />
-
-                      {DAY_LABELS.map((lbl, i) => {
-                        const d = i + 1;
-                        const active = (existing.days || []).includes(d);
-                        return (
-                          <button
-                            key={d}
-                            type="button"
-                            className={`day-chip-btn${active ? " active" : ""}`}
-                            onClick={() => updatePresetDays(existing, d)}
-                            aria-label={`Toggle ${lbl} for ${preset.title}`}
-                          >
-                            {lbl}
-                          </button>
-                        );
-                      })}
-                    </div>
-                  )}
-                </div>
-              );
-            })}
-          </div>
-        </section>
-
-        <section className="panel">
-          <div className="section-head">
-            <div>
-              <div className="panel-title">
-                <span className="step-chip">3</span>
-                Custom Reminders
-              </div>
-              <p className="panel-sub" style={{ marginTop: 4 }}>Create reminders for supplements, workouts, meds, or anything else.</p>
-            </div>
-            {!addingCustom && (
-              <button
-                className="add-btn"
-                onClick={() => {
-                  setAddingCustom(true);
-                  setForm(blankForm());
-                  setEditingId(null);
-                }}
-              >
-                <Plus size={14} /> Add
-              </button>
-            )}
-          </div>
-
-          {(addingCustom || editingId) && (
-            <form className="form-card" onSubmit={editingId ? handleSaveEdit : handleAddCustom}>
-              <div className="section-head" style={{ marginBottom: 10 }}>
-                <div className="section-title">{editingId ? "Edit Reminder" : "New Reminder"}</div>
-                <button
-                  type="button"
-                  className="icon-btn"
-                  style={{ background: "transparent", color: "#71717a" }}
-                  onClick={() => {
-                    setAddingCustom(false);
-                    setEditingId(null);
-                    setForm(blankForm());
-                  }}
-                >
-                  <X size={16} />
+            </>
+          ) : permDenied ? (
+            <>
+              <div style={{ fontSize: 16, fontWeight: 600, color: "var(--warn)" }}>Notifications are blocked</div>
+              <p style={{ margin: "6px 0 0", fontSize: 14, lineHeight: 1.55, color: "var(--text-muted)" }}>Allow notifications for this site in your browser settings, then come back here.</p>
+            </>
+          ) : isSubscribed ? (
+            <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
+              <BellRing size={20} color="var(--accent-text)" style={{ flexShrink: 0 }} />
+              <span style={{ flex: 1, minWidth: 160, fontSize: 15, fontWeight: 600 }}>Notifications are on for this phone</span>
+              <div style={{ display: "flex", gap: 8 }}>
+                <button onClick={handleTest} disabled={testLoading} style={{ ...secondaryBtn, height: 40, fontSize: 14, display: "flex", alignItems: "center", gap: 6 }}>
+                  {testLoading ? <Loader2 size={15} className="animate-spin" /> : null} Send test
                 </button>
+                <button onClick={handleToggleSubscription} disabled={subLoading} style={{ ...secondaryBtn, height: 40, fontSize: 14, color: "var(--text-muted)" }}>Turn off</button>
               </div>
-
-              <div className="form-grid">
-                <input
-                  type="text"
-                  placeholder="Title (e.g. Take Vitamins)"
-                  value={form.title}
-                  maxLength={100}
-                  onChange={(e) => setForm((f) => ({ ...f, title: e.target.value }))}
-                  required
-                />
-
-                <textarea
-                  placeholder="Message (e.g. Time for your morning supplement stack)"
-                  value={form.body}
-                  maxLength={200}
-                  onChange={(e) => setForm((f) => ({ ...f, body: e.target.value }))}
-                  required
-                />
-
-                <div>
-                  <div className="form-label">Time</div>
-                  <input
-                    type="time"
-                    value={form.time_hhmm}
-                    onChange={(e) => setForm((f) => ({ ...f, time_hhmm: e.target.value }))}
-                    style={{ width: "auto", minWidth: 120 }}
-                    required
-                  />
-                </div>
-                <div>
-                  <div className="form-label">Repeat on days</div>
-                  <div className="custom-day-row">
-                    {DAY_LABELS.map((lbl, i) => {
-                      const d = i + 1;
-                      const active = form.days.includes(d);
-                      return (
-                        <button
-                          key={d}
-                          type="button"
-                          className={`day-chip-btn${active ? " active" : ""}`}
-                          onClick={() => {
-                            const nextDays = active
-                              ? form.days.filter((x) => x !== d)
-                              : [...form.days, d].sort((a, b) => a - b);
-                            if (nextDays.length) {
-                              setForm((f) => ({ ...f, days: nextDays }));
-                            }
-                          }}
-                          aria-label={`Toggle ${lbl}`}
-                        >
-                          {lbl}
-                        </button>
-                      );
-                    })}
-                  </div>
-                </div>
-
-                <div className="form-actions">
-                  <button
-                    type="button"
-                    className="btn-ghost"
-                    onClick={() => {
-                      setAddingCustom(false);
-                      setEditingId(null);
-                      setForm(blankForm());
-                    }}
-                  >
-                    Cancel
-                  </button>
-                  <button type="submit" className="btn-primary">
-                    <Check size={14} /> {editingId ? "Save" : "Add"}
-                  </button>
-                </div>
-              </div>
-            </form>
-          )}
-
-          {pageLoading ? (
-            <div className="empty">
-              <Loader2 size={18} style={{ animation: "spin 1s linear infinite" }} />
             </div>
-          ) : customReminders.length === 0 && !addingCustom ? (
-            <div className="empty">No custom reminders yet.</div>
           ) : (
-            <div className="custom-list">
-              {customReminders
-                .filter((r) => editingId !== r.id)
-                .map((r) => (
-                  <div key={r.id} className="custom-card" style={{ opacity: r.active ? 1 : 0.6 }}>
-                    <div className="custom-title">{r.title}</div>
-                    <div className="custom-body">{r.body}</div>
+            <>
+              <div style={{ fontSize: 16, fontWeight: 600 }}>Turn on reminders for this phone</div>
+              <p style={{ margin: "6px 0 14px", fontSize: 14, lineHeight: 1.55, color: "var(--text-muted)" }}>
+                Your browser will ask once. On iPhone, open NutriTrack from the home screen first.
+              </p>
+              <button onClick={handleToggleSubscription} disabled={subLoading} style={{ ...primaryBtn, width: "100%", display: "flex", alignItems: "center", justifyContent: "center", gap: 8 }}>
+                {subLoading ? <Loader2 size={18} className="animate-spin" /> : "Turn on notifications"}
+              </button>
+            </>
+          )}
+        </section>
 
-                    <div className="custom-meta">
-                      <span style={{ color: "#818cf8", fontWeight: 700, fontSize: "0.74rem" }}>{r.time_hhmm}</span>
-                      {DAY_LABELS.map((lbl, i) => {
-                        const d = i + 1;
-                        const active = (r.days || ALL_DAYS).includes(d);
-                        return (
-                          <button
-                            key={d}
-                            type="button"
-                            className={`day-chip-btn${active ? " active" : ""}`}
-                            onClick={() => updateCustomDays(r, d)}
-                            aria-label={`Toggle ${lbl} for ${r.title}`}
-                          >
-                            {lbl}
-                          </button>
-                        );
-                      })}
-                      {!r.active && <span className="pill">Paused</span>}
+        {pageLoading ? (
+          <div style={{ padding: 24, display: "grid", placeItems: "center" }}>
+            <Loader2 size={20} className="animate-spin" color="var(--text-muted)" />
+          </div>
+        ) : (
+          <>
+            {/* ── HABITS ── */}
+            <section>
+              <h2 style={sectionTitle}>Habits</h2>
+              <div style={card}>
+                {PRESETS.map((preset, i) => {
+                  const existing = getPresetReminder(preset.type);
+                  const on = !!existing?.active;
+                  return (
+                    <div key={preset.type} style={{ padding: "14px 16px", borderTop: i ? "1px solid var(--border)" : "none" }}>
+                      <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+                        <button
+                          aria-expanded={on && expandedPreset === preset.type}
+                          disabled={!on}
+                          onClick={() => setExpandedPreset(expandedPreset === preset.type ? null : preset.type)}
+                          style={{ flex: 1, minWidth: 0, padding: 0, border: "none", background: "none", color: "var(--text)", fontFamily: "inherit", textAlign: "left", cursor: on ? "pointer" : "default" }}
+                        >
+                          <span style={{ display: "block", fontSize: 15, fontWeight: 600 }}>{preset.label}</span>
+                          <span style={{ display: "block", fontSize: 13, color: "var(--text-muted)", marginTop: 2 }}>
+                            {preset.type === "food_log" && `${fmtTime(LUNCH_SLOT)} · `}
+                            {fmtTime(toHHMM(preset.type === "food_log" ? dinnerMinutes(existing?.time_hhmm) : effectiveMinutes(preset.type, existing?.time_hhmm || preset.default_time)))}
+                            {` · ${fmtDays(existing?.days || preset.days)}`} · {preset.rule}
+                            {on && <span style={{ color: "var(--accent-text)" }}> · {expandedPreset === preset.type ? "Done" : "Change"}</span>}
+                          </span>
+                        </button>
+                        <Switch on={on} onChange={() => togglePreset(preset)} label={preset.label} />
+                      </div>
+                      {on && existing && expandedPreset === preset.type && (
+                        <div style={{ display: "flex", flexDirection: "column", gap: 10, marginTop: 12 }}>
+                          <label style={{ ...sheetLabel, fontSize: 12 }}>
+                            {preset.type === "food_log" ? "Dinner nudge (lunch nudge is at 1:45 pm)" : "Time"}
+                            <input
+                              type="time"
+                              min={preset.type === "food_log" ? "17:00" : "07:00"}
+                              max="21:45"
+                              value={toHHMM(preset.type === "food_log" ? dinnerMinutes(existing.time_hhmm) : effectiveMinutes(preset.type, existing.time_hhmm || preset.default_time))}
+                              onChange={(e) => {
+                                const v = e.target.value;
+                                if (!v) return;
+                                // Keep habits out of quiet hours (and the dinner nudge after lunch).
+                                const floor = preset.type === "food_log" ? 17 * 60 : 7 * 60;
+                                const [h, m] = v.split(":").map(Number);
+                                updatePresetTime(existing, toHHMM(Math.min(Math.max(h * 60 + m, floor), 21 * 60 + 45)));
+                              }}
+                              style={{ ...sheetInput, height: 44, colorScheme: "dark" }}
+                            />
+                          </label>
+                          <DayPicker days={existing.days} onToggle={(n) => updatePresetDays(existing, n)} />
+                        </div>
+                      )}
                     </div>
+                  );
+                })}
+              </div>
+              {isSupported && !permDenied && !isSubscribed && reminders.some((r) => r.active) && (
+                <p style={{ margin: "8px 0 0", fontSize: 13, color: "var(--warn)" }}>Turn on notifications above, or these won’t reach this phone.</p>
+              )}
+            </section>
 
-                    <div className="custom-actions">
-                      <button
-                        className="icon-btn"
-                        style={{ background: "#27272a", color: "#aaa" }}
-                        onClick={() => {
-                          setEditingId(r.id);
-                          setAddingCustom(false);
-                          setForm({
-                            title: r.title,
-                            body: r.body,
-                            time_hhmm: r.time_hhmm,
-                            days: r.days || ALL_DAYS,
-                          });
-                        }}
-                      >
-                        <Pencil size={14} />
-                      </button>
-                      <button
-                        className="icon-btn"
-                        style={{ background: "rgba(239,68,68,0.1)", color: "#ef4444" }}
-                        onClick={() => handleDelete(r.id)}
-                      >
-                        <Trash2 size={14} />
-                      </button>
-                    </div>
+            {/* ── YOURS ── */}
+            <section>
+              <h2 style={sectionTitle}>Your reminders</h2>
+              <div style={card}>
+                {customReminders.map((r, i) => (
+                  <div key={r.id} style={{ display: "flex", alignItems: "center", gap: 12, padding: "12px 16px", borderTop: i ? "1px solid var(--border)" : "none" }}>
+                    <button onClick={() => openEditor(r)} style={{ flex: 1, minWidth: 0, display: "flex", alignItems: "center", gap: 8, padding: 0, border: "none", background: "none", color: "var(--text)", fontFamily: "inherit", textAlign: "left", cursor: "pointer" }}>
+                      <span style={{ flex: 1, minWidth: 0 }}>
+                        <span style={{ display: "block", fontSize: 15, fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", opacity: r.active ? 1 : 0.6 }}>{r.title}</span>
+                        <span style={{ display: "block", fontSize: 13, color: "var(--text-muted)", marginTop: 2 }}>
+                          {fmtTime(r.time_hhmm)} · {fmtDays(r.days)}{r.active ? "" : " · paused"}
+                        </span>
+                      </span>
+                      <ChevronRight size={16} color="var(--text-faint)" />
+                    </button>
+                    <Switch on={!!r.active} onChange={() => toggleCustom(r)} label={`${r.title} on`} />
                   </div>
                 ))}
-            </div>
-          )}
-        </section>
+                <button onClick={() => openEditor(null)} style={{ width: "100%", display: "flex", alignItems: "center", gap: 10, padding: "14px 16px", border: "none", borderTop: customReminders.length ? "1px solid var(--border)" : "none", background: "none", color: "var(--accent-text)", fontFamily: "inherit", fontSize: 15, fontWeight: 600, cursor: "pointer" }}>
+                  <Plus size={18} /> New reminder
+                </button>
+              </div>
+              <p style={{ margin: "8px 0 0", fontSize: 13, color: "var(--text-faint)" }}>
+                {customReminders.length === 0 ? "For vitamins, a workout, medicines — anything with a time. " : ""}These arrive exactly when you set them.
+              </p>
+            </section>
+          </>
+        )}
       </div>
 
-      {!isSupported && (
-        <div className="setup-note">
-          <div style={{ fontWeight: 700, color: "#f4f4f5", marginBottom: 6 }}>Install App For Push Notifications</div>
-          • Android Chrome: Menu → Add to Home Screen<br />
-          • iOS Safari: Share → Add to Home Screen<br />
-          • Desktop Chrome/Edge: Install icon in address bar
+      {editorOpen && (
+        <Sheet
+          title={editingId ? "Edit reminder" : "New reminder"}
+          onClose={closeEditor}
+          footer={
+            <>
+              {editingId && (
+                <button
+                  onClick={async () => {
+                    await handleDelete(editingId);
+                    closeEditor();
+                    flash("Reminder deleted.");
+                  }}
+                  style={dangerBtn}
+                >
+                  Delete
+                </button>
+              )}
+              <button onClick={editingId ? handleSaveEdit : handleAddCustom} style={{ ...primaryBtn, flex: 1 }}>
+                {editingId ? "Save" : "Add reminder"}
+              </button>
+            </>
+          }
+        >
+          <form onSubmit={editingId ? handleSaveEdit : handleAddCustom} style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+            <label style={sheetLabel}>
+              Title
+              <input value={form.title} onChange={(e) => setForm({ ...form, title: e.target.value })} placeholder="Take vitamin D" maxLength={60} style={sheetInput} />
+            </label>
+            <label style={sheetLabel}>
+              Message
+              <input value={form.body} onChange={(e) => setForm({ ...form, body: e.target.value })} placeholder="With breakfast, one tablet" maxLength={140} style={sheetInput} />
+            </label>
+            <label style={sheetLabel}>
+              Time
+              <input type="time" value={form.time_hhmm} onChange={(e) => e.target.value && setForm({ ...form, time_hhmm: e.target.value })} style={{ ...sheetInput, colorScheme: "dark" }} />
+            </label>
+            <div style={sheetLabel}>
+              Days · {fmtDays(form.days)}
+              <DayPicker days={form.days} onToggle={toggleFormDay} />
+            </div>
+            <button type="submit" hidden />
+          </form>
+        </Sheet>
+      )}
+
+      {statusMsg && (
+        <div role="status" style={{ position: "fixed", left: "50%", transform: "translateX(-50%)", bottom: "calc(96px + env(safe-area-inset-bottom, 0px))", zIndex: 10050, width: "min(92vw, 520px)", boxSizing: "border-box", padding: "12px 16px", borderRadius: 14, background: "var(--surface-highlight)", border: "1px solid var(--border)", color: statusMsg.ok ? "var(--text)" : "var(--warn)", fontSize: 14, display: "flex", alignItems: "center", gap: 10, boxShadow: "0 10px 30px rgba(0,0,0,0.35)" }}>
+          {statusMsg.ok && <Check size={16} color="var(--accent-text)" />} {statusMsg.text}
         </div>
       )}
     </div>

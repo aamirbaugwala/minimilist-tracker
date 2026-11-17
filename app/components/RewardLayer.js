@@ -23,7 +23,9 @@ function Confetti({ fire }) {
     const ctx = cv.getContext("2d");
     cv.width = window.innerWidth;
     cv.height = window.innerHeight;
-    const colors = ["#3b82f6", "#8b5cf6", "#22c55e", "#f59e0b", "#ec4899", "#14b8a6"];
+    // Direction A accents (tokens can't be read in canvas without a lookup).
+    const css = getComputedStyle(document.documentElement);
+    const colors = ["--accent", "--protein", "--carbs", "--fiber", "--water", "--fats"].map((v) => css.getPropertyValue(v).trim() || "#4CC9A0");
     const ox = cv.width / 2;
     const oy = cv.height * 0.32;
     const parts = Array.from({ length: 90 }, (_, i) => {
@@ -117,9 +119,9 @@ export default function RewardLayer({ floats, onFloatDone, toast, onUndo, celebr
           position: "fixed",
           left: 16, right: 16, bottom: "calc(84px + env(safe-area-inset-bottom, 0px))",
           maxWidth: 460, margin: "0 auto", zIndex: 9996,
-          background: "#17171f", border: "1px solid #27272a", borderRadius: 15,
-          padding: "11px 14px", display: "flex", alignItems: "center", gap: 10,
-          boxShadow: "0 16px 40px -12px rgba(0,0,0,0.8)",
+          background: "var(--surface-highlight)", border: "1px solid var(--border)", borderRadius: 16,
+          padding: "12px 16px", display: "flex", alignItems: "center", gap: 10,
+          boxShadow: "0 16px 40px -12px rgba(0,0,0,0.45)",
           // Fully hide when idle: the slide alone doesn't clear the bottom nav
           // (it sits ~84px up), so fade + drop out and disable pointer events.
           transform: toast ? "none" : "translateY(220%)",
@@ -128,13 +130,13 @@ export default function RewardLayer({ floats, onFloatDone, toast, onUndo, celebr
           pointerEvents: toast ? "auto" : "none",
         }}
       >
-        <span style={{ fontSize: "1.1rem" }}>✅</span>
-        <span style={{ flex: 1, fontSize: "0.82rem", color: "#a1a1aa" }}>
-          Logged <b style={{ color: "#fff" }}>{toast?.name}</b> · saved
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="var(--accent-text)" strokeWidth="2.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5" /></svg>
+        <span style={{ flex: 1, minWidth: 0, fontSize: 14, color: "var(--text-muted)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+          Logged <b style={{ color: "var(--text)", fontWeight: 600 }}>{toast?.name}</b> · saved
         </span>
         <button
           onClick={onUndo}
-          style={{ background: "none", border: "none", color: "#3b82f6", fontWeight: 800, fontFamily: "inherit", fontSize: "0.82rem", cursor: "pointer" }}
+          style={{ background: "none", border: "none", padding: 4, color: "var(--accent-text)", fontWeight: 600, fontFamily: "inherit", fontSize: 14, cursor: "pointer" }}
         >
           Undo
         </button>
@@ -148,17 +150,17 @@ export default function RewardLayer({ floats, onFloatDone, toast, onUndo, celebr
             style={{
               position: "fixed", top: "38%", left: "50%", transform: "translate(-50%,-50%)",
               zIndex: 9999, textAlign: "center", pointerEvents: "none",
-              background: "linear-gradient(160deg,#1a1622,#241b2e)",
-              border: "1px solid rgba(245,158,11,0.4)", borderRadius: 22,
-              padding: "22px 28px", boxShadow: "0 24px 60px -16px rgba(0,0,0,0.85)",
+              background: "var(--sheet)",
+              border: "1px solid var(--border)", borderRadius: 22,
+              padding: "22px 28px", boxShadow: "0 24px 60px -16px rgba(0,0,0,0.5)",
               animation: RM() ? "none" : "nt-badge 1.9s cubic-bezier(.2,.9,.3,1) both",
             }}
           >
             <div style={{ fontSize: "2.6rem" }}>{celebration.icon}</div>
-            <div style={{ fontSize: "0.62rem", letterSpacing: "0.14em", textTransform: "uppercase", color: "#f59e0b", fontWeight: 800, marginTop: 6 }}>
+            <div style={{ fontSize: 12, letterSpacing: "0.1em", textTransform: "uppercase", color: "var(--accent-text)", fontWeight: 600, marginTop: 6 }}>
               {celebration.kind === "level" ? "Level up" : "Quest complete"}
             </div>
-            <div style={{ fontWeight: 800, fontSize: "1rem", marginTop: 2, color: "#fff" }}>{celebration.title}</div>
+            <div style={{ fontWeight: 600, fontSize: 17, marginTop: 4, color: "var(--text)" }}>{celebration.title}</div>
           </div>
         </>
       )}

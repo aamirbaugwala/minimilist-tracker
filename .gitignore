@@ -42,3 +42,6 @@ next-env.d.ts
 
 # OpenNext
 .open-next
+
+# Playwright MCP screenshots/snapshots (contain personal data)
+.playwright-mcp/

@@ -59,15 +59,15 @@ function delta(cur, prev, higherIsBetter = true) {
 }
 
 function Kpi({ label, value, sub, d }) {
-  const color = d?.good === true ? "#22c55e" : d?.good === false ? "#ef4444" : "#71717a";
+  const color = d?.good === true ? "var(--accent-text)" : d?.good === false ? "var(--danger)" : "var(--text-faint)";
   const Arrow = d?.dir === "down" ? TrendingDown : TrendingUp;
   return (
     <div style={card}>
-      <div style={{ fontSize: "0.64rem", color: "#52525b", textTransform: "uppercase", letterSpacing: 0.6 }}>
+      <div style={{ fontSize: "0.64rem", color: "var(--text-faint)", textTransform: "uppercase", letterSpacing: 0.6 }}>
         {label}
       </div>
       <div style={{ display: "flex", alignItems: "baseline", gap: 7, marginTop: 4, flexWrap: "wrap" }}>
-        <span style={{ fontSize: "1.45rem", fontWeight: 800, color: "#e4e4e7", lineHeight: 1.1 }}>
+        <span style={{ fontSize: "1.45rem", fontWeight: 800, color: "var(--text)", lineHeight: 1.1 }}>
           {value}
         </span>
         {d && (
@@ -77,7 +77,7 @@ function Kpi({ label, value, sub, d }) {
           </span>
         )}
       </div>
-      {sub && <div style={{ fontSize: "0.66rem", color: "#3f3f46", marginTop: 3 }}>{sub}</div>}
+      {sub && <div style={{ fontSize: "0.66rem", color: "var(--text-faint)", marginTop: 3 }}>{sub}</div>}
     </div>
   );
 }
@@ -86,22 +86,22 @@ function Section({ icon: Icon, title, hint, children }) {
   return (
     <div style={{ ...card, marginBottom: 12 }}>
       <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: hint ? 3 : 11 }}>
-        <Icon size={15} color="#6366f1" />
+        <Icon size={15} color="var(--accent)" />
         <span style={{ fontWeight: 700, fontSize: "0.88rem" }}>{title}</span>
       </div>
-      {hint && <div style={{ fontSize: "0.68rem", color: "#3f3f46", marginBottom: 11 }}>{hint}</div>}
+      {hint && <div style={{ fontSize: "0.68rem", color: "var(--text-faint)", marginBottom: 11 }}>{hint}</div>}
       {children}
     </div>
   );
 }
 
 function Table({ head, rows, empty }) {
-  if (!rows.length) return <div style={{ color: "#52525b", fontSize: "0.8rem" }}>{empty}</div>;
+  if (!rows.length) return <div style={{ color: "var(--text-faint)", fontSize: "0.8rem" }}>{empty}</div>;
   return (
     <div style={{ overflowX: "auto", WebkitOverflowScrolling: "touch" }}>
       <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "0.8rem", minWidth: 300 }}>
         <thead>
-          <tr style={{ color: "#52525b" }}>
+          <tr style={{ color: "var(--text-faint)" }}>
             {head.map((h, i) => (
               <th key={h} style={{ textAlign: i === 0 ? "left" : "right", fontWeight: 600, paddingBottom: 6, whiteSpace: "nowrap" }}>
                 {h}
@@ -111,7 +111,7 @@ function Table({ head, rows, empty }) {
         </thead>
         <tbody>
           {rows.map((r, i) => (
-            <tr key={i} style={{ borderTop: "1px solid #1f1f23" }}>
+            <tr key={i} style={{ borderTop: "1px solid var(--surface)" }}>
               {r.map((cell, j) => (
                 <td
                   key={j}
@@ -119,7 +119,7 @@ function Table({ head, rows, empty }) {
                     padding: "7px 0",
                     paddingLeft: j === 0 ? 0 : 10,
                     textAlign: j === 0 ? "left" : "right",
-                    color: j === 0 ? "#e4e4e7" : "#a1a1aa",
+                    color: j === 0 ? "var(--text)" : "var(--text-muted)",
                     fontWeight: j === 0 ? 600 : 400,
                     maxWidth: j === 0 ? 180 : undefined,
                     overflow: "hidden",
@@ -166,19 +166,19 @@ function DailyChart({ rows }) {
     <>
       {/* Totals + legend */}
       <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap", marginBottom: 12 }}>
-        <span style={{ fontSize: "0.78rem", color: "#a1a1aa" }}>
-          <strong style={{ color: "#e4e4e7" }}>{num(totals.visitors)}</strong> visitors
+        <span style={{ fontSize: "0.78rem", color: "var(--text-muted)" }}>
+          <strong style={{ color: "var(--text)" }}>{num(totals.visitors)}</strong> visitors
           {" · "}
-          <strong style={{ color: "#4ade80" }}>{num(totals.signups)}</strong> signups
+          <strong style={{ color: "var(--accent-text)" }}>{num(totals.signups)}</strong> signups
           {" · "}
-          <strong style={{ color: "#e4e4e7" }}>{num(totals.pageviews)}</strong> views
+          <strong style={{ color: "var(--text)" }}>{num(totals.pageviews)}</strong> views
         </span>
-        <div style={{ marginLeft: "auto", display: "flex", gap: 12, fontSize: "0.66rem", color: "#52525b" }}>
+        <div style={{ marginLeft: "auto", display: "flex", gap: 12, fontSize: "0.66rem", color: "var(--text-faint)" }}>
           <span style={{ display: "inline-flex", alignItems: "center", gap: 5 }}>
-            <span style={{ width: 9, height: 9, borderRadius: 2, background: "#6366f1" }} /> Visitors
+            <span style={{ width: 9, height: 9, borderRadius: 2, background: "var(--accent)" }} /> Visitors
           </span>
           <span style={{ display: "inline-flex", alignItems: "center", gap: 5 }}>
-            <span style={{ width: 8, height: 8, borderRadius: "50%", background: "#22c55e" }} /> Signups
+            <span style={{ width: 8, height: 8, borderRadius: "50%", background: "var(--accent-text)" }} /> Signups
           </span>
         </div>
       </div>
@@ -192,7 +192,7 @@ function DailyChart({ rows }) {
             justifyContent: "space-between",
             height: PLOT,
             fontSize: "0.6rem",
-            color: "#3f3f46",
+            color: "var(--text-faint)",
             textAlign: "right",
             minWidth: 20,
             flexShrink: 0,
@@ -216,7 +216,7 @@ function DailyChart({ rows }) {
                     left: 0,
                     right: 0,
                     bottom: `${frac * 100}%`,
-                    borderTop: "1px dashed #1f1f26",
+                    borderTop: "1px dashed var(--surface-highlight)",
                   }}
                 />
               ))}
@@ -249,8 +249,8 @@ function DailyChart({ rows }) {
                             style={{
                               fontSize: "0.58rem",
                               fontWeight: 800,
-                              color: "#0a0a0c",
-                              background: "#22c55e",
+                              color: "var(--bg)",
+                              background: "var(--accent-text)",
                               borderRadius: 20,
                               padding: "0 5px",
                               lineHeight: 1.5,
@@ -260,12 +260,12 @@ function DailyChart({ rows }) {
                             +{s}
                           </span>
                         ) : (
-                          <span style={{ width: 5, height: 5, borderRadius: "50%", background: "#22c55e", flexShrink: 0 }} />
+                          <span style={{ width: 5, height: 5, borderRadius: "50%", background: "var(--accent-text)", flexShrink: 0 }} />
                         ))}
 
                       {/* visitor count above the bar */}
                       {labelEach && (
-                        <span style={{ fontSize: "0.58rem", color: v > 0 ? "#a1a1aa" : "#3f3f46", fontWeight: 600 }}>
+                        <span style={{ fontSize: "0.58rem", color: v > 0 ? "var(--text-muted)" : "var(--border)", fontWeight: 600 }}>
                           {v}
                         </span>
                       )}
@@ -274,7 +274,7 @@ function DailyChart({ rows }) {
                         style={{
                           width: "100%",
                           height: `${Math.max(v > 0 ? 4 : 0, (v / peak) * 100)}%`,
-                          background: "linear-gradient(180deg,#818cf8,#4338ca)",
+                          background: "linear-gradient(180deg,var(--accent-text),var(--accent))",
                           borderRadius: "3px 3px 0 0",
                         }}
                       />
@@ -296,7 +296,7 @@ function DailyChart({ rows }) {
                       minWidth: 5,
                       textAlign: "center",
                       fontSize: "0.56rem",
-                      color: "#3f3f46",
+                      color: "var(--text-faint)",
                     }}
                   >
                     {dom(r.day)}
@@ -309,7 +309,7 @@ function DailyChart({ rows }) {
       </div>
 
       {/* full-date range caption */}
-      <div style={{ display: "flex", justifyContent: "space-between", fontSize: "0.62rem", color: "#3f3f46", marginTop: 7, paddingLeft: 28 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", fontSize: "0.62rem", color: "var(--text-faint)", marginTop: 7, paddingLeft: 28 }}>
         <span>{rows[0]?.day}</span>
         {rows.length > 1 && <span>{rows[rows.length - 1]?.day}</span>}
       </div>
@@ -544,8 +544,8 @@ export default function TrafficPanel() {
   if (loading) {
     return (
       <div style={{ ...card, display: "flex", alignItems: "center", gap: 10 }}>
-        <Loader2 size={16} className="animate-spin" color="#6366f1" />
-        <span style={{ color: "#71717a", fontSize: "0.85rem" }}>Loading traffic…</span>
+        <Loader2 size={16} className="animate-spin" color="var(--accent)" />
+        <span style={{ color: "var(--text-faint)", fontSize: "0.85rem" }}>Loading traffic…</span>
       </div>
     );
   }
@@ -555,35 +555,35 @@ export default function TrafficPanel() {
       problem.kind === "missing" ? (
         <>
           Postgres can&apos;t see{" "}
-          <code style={{ color: "#818cf8" }}>{problem.fns.join(", ")}</code>.
+          <code style={{ color: "var(--accent-text)" }}>{problem.fns.join(", ")}</code>.
           <br />
           If only SOME are missing, the SQL batch aborted partway — re-run{" "}
-          <code style={{ color: "#818cf8" }}>docs/telemetry.sql</code> and read the
+          <code style={{ color: "var(--accent-text)" }}>docs/telemetry.sql</code> and read the
           first error. If ALL are missing, reload the schema cache with{" "}
-          <code style={{ color: "#818cf8" }}>notify pgrst, &apos;reload schema&apos;;</code>
+          <code style={{ color: "var(--accent-text)" }}>notify pgrst, &apos;reload schema&apos;;</code>
         </>
       ) : problem.kind === "forbidden" ? (
         <>
-          The RPCs exist, but <strong style={{ color: "#e4e4e7" }}>{email || "this account"}</strong>{" "}
-          isn&apos;t in the <code style={{ color: "#818cf8" }}>is_admin()</code> allowlist.
+          The RPCs exist, but <strong style={{ color: "var(--text)" }}>{email || "this account"}</strong>{" "}
+          isn&apos;t in the <code style={{ color: "var(--accent-text)" }}>is_admin()</code> allowlist.
         </>
       ) : (
         <>
-          <code style={{ color: "#818cf8" }}>{problem.fns.join(", ")}</code> failed:{" "}
-          <span style={{ color: "#fca5a5" }}>{problem.message}</span>
+          <code style={{ color: "var(--accent-text)" }}>{problem.fns.join(", ")}</code> failed:{" "}
+          <span style={{ color: "var(--danger)" }}>{problem.message}</span>
         </>
       );
 
     return (
       <div style={{ ...card, textAlign: "center", padding: 24 }}>
-        <Globe size={26} color="#3f3f46" style={{ marginBottom: 10 }} />
-        <div style={{ fontWeight: 700, color: "#a1a1aa" }}>
+        <Globe size={26} color="var(--text-faint)" style={{ marginBottom: 10 }} />
+        <div style={{ fontWeight: 700, color: "var(--text-muted)" }}>
           {problem.kind === "forbidden" ? "Not authorised" : "Traffic data unavailable"}
         </div>
-        <div style={{ fontSize: "0.8rem", color: "#52525b", lineHeight: 1.7, maxWidth: 520, margin: "8px auto 0" }}>
+        <div style={{ fontSize: "0.8rem", color: "var(--text-faint)", lineHeight: 1.7, maxWidth: 520, margin: "8px auto 0" }}>
           {body}
           {problem.kind !== "error" && problem.message && (
-            <div style={{ marginTop: 10, color: "#fca5a5", fontSize: "0.74rem", wordBreak: "break-word" }}>
+            <div style={{ marginTop: 10, color: "var(--danger)", fontSize: "0.74rem", wordBreak: "break-word" }}>
               Postgres said: {problem.message}
             </div>
           )}
@@ -607,7 +607,7 @@ export default function TrafficPanel() {
     days,
   });
 
-  const toneColor = { good: "#22c55e", bad: "#ef4444", neutral: "#6366f1" };
+  const toneColor = { good: "var(--accent-text)", bad: "var(--danger)", neutral: "var(--accent)" };
 
   return (
     <div>
@@ -624,15 +624,15 @@ export default function TrafficPanel() {
               cursor: "pointer",
               fontSize: "0.78rem",
               fontWeight: 700,
-              border: `1px solid ${days === r ? "#6366f1" : "var(--border)"}`,
-              background: days === r ? "#6366f120" : "transparent",
-              color: days === r ? "#818cf8" : "#71717a",
+              border: `1px solid ${days === r ? "var(--accent)" : "var(--border)"}`,
+              background: days === r ? "var(--accent-soft)" : "transparent",
+              color: days === r ? "var(--accent-text)" : "var(--text-faint)",
             }}
           >
             {r}d
           </button>
         ))}
-        <span style={{ marginLeft: "auto", alignSelf: "center", fontSize: "0.66rem", color: "#3f3f46" }}>
+        <span style={{ marginLeft: "auto", alignSelf: "center", fontSize: "0.66rem", color: "var(--text-faint)" }}>
           vs previous {days}d
         </span>
       </div>
@@ -669,14 +669,14 @@ export default function TrafficPanel() {
                   display: "flex",
                   gap: 9,
                   alignItems: "flex-start",
-                  background: `${toneColor[ins.tone]}0d`,
-                  border: `1px solid ${toneColor[ins.tone]}30`,
+                  background: `color-mix(in srgb, ${toneColor[ins.tone]} 5%, transparent)`,
+                  border: `1px solid color-mix(in srgb, ${toneColor[ins.tone]} 19%, transparent)`,
                   borderRadius: 10,
                   padding: "9px 11px",
                 }}
               >
                 <span style={{ width: 6, height: 6, borderRadius: "50%", background: toneColor[ins.tone], marginTop: 6, flexShrink: 0 }} />
-                <span style={{ fontSize: "0.79rem", color: "#d4d4d8", lineHeight: 1.6 }}>{ins.text}</span>
+                <span style={{ fontSize: "0.79rem", color: "var(--text)", lineHeight: 1.6 }}>{ins.text}</span>
               </div>
             ))}
           </div>
@@ -700,8 +700,8 @@ export default function TrafficPanel() {
               minHeight: 40,
               background: "none",
               border: "none",
-              borderBottom: `2px solid ${view === id ? "#6366f1" : "transparent"}`,
-              color: view === id ? "#fff" : "#71717a",
+              borderBottom: `2px solid ${view === id ? "var(--accent)" : "transparent"}`,
+              color: view === id ? "var(--text)" : "var(--text-faint)",
               fontSize: "0.82rem",
               fontWeight: 700,
               cursor: "pointer",
@@ -716,7 +716,7 @@ export default function TrafficPanel() {
         <>
           <Section icon={TrendingUp} title="Daily visitors">
             {data.overview.length === 0 ? (
-              <div style={{ color: "#52525b", fontSize: "0.8rem" }}>No traffic recorded yet.</div>
+              <div style={{ color: "var(--text-faint)", fontSize: "0.8rem" }}>No traffic recorded yet.</div>
             ) : (
               <DailyChart rows={data.overview} />
             )}
@@ -730,14 +730,14 @@ export default function TrafficPanel() {
             >
               <div style={{ display: "flex", gap: 8 }}>
                 {[
-                  { label: "New accounts", value: Number(b.new_users), color: "#22c55e" },
-                  { label: "Returning", value: Number(b.returning_users), color: "#6366f1" },
+                  { label: "New accounts", value: Number(b.new_users), color: "var(--accent-text)" },
+                  { label: "Returning", value: Number(b.returning_users), color: "var(--accent)" },
                 ].map((x) => (
-                  <div key={x.label} style={{ flex: 1, background: "#111116", border: `1px solid ${x.color}30`, borderRadius: 10, padding: "11px 13px" }}>
+                  <div key={x.label} style={{ flex: 1, background: "var(--surface)", border: `1px solid color-mix(in srgb, ${x.color} 19%, transparent)`, borderRadius: 10, padding: "11px 13px" }}>
                     <div style={{ fontSize: "1.4rem", fontWeight: 800, color: x.color, lineHeight: 1.1 }}>
                       {num(x.value)}
                     </div>
-                    <div style={{ fontSize: "0.66rem", color: "#52525b", marginTop: 3 }}>
+                    <div style={{ fontSize: "0.66rem", color: "var(--text-faint)", marginTop: 3 }}>
                       {x.label}
                       {Number(b.total) > 0 && ` · ${pctOf(x.value, Number(b.total))}%`}
                     </div>
@@ -760,19 +760,19 @@ export default function TrafficPanel() {
                 return (
                   <div key={step.label}>
                     <div style={{ display: "flex", justifyContent: "space-between", fontSize: "0.75rem", marginBottom: 3 }}>
-                      <span style={{ color: "#e4e4e7", fontWeight: 600 }}>{step.label}</span>
-                      <span style={{ color: "#a1a1aa" }}>
+                      <span style={{ color: "var(--text)", fontWeight: 600 }}>{step.label}</span>
+                      <span style={{ color: "var(--text-muted)" }}>
                         {num(step.value)}
                         {step.of !== null && step.of > 0 && (
-                          <span style={{ color: "#22c55e", fontWeight: 700 }}> · {pctOf(step.value, step.of)}%</span>
+                          <span style={{ color: "var(--accent-text)", fontWeight: 700 }}> · {pctOf(step.value, step.of)}%</span>
                         )}
                       </span>
                     </div>
-                    <div style={{ height: 8, background: "#18181b", borderRadius: 99, overflow: "hidden" }}>
-                      <div style={{ width: `${width}%`, height: "100%", background: "linear-gradient(90deg,#6366f1,#8b5cf6)", borderRadius: 99 }} />
+                    <div style={{ height: 8, background: "var(--surface)", borderRadius: 99, overflow: "hidden" }}>
+                      <div style={{ width: `${width}%`, height: "100%", background: "linear-gradient(90deg,var(--accent),var(--protein))", borderRadius: 99 }} />
                     </div>
                     {lost > 0 && (
-                      <div style={{ fontSize: "0.66rem", color: "#ef4444", marginTop: 2 }}>
+                      <div style={{ fontSize: "0.66rem", color: "var(--danger)", marginTop: 2 }}>
                         −{num(lost)} dropped here
                       </div>
                     )}
@@ -867,9 +867,9 @@ export default function TrafficPanel() {
                     value: `${pctOf(Number(data.engagement.sessions_over_30s), Number(data.engagement.total_sessions))}%`,
                   },
                 ].map((x) => (
-                  <div key={x.label} style={{ background: "#111116", border: "1px solid var(--border)", borderRadius: 10, padding: "9px 11px" }}>
-                    <div style={{ fontSize: "1.05rem", fontWeight: 800, color: "#e4e4e7" }}>{x.value}</div>
-                    <div style={{ fontSize: "0.64rem", color: "#52525b", marginTop: 2 }}>{x.label}</div>
+                  <div key={x.label} style={{ background: "var(--surface)", border: "1px solid var(--border)", borderRadius: 10, padding: "9px 11px" }}>
+                    <div style={{ fontSize: "1.05rem", fontWeight: 800, color: "var(--text)" }}>{x.value}</div>
+                    <div style={{ fontSize: "0.64rem", color: "var(--text-faint)", marginTop: 2 }}>{x.label}</div>
                   </div>
                 ))}
               </div>

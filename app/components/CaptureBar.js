@@ -1,91 +1,73 @@
 "use client";
 
 /**
- * CaptureBar — the three fast ways to log, surfaced as home-screen heroes.
- *   📸 Snap  — camera → AI reads the plate (routes to the AI coach photo flow)
- *   🎤 Say   — voice → agent → auto-logged (your existing /voice pipeline)
- *   🔍 Search— the classic search, one tap away
- *
- * Snap and Say aren't new AI — they surface pipelines the app already has but
- * that were buried on separate screens.
+ * CaptureBar (Direction A) — one primary action and two quick alternatives:
+ *   [ + Add food ]  [📷 Snap a plate]  [🎤 Say it]
+ * "Add food" opens the full logger sheet (search, recent, saved, browse).
+ * Snap opens the camera/gallery (no `capture` attr → both choices on mobile).
  */
 
 import { useRef } from "react";
-import { Camera, Mic, Search } from "lucide-react";
+import { Camera, Mic, Plus } from "lucide-react";
+
+const square = {
+  width: 52,
+  height: 52,
+  flexShrink: 0,
+  borderRadius: 14,
+  border: "1px solid var(--border)",
+  background: "var(--surface)",
+  color: "var(--text)",
+  display: "grid",
+  placeItems: "center",
+  cursor: "pointer",
+};
 
 export default function CaptureBar({ onSnap, onVoice, onSearch }) {
   const fileRef = useRef(null);
 
   return (
-    <section style={{ padding: "12px 20px 0" }}>
-      <div style={{ display: "grid", gridTemplateColumns: "1.3fr 1fr 1fr", gap: 8 }}>
-        <button
-          onClick={() => fileRef.current?.click()}
-          style={{
-            border: "none",
-            fontFamily: "inherit",
-            cursor: "pointer",
-            borderRadius: 16,
-            padding: "13px 8px",
-            color: "#fff",
-            fontWeight: 700,
-            display: "flex",
-            flexDirection: "column",
-            alignItems: "center",
-            gap: 6,
-            background: "linear-gradient(135deg,#7c3aed,#4338ca)",
-            boxShadow: "0 8px 22px -10px rgba(124,58,237,0.7)",
-          }}
-        >
-          <Camera size={19} />
-          <span style={{ fontSize: "0.72rem" }}>Snap plate</span>
-          <span style={{ fontSize: "0.54rem", color: "rgba(255,255,255,0.55)", fontWeight: 600 }}>
-            Camera or gallery
-          </span>
-          {/* No `capture` attr → iOS/Android show BOTH "Take Photo" and
-              "Photo Library", so users can snap live or pick an existing shot. */}
-          <input
-            ref={fileRef}
-            type="file"
-            accept="image/*"
-            style={{ display: "none" }}
-            onChange={(e) => {
-              const file = e.target.files?.[0];
-              if (file) onSnap?.(file);
-              e.target.value = "";
-            }}
-          />
-        </button>
+    <section aria-label="Log food" style={{ padding: "0 20px", display: "flex", gap: 8 }}>
+      <button
+        onClick={onSearch}
+        style={{
+          flex: 1,
+          height: 52,
+          border: "none",
+          borderRadius: 14,
+          background: "var(--accent)",
+          color: "var(--on-accent)",
+          font: "inherit",
+          fontSize: 15,
+          fontWeight: 600,
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          gap: 8,
+          cursor: "pointer",
+        }}
+      >
+        <Plus size={18} strokeWidth={2.4} /> Add food
+      </button>
 
-        <button
-          onClick={onVoice}
-          style={ghost}
-        >
-          <Mic size={18} color="#a1a1aa" />
-          <span style={{ fontSize: "0.72rem" }}>Say it</span>
-        </button>
+      <button aria-label="Snap a plate" title="Snap a plate" onClick={() => fileRef.current?.click()} style={square}>
+        <Camera size={20} strokeWidth={1.8} />
+      </button>
+      <input
+        ref={fileRef}
+        type="file"
+        accept="image/*"
+        style={{ display: "none" }}
+        onChange={(e) => {
+          const file = e.target.files?.[0];
+          if (file) onSnap?.(file);
+          e.target.value = "";
+        }}
+      />
 
-        <button onClick={onSearch} style={ghost}>
-          <Search size={18} color="#a1a1aa" />
-          <span style={{ fontSize: "0.72rem" }}>Search</span>
-        </button>
-      </div>
+      <button aria-label="Say what you ate" title="Say what you ate" onClick={onVoice} style={square}>
+        <Mic size={20} strokeWidth={1.8} />
+      </button>
     </section>
   );
 }
-
-const ghost = {
-  border: "1px solid #2a2f3a",
-  background: "#14171f",
-  fontFamily: "inherit",
-  cursor: "pointer",
-  borderRadius: 16,
-  padding: "13px 8px",
-  color: "#fff",
-  fontWeight: 700,
-  display: "flex",
-  flexDirection: "column",
-  alignItems: "center",
-  justifyContent: "center", // vertically center — Snap tile is taller (2 lines)
-  gap: 6,
-};

@@ -21,29 +21,26 @@ const DIETS = [
 
 const COMMON_ALLERGENS = ["Peanuts", "Tree nuts", "Dairy", "Gluten", "Soy", "Eggs", "Shellfish", "Fish"];
 
-const chip = (active, color = "#3b82f6") => ({
-  border: `1px solid ${active ? color : "#27272a"}`,
-  background: active ? `${color}1f` : "#000",
-  color: active ? "#fff" : "#a1a1aa",
-  borderRadius: 20,
-  padding: "8px 12px",
-  fontSize: "0.8rem",
-  fontWeight: active ? 700 : 500,
+// Direction A chips: selection = accent outline + soft fill; allergies use the
+// warning tone so "avoid" reads differently from "applies to me".
+const chip = (active, tone = "accent") => ({
+  border: active ? `1.5px solid var(--${tone === "warn" ? "warn" : "accent"})` : "1px solid var(--border)",
+  background: active ? `var(--${tone === "warn" ? "warn" : "accent"}-soft)` : "transparent",
+  color: active ? "var(--text)" : "var(--text-muted)",
+  borderRadius: 99,
+  padding: "8px 13px",
+  fontSize: 13,
+  fontWeight: active ? 600 : 400,
   cursor: "pointer",
   fontFamily: "inherit",
-  display: "flex",
-  alignItems: "center",
-  gap: 6,
-  transition: "all .15s",
+  transition: "background .15s, border-color .15s",
 });
 
 const label = {
-  fontSize: "0.72rem",
-  color: "#888",
-  fontWeight: 600,
+  fontSize: 13,
+  color: "var(--text-muted)",
   marginBottom: 8,
   display: "block",
-  letterSpacing: 0.2,
 };
 
 export default function HealthProfileFields({ profile, onChange }) {
@@ -59,27 +56,27 @@ export default function HealthProfileFields({ profile, onChange }) {
   const noneSelected = conditions.length === 0;
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 18 }}>
+    <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
       {/* Conditions */}
       <div>
         <label style={label}>
-          🩺 Any of these apply to you?{" "}
-          <span style={{ color: "#52525b", fontWeight: 400 }}>— we&apos;ll tailor your targets</span>
+          Any of these apply to you?{" "}
+          <span style={{ color: "var(--text-faint)" }}>We&apos;ll tailor your targets.</span>
         </label>
         <div style={{ display: "flex", flexWrap: "wrap", gap: 7 }}>
           <button
             onClick={() => onChange({ ...profile, health_conditions: [] })}
-            style={chip(noneSelected, "#22c55e")}
+            style={chip(noneSelected)}
           >
-            ✅ None
+            None
           </button>
           {SELF_REPORT_OPTIONS.map((o) => (
             <button
               key={o.key}
               onClick={() => toggleArray("health_conditions", o.key)}
-              style={chip(conditions.includes(o.key), "#f59e0b")}
+              style={chip(conditions.includes(o.key))}
             >
-              {o.emoji} {o.label}
+              {o.label}
             </button>
           ))}
         </div>
@@ -87,15 +84,15 @@ export default function HealthProfileFields({ profile, onChange }) {
 
       {/* Dietary pattern */}
       <div>
-        <label style={label}>🍽 Dietary pattern</label>
+        <label style={label}>Diet</label>
         <div style={{ display: "flex", flexWrap: "wrap", gap: 7 }}>
           {DIETS.map((d) => (
             <button
               key={d.key}
               onClick={() => onChange({ ...profile, dietary_pattern: d.key })}
-              style={chip(profile.dietary_pattern === d.key, "#8b5cf6")}
+              style={chip(profile.dietary_pattern === d.key)}
             >
-              {d.emoji} {d.label}
+              {d.label}
             </button>
           ))}
         </div>
@@ -103,15 +100,15 @@ export default function HealthProfileFields({ profile, onChange }) {
 
       {/* Allergies */}
       <div>
-        <label style={label}>🚫 Allergies / foods to avoid</label>
+        <label style={label}>Allergies · foods to avoid</label>
         <div style={{ display: "flex", flexWrap: "wrap", gap: 7 }}>
           {COMMON_ALLERGENS.map((a) => (
             <button
               key={a}
               onClick={() => toggleArray("allergies", a)}
-              style={chip(allergies.includes(a), "#ef4444")}
+              aria-pressed={allergies.includes(a)}
+              style={chip(allergies.includes(a), "warn")}
             >
-              {allergies.includes(a) ? "✓ " : ""}
               {a}
             </button>
           ))}

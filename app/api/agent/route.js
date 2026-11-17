@@ -2,10 +2,8 @@ import { GoogleGenerativeAI } from "@google/generative-ai";
 import { GoogleAICacheManager } from "@google/generative-ai/server";
 import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
-import { FLATTENED_DB } from "../../food-data";
-import { calculateTargets } from "../../lib/nutrition";
 import { checkRateLimit } from "../../lib/rateLimit";
-import { cacheGet, cacheSet, cacheInvalidate } from "../../lib/agentCache";
+import { executeTool, toolSucceeded, MEAL_LABELS } from "../../lib/agentTools";
 import { recordLlmUsage, estimateCostUsd } from "../../lib/llmCost";
 
 // ─── INPUT SANITIZER ─────────────────────────────────────────────────────────
@@ -104,7 +102,7 @@ Tool rules:
 - "How am I doing this week?" → get_logs_for_days with days=7
 - "How many calories in X?" → search_food_database. If confidence is "estimated", say "approximately" and mention values may vary slightly.
 - "Am I losing weight?" → get_weight_trend
-- "Log X" or "Add X to my diary" → log_food_item (confirm what was logged)
+- "Log X" or "Add X to my diary" → log_food_item (one call per food; pass meal if the user named it). Only say something was logged when the tool returned logged: true, and name exactly what was logged. If it returned logged: false, the food was NOT saved: call save_food_to_database with estimated macros, then log_food_item again with the saved name — or tell the user honestly that it wasn't logged.
 - "What's my streak?" → get_streak
 - "Change my goal to X" / "Switch to bulking" / "I want to lose weight" / "I want a slight cut" / "Set calories to N" / "I want to lose fat and build muscle" → ALWAYS call get_user_profile first, then call update_goal. For presets use goal='lose'/'gain'/'maintain'/'recomp'. For nuanced requests ('slight cut', 'aggressive deficit', 'gentle bulk') set goal='custom' with explicit calorie_adjustment and protein_priority values. Confirm the change and explain the new targets.
 - User mentions any health condition, blood marker, symptom, or medication → call get_medical_context to check their report history before responding.
@@ -129,7 +127,8 @@ Medical context rules (get_medical_context):
 
 Dietary profile rules (get_user_profile → dietary_pattern, allergies, health_conditions):
 - These are HARD constraints, never preferences. NEVER suggest a food that violates the user's dietary_pattern (vegetarian/vegan/eggetarian/jain) or that contains any listed allergy.
-- vegetarian = no meat/fish; vegan = no animal products (no dairy/eggs/honey); eggetarian = vegetarian + eggs; jain = no onion/garlic/root vegetables.
+- dietary_pattern values: veg = vegetarian (no meat/fish/eggs); eggetarian = vegetarian + eggs; vegan = no animal products (no dairy/eggs/honey); jain = vegetarian with no onion/garlic/root vegetables; nonveg = no restriction.
+- get_macro_gap may return medicalAdjustments (e.g. protein capped for kidney markers). Respect them and mention them when relevant — never push intake past those caps.
 - Self-reported health_conditions carry the same weight as blood-work findings — factor them into every food suggestion.
 
 CRITICAL — save_food_to_database rule:
@@ -259,8 +258,9 @@ const tools = [
         parameters: {
           type: "OBJECT",
           properties: {
-            food_name: { type: "STRING", description: "The exact name of the food item to log." },
+            food_name: { type: "STRING", description: "The food to log — ideally the exact name returned by search_food_database or save_food_to_database (no quantity in the name)." },
             qty: { type: "NUMBER", description: "Number of servings to log (e.g. 1, 2, 0.5)." },
+            meal: { type: "STRING", description: "Optional: 'Breakfast', 'Lunch', 'Snacks' or 'Dinner' when the user names the meal. Omit otherwise — the app uses the user's current meal." },
           },
           required: ["food_name", "qty"],
         },
@@ -272,13 +272,13 @@ const tools = [
       },
       {
         name: "generate_meal_plan",
-        description: "Generates a personalised meal plan for the rest of the day using the user's real macro gap and the food database. Call this when the user asks for a meal plan, meal suggestions, or what to eat for the rest of the day. Always call get_macro_gap first to know the remaining targets.",
+        description: "Plans realistic plates (main + roti/rice + side, etc.) for the meals still left today, using the user's remaining calories and protein, the foods they actually eat, their diet/allergies and blood-report flags. Call this when the user asks for a meal plan, what to eat next, or what to eat for the rest of the day.",
         parameters: {
           type: "OBJECT",
           properties: {
             meals_remaining: {
               type: "NUMBER",
-              description: "How many meals the user has left today (e.g. 1, 2, 3). Default to 2 if not specified.",
+              description: "Only if the user says how many meals they'll have (e.g. 1 = just dinner). Leave it out to plan every meal still left today.",
             },
           },
           required: [],
@@ -350,574 +350,6 @@ const tools = [
   },
 ];
 
-async function executeTool(toolName, args, userId, db, clientDay) {
-  // Prefer the client's logical day (4am-rollover local, see lib/day.js) so
-  // agent-logged food lands on the day the user is actually having.
-  const today = clientDay || new Date().toISOString().slice(0, 10);
-
-  if (toolName === "get_todays_logs") {
-    const { data } = await db.from("food_logs")
-      .select("name, calories, protein, carbs, fats, fiber, qty")
-      .eq("user_id", userId).eq("date", today).order("created_at", { ascending: true });
-    if (!data || data.length === 0) return { result: "No food logs found for today yet." };
-    const totals = data.reduce((acc, l) => ({
-      calories: acc.calories + (l.calories || 0), protein: acc.protein + (l.protein || 0),
-      carbs: acc.carbs + (l.carbs || 0), fats: acc.fats + (l.fats || 0),
-      fiber: acc.fiber + (l.fiber || 0),
-      water: l.name === "Water" ? acc.water + l.qty * 0.25 : acc.water,
-    }), { calories: 0, protein: 0, carbs: 0, fats: 0, fiber: 0, water: 0 });
-    return { logs: data.map((l) => ({ food: l.name, qty: l.qty, calories: l.calories, protein: l.protein, carbs: l.carbs, fats: l.fats, fiber: l.fiber || 0 })), totals };
-  }
-
-  if (toolName === "get_logs_for_days") {
-    const days = Math.min(Math.max(Number(args.days) || 7, 1), 30);
-    const start = new Date(); start.setDate(start.getDate() - days);
-    const { data } = await db.from("food_logs")
-      .select("date, name, calories, protein, carbs, fats, fiber, qty")
-      .eq("user_id", userId).gte("date", start.toISOString().slice(0, 10)).order("date", { ascending: true });
-    if (!data || data.length === 0) return { result: `No logs found for the past ${days} days.` };
-
-    // ── Pre-aggregate server-side to minimise tokens sent to Gemini ──────────
-    // byDay: daily macro totals only (no raw food list per day)
-    const byDay = {};
-    // foodFreq: count how many times each food appears across all days
-    const foodFreq = {};
-
-    data.forEach((l) => {
-      if (!byDay[l.date]) byDay[l.date] = { cal: 0, pro: 0, carb: 0, fat: 0, fib: 0, water: 0 };
-      byDay[l.date].cal  += l.calories || 0;
-      byDay[l.date].pro  += l.protein  || 0;
-      byDay[l.date].carb += l.carbs    || 0;
-      byDay[l.date].fat  += l.fats     || 0;
-      byDay[l.date].fib  += l.fiber    || 0;
-      if (l.name === "Water") byDay[l.date].water += l.qty * 0.25;
-      // tally frequency (exclude water from food frequency)
-      if (l.name !== "Water") foodFreq[l.name] = (foodFreq[l.name] || 0) + 1;
-    });
-
-    // Round all values to integers to save tokens
-    Object.values(byDay).forEach((d) => {
-      d.cal  = Math.round(d.cal);
-      d.pro  = Math.round(d.pro);
-      d.carb = Math.round(d.carb);
-      d.fat  = Math.round(d.fat);
-      d.fib  = Math.round(d.fib);
-      d.water = Math.round(d.water * 10) / 10;
-    });
-
-    // Top 8 most-logged foods across the period (enough for pattern analysis)
-    const topFoods = Object.entries(foodFreq)
-      .sort((a, b) => b[1] - a[1])
-      .slice(0, 8)
-      .map(([name, count]) => ({ name, count }));
-
-    const loggedDays = Object.keys(byDay).length;
-    const avgCal = Math.round(Object.values(byDay).reduce((s, d) => s + d.cal, 0) / loggedDays);
-    const avgPro = Math.round(Object.values(byDay).reduce((s, d) => s + d.pro, 0) / loggedDays);
-
-    return {
-      daysAnalyzed: days,
-      daysLogged: loggedDays,
-      avgDailyCalories: avgCal,
-      avgDailyProtein: `${avgPro}g`,
-      topFoods,           // replaces the per-day items[] array — far fewer tokens
-      dailySummary: byDay, // compact keys: cal/pro/carb/fat/fib/water
-    };
-  }
-
-  if (toolName === "get_macro_gap") {
-    const [{ data: logs }, { data: profile }] = await Promise.all([
-      db.from("food_logs").select("name, calories, protein, carbs, fats, fiber, qty").eq("user_id", userId).eq("date", today),
-      db.from("user_profiles").select("*").eq("user_id", userId).single(),
-    ]);
-    if (!profile) return { result: "Profile not set. Cannot calculate targets." };
-    const { cals: targetCals, p: targetP, c: targetC, f: targetF, fib: targetFib, water: targetWater } = calculateTargets(profile);
-    const totals = (logs || []).reduce((acc, l) => ({
-      calories: acc.calories + (l.calories || 0), protein: acc.protein + (l.protein || 0),
-      carbs: acc.carbs + (l.carbs || 0), fats: acc.fats + (l.fats || 0), fiber: acc.fiber + (l.fiber || 0),
-      water: l.name === "Water" ? acc.water + l.qty * 0.25 : acc.water,
-    }), { calories: 0, protein: 0, carbs: 0, fats: 0, fiber: 0, water: 0 });
-    return {
-      goal: profile.goal,
-      targets: { calories: targetCals, protein: targetP, carbs: targetC, fats: targetF, fiber: targetFib, water: `${targetWater}L` },
-      consumed: totals,
-      remaining: {
-        calories: Math.max(0, targetCals - totals.calories),
-        protein: `${Math.max(0, Math.round(targetP - totals.protein))}g`,
-        carbs: `${Math.max(0, Math.round(targetC - totals.carbs))}g`,
-        fats: `${Math.max(0, Math.round(targetF - totals.fats))}g`,
-        fiber: `${Math.max(0, Math.round(targetFib - totals.fiber))}g`,
-        water: `${Math.max(0, Math.round((targetWater - totals.water) * 10) / 10)}L`,
-      },
-    };
-  }
-
-  if (toolName === "search_food_database") {
-    const q = (args.query || "").toLowerCase().trim();
-    const keys = Object.keys(FLATTENED_DB).sort((a, b) => b.length - a.length);
-
-    // Exact match first
-    const exactMatch = keys.find((k) => k === q);
-    // Partial match (query included in key or key included in query)
-    const partialMatch = !exactMatch && keys.find((k) => k.includes(q) || q.includes(k));
-    const match = exactMatch || partialMatch;
-
-    if (!match) return { result: `"${args.query}" not found in the food database. Try a simpler name.` };
-    const item = FLATTENED_DB[match];
-    const confidence = exactMatch ? "exact" : "estimated"; // ← confidence signal
-    return {
-      food: match,
-      confidence,
-      per_serving: {
-        calories: item.calories,
-        protein: `${item.protein}g`,
-        carbs: `${item.carbs}g`,
-        fats: `${item.fats}g`,
-        fiber: `${item.fiber}g`,
-      },
-    };
-  }
-
-  if (toolName === "generate_meal_plan") {
-    // Step 1: fetch profile + today's logs to compute macro gap
-    const [{ data: logs }, { data: profile }] = await Promise.all([
-      db.from("food_logs").select("name, calories, protein, carbs, fats, fiber, qty").eq("user_id", userId).eq("date", today),
-      db.from("user_profiles").select("*").eq("user_id", userId).single(),
-    ]);
-    if (!profile) return { result: "Profile not set. Cannot generate a meal plan." };
-
-    // Compute targets via shared lib/nutrition
-    const { cals: targetCals, p: targetP, c: targetC, f: targetF } = calculateTargets(profile);
-
-    const consumed = (logs || []).reduce(
-      (acc, l) => ({
-        calories: acc.calories + (l.calories || 0),
-        protein: acc.protein + (l.protein || 0),
-        carbs: acc.carbs + (l.carbs || 0),
-        fats: acc.fats + (l.fats || 0),
-      }),
-      { calories: 0, protein: 0, carbs: 0, fats: 0 }
-    );
-
-    const remaining = {
-      calories: Math.max(0, targetCals - consumed.calories),
-      protein: Math.max(0, targetP - consumed.protein),
-      carbs: Math.max(0, targetC - consumed.carbs),
-      fats: Math.max(0, targetF - consumed.fats),
-    };
-
-    if (remaining.calories < 50) {
-      return { result: "You've already hit your calorie target for today! Great job. No meal plan needed." };
-    }
-
-    const mealsLeft = Math.max(1, Math.min(Number(args.meals_remaining) || 2, 5));
-    const calsPerMeal = Math.round(remaining.calories / mealsLeft);
-    const proteinPerMeal = Math.round(remaining.protein / mealsLeft);
-
-    // Step 2: Score every food in the DB and pick the best fit per meal slot
-    const allFoods = Object.entries(FLATTENED_DB);
-    // Score = how close calories + protein are to per-meal targets (lower = better)
-    const scored = allFoods.map(([name, item]) => {
-      const calDiff = Math.abs(item.calories - calsPerMeal);
-      const proteinScore = item.protein >= proteinPerMeal * 0.3 ? 0 : 50; // reward protein-rich foods
-      const score = calDiff + proteinScore;
-      return { name, item, score };
-    }).sort((a, b) => a.score - b.score);
-
-    // Pick distinct foods for each meal slot (no repeats)
-    const used = new Set();
-    const meals = [];
-    for (let slot = 0; slot < mealsLeft; slot++) {
-      const pick = scored.find((f) => !used.has(f.name));
-      if (!pick) break;
-      used.add(pick.name);
-      meals.push({
-        meal: `Meal ${slot + 1}`,
-        food: pick.name,
-        qty: 1,
-        calories: pick.item.calories,
-        protein: `${pick.item.protein}g`,
-        carbs: `${pick.item.carbs}g`,
-        fats: `${pick.item.fats}g`,
-      });
-    }
-
-    const totalPlanned = meals.reduce((s, m) => ({ cal: s.cal + m.calories, pro: s.pro + parseFloat(m.protein) }), { cal: 0, pro: 0 });
-
-    return {
-      goal: profile.goal,
-      remainingToFill: remaining,
-      mealsLeft,
-      plan: meals,
-      summary: {
-        totalCaloriesPlanned: totalPlanned.cal,
-        totalProteinPlanned: `${Math.round(totalPlanned.pro)}g`,
-        calorieGapAfterPlan: Math.max(0, remaining.calories - totalPlanned.cal),
-      },
-    };
-  }
-
-  if (toolName === "get_weight_trend") {
-    const days = Math.min(Math.max(Number(args.days) || 14, 1), 30);
-    const start = new Date(); start.setDate(start.getDate() - days);
-    const { data } = await db.from("weight_logs").select("date, weight")
-      .eq("user_id", userId).gte("date", start.toISOString().slice(0, 10)).order("date", { ascending: true });
-    if (!data || data.length === 0) return { result: "No weight logs found. Start logging your weight on the dashboard!" };
-    const first = data[0].weight; const last = data[data.length - 1].weight;
-    const change = Math.round((last - first) * 10) / 10;
-    return { logs: data, summary: { startWeight: `${first}kg`, currentWeight: `${last}kg`, change: `${change > 0 ? "+" : ""}${change}kg over ${days} days`, trend: change < 0 ? "losing" : change > 0 ? "gaining" : "stable" } };
-  }
-
-  if (toolName === "get_user_profile") {
-    const cached = cacheGet(userId, "get_user_profile");
-    if (cached) return cached;
-
-    const { data } = await db.from("user_profiles")
-      .select("weight, height, age, gender, activity, goal, calorie_adjustment, protein_priority, target_calories, username, dietary_pattern, allergies, health_conditions")
-      .eq("user_id", userId).single();
-    if (!data) return { result: "No profile found." };
-
-    const result = { profile: data };
-    cacheSet(userId, "get_user_profile", result);
-    return result;
-  }
-
-  // ── NEW: Log a food item directly to the diary ─────────────────────────────
-  if (toolName === "log_food_item") {
-    const foodName = (args.food_name || "").toLowerCase().trim();
-    const qty = Math.max(0.1, Math.min(Number(args.qty) || 1, 20)); // clamp 0.1–20 servings
-    if (!foodName) return { error: "No food name provided." };
-
-    // Look up the food in the database
-    const keys = Object.keys(FLATTENED_DB).sort((a, b) => b.length - a.length);
-    const match = keys.find((k) => k.includes(foodName) || foodName.includes(k));
-    if (!match) return { error: `"${args.food_name}" not found in the food database. Ask the user to log it manually.` };
-
-    const item = FLATTENED_DB[match];
-    const scale = qty;
-    const logEntry = {
-      user_id: userId,
-      date: today,
-      name: match,
-      qty,
-      calories: Math.round((item.calories || 0) * scale),
-      protein: Math.round((item.protein || 0) * scale * 10) / 10,
-      carbs: Math.round((item.carbs || 0) * scale * 10) / 10,
-      fats: Math.round((item.fats || 0) * scale * 10) / 10,
-      fiber: Math.round((item.fiber || 0) * scale * 10) / 10,
-    };
-
-    const { error: insertError } = await db.from("food_logs").insert(logEntry);
-    if (insertError) return { error: `Failed to log: ${insertError.message}` };
-
-    return {
-      logged: true,
-      food: match,
-      qty,
-      nutrients: {
-        calories: logEntry.calories,
-        protein: `${logEntry.protein}g`,
-        carbs: `${logEntry.carbs}g`,
-        fats: `${logEntry.fats}g`,
-        fiber: `${logEntry.fiber}g`,
-      },
-      message: `✅ Logged ${qty}x ${match} (${logEntry.calories} kcal) to today's diary.`,
-    };
-  }
-
-  // ── Update goal (two-axis model) ──────────────────────────────────────────
-  if (toolName === "update_goal") {
-    // Preset definitions — mirror GOAL_PRESETS in nutrition.js
-    const PRESETS = {
-      lose:     { calorie_adjustment: -500, protein_priority: "preserve" },
-      gain:     { calorie_adjustment:  300, protein_priority: "balanced" },
-      maintain: { calorie_adjustment:    0, protein_priority: "balanced" },
-      recomp:   { calorie_adjustment:    0, protein_priority: "maximize" },
-    };
-    const VALID_ACTIVITIES = ["sedentary", "light", "moderate", "active"];
-    const VALID_PRIORITIES = ["preserve", "balanced", "maximize"];
-
-    const newGoal    = (args.goal || "custom").toLowerCase().trim();
-    const newActivity = args.activity ? args.activity.toLowerCase().trim() : null;
-    const newTargetCals = args.target_calories ? Number(args.target_calories) : null;
-
-    // If a preset, auto-fill axes (agent can still override with explicit args)
-    const preset = PRESETS[newGoal] || null;
-    const newAdj = args.calorie_adjustment !== undefined
-      ? Number(args.calorie_adjustment)
-      : (preset ? preset.calorie_adjustment : 0);
-    const newPriority = args.protein_priority
-      ? args.protein_priority
-      : (preset ? preset.protein_priority : "balanced");
-
-    // ── Validate ──────────────────────────────────────────────────────────
-    if (newAdj < -700 || newAdj > 500) {
-      return { error: `calorie_adjustment ${newAdj} is out of range (−700 to +500).` };
-    }
-    if (!VALID_PRIORITIES.includes(newPriority)) {
-      return { error: `Invalid protein_priority "${newPriority}". Must be: preserve, balanced, maximize.` };
-    }
-    if (newActivity && !VALID_ACTIVITIES.includes(newActivity)) {
-      return { error: `Invalid activity "${newActivity}". Must be: sedentary, light, moderate, active.` };
-    }
-    if (newTargetCals !== null && (newTargetCals < 800 || newTargetCals > 6000)) {
-      return { error: `target_calories ${newTargetCals} is out of safe range (800–6000).` };
-    }
-
-    // ── Build payload ─────────────────────────────────────────────────────
-    const updatePayload = {
-      goal: newGoal,
-      calorie_adjustment: newAdj,
-      protein_priority: newPriority,
-      target_calories: newTargetCals, // null = auto-calculate
-      updated_at: new Date().toISOString(),
-    };
-    if (newActivity) updatePayload.activity = newActivity;
-
-    const { error: updateError } = await db
-      .from("user_profiles")
-      .update(updatePayload)
-      .eq("user_id", userId);
-
-    if (updateError) return { error: `Failed to update goal: ${updateError.message}` };
-
-    // Profile just changed — bust the cache so next get_user_profile hits DB fresh
-    cacheInvalidate(userId, "get_user_profile");
-
-    // Snapshot for goal_history so past days retain their original targets
-    await db.from("goal_history").insert({
-      user_id: userId,
-      goal: newGoal,
-      calorie_adjustment: newAdj,
-      protein_priority: newPriority,
-      activity: newActivity || undefined,
-      target_calories: newTargetCals,
-      effective_from: today,
-    });
-
-    const PRIORITY_LABELS = {
-      preserve: "2.0g/kg protein (muscle preservation)",
-      balanced: "1.8g/kg protein (balanced)",
-      maximize: "2.4g/kg protein (maximum muscle synthesis)",
-    };
-
-    const adjLabel = newTargetCals
-      ? `${newTargetCals} kcal/day (manual)`
-      : newAdj === 0 ? "TDEE (maintenance calories)"
-      : newAdj > 0  ? `TDEE +${newAdj} kcal (surplus)`
-      :                `TDEE ${newAdj} kcal (deficit)`;
-
-    return {
-      updated: true,
-      goal: newGoal,
-      calorie_adjustment: newAdj,
-      protein_priority: newPriority,
-      summary: {
-        calories: adjLabel,
-        protein: PRIORITY_LABELS[newPriority],
-      },
-      message: `✅ Goal updated. Calories: ${adjLabel}. Protein: ${PRIORITY_LABELS[newPriority]}.`,
-    };
-  }
-
-  // ── NEW: Logging streak ────────────────────────────────────────────────────
-  if (toolName === "get_streak") {
-    const { data } = await db.from("food_logs")
-      .select("date")
-      .eq("user_id", userId)
-      .order("date", { ascending: false })
-      .limit(60); // look back max 60 days
-
-    if (!data || data.length === 0) return { streak: 0, message: "No logs yet. Start today to build your streak! 🔥" };
-
-    // Get unique dates, sorted descending
-    const uniqueDates = [...new Set(data.map((l) => l.date))].sort((a, b) => b.localeCompare(a));
-    const todayStr = today;
-    let streak = 0;
-    let checkDate = new Date(todayStr);
-
-    for (const dateStr of uniqueDates) {
-      const expected = checkDate.toISOString().slice(0, 10);
-      if (dateStr === expected) {
-        streak++;
-        checkDate.setDate(checkDate.getDate() - 1);
-      } else {
-        break;
-      }
-    }
-
-    const emoji = streak >= 7 ? "🔥" : streak >= 3 ? "⚡" : "📅";
-    return {
-      streak,
-      message: streak === 0
-        ? "No active streak — log today's food to start one!"
-        : `${emoji} ${streak}-day streak! You've logged food for ${streak} consecutive day${streak > 1 ? "s" : ""}.`,
-      longestStreakInWindow: uniqueDates.length,
-    };
-  }
-
-  // ── Save food to custom database ──────────────────────────────────────────
-  if (toolName === "save_food_to_database") {
-    const name = (args.name || "").toLowerCase().trim();
-    if (!name) return { error: "No food name provided." };
-
-    // Don't duplicate if it already exists in the built-in DB
-    const builtInKeys = Object.keys(FLATTENED_DB);
-    if (builtInKeys.some((k) => k.includes(name) || name.includes(k))) {
-      return { already_exists: true, food: name, message: `"${name}" already exists in the food database.` };
-    }
-
-    // Check for existing custom entry (avoid duplicates)
-    const { data: existing } = await db
-      .from("custom_foods")
-      .select("id")
-      .eq("user_id", userId)
-      .ilike("name", name)
-      .maybeSingle();
-
-    if (existing) {
-      return { already_exists: true, food: name, message: `"${name}" is already in your custom foods.` };
-    }
-
-    const newFood = {
-      user_id: userId,
-      name,
-      calories: Math.round(Number(args.calories) || 0),
-      protein: Math.round((Number(args.protein) || 0) * 10) / 10,
-      carbs: Math.round((Number(args.carbs) || 0) * 10) / 10,
-      fats: Math.round((Number(args.fats) || 0) * 10) / 10,
-      fiber: Math.round((Number(args.fiber) || 0) * 10) / 10,
-    };
-
-    const { error: insertError } = await db.from("custom_foods").insert([newFood]);
-    if (insertError) return { error: `Failed to save food: ${insertError.message}` };
-
-    return {
-      saved: true,
-      food: name,
-      nutrients: {
-        calories: newFood.calories,
-        protein: `${newFood.protein}g`,
-        carbs: `${newFood.carbs}g`,
-        fats: `${newFood.fats}g`,
-        fiber: `${newFood.fiber}g`,
-      },
-      message: `✅ "${name}" saved to your custom food database and is now searchable.`,
-    };
-  }
-
-  // ── Medical context from uploaded reports ────────────────────────────────
-  if (toolName === "get_medical_context") {
-    const cached = cacheGet(userId, "get_medical_context");
-    if (cached) return cached;
-
-    const { data: reports, error } = await db
-      .from("medical_reports")
-      .select("file_name, created_at, flags, include_foods, exclude_foods, trends, analysis")
-      .eq("user_id", userId)
-      .order("created_at", { ascending: false });
-
-    if (error || !reports || reports.length === 0) {
-      return { result: "No medical reports found. The user has not uploaded any blood test or health reports yet." };
-    }
-
-    // Build a structured summary across all reports
-    const summary = reports.map((r, i) => {
-      const date = new Date(r.created_at).toLocaleDateString("en-IN", {
-        day: "numeric", month: "short", year: "numeric",
-      });
-
-      // Separate markers by status for quick scanning
-      const abnormal = (r.flags || []).filter((f) => f.status !== "normal");
-      const normal   = (r.flags || []).filter((f) => f.status === "normal");
-
-      return {
-        report: i === 0 ? `Latest — ${r.file_name} (${date})` : `Report ${i + 1} — ${r.file_name} (${date})`,
-        abnormalMarkers: abnormal.map((f) => `${f.marker}: ${f.value} [${f.status.toUpperCase()}] — ${f.note}`),
-        normalMarkers:   normal.map((f)   => `${f.marker}: ${f.value}`),
-        includeInDiet:   (r.include_foods || []).map((f) => `${f.food} — ${f.reason}`),
-        avoidInDiet:     (r.exclude_foods || []).map((f) => `${f.food} — ${f.reason}`),
-        trends:          (r.trends || []).map((t) => `${t.marker}: ${t.previous} → ${t.current} (${t.direction}) — ${t.note}`),
-        analysisSummary: r.analysis?.slice(0, 400) || "",
-      };
-    });
-
-    // Latest report's dietary rules — most actionable for meal planning
-    const latest = reports[0];
-    const dietaryProfile = {
-      mustInclude: (latest.include_foods || []).map((f) => f.food),
-      mustAvoid:   (latest.exclude_foods || []).map((f) => f.food),
-      criticalFlags: (latest.flags || [])
-        .filter((f) => f.status === "high" || f.status === "low")
-        .map((f) => `${f.marker} is ${f.status} (${f.value})`),
-    };
-
-    const medicalResult = {
-      totalReports: reports.length,
-      latestReportDate: new Date(reports[0].created_at).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" }),
-      dietaryProfile,
-      allReports: summary,
-      instruction: "Use this medical context to personalise all food suggestions. Prioritise including foods from mustInclude and strictly avoid foods in mustAvoid. Reference specific markers when explaining dietary advice.",
-    };
-    cacheSet(userId, "get_medical_context", medicalResult);
-    return medicalResult;
-  }
-
-  // ── Web search ────────────────────────────────────────────────────────────
-  if (toolName === "search_web") {
-    const query = (args.query || "").trim().slice(0, 400);
-    if (!query) return { error: "No search query provided." };
-
-    // Use Serper.dev if API key available; fall back to DuckDuckGo instant answers
-    if (process.env.SERPER_API_KEY) {
-      try {
-        const res = await fetch("https://google.serper.dev/search", {
-          method: "POST",
-          headers: {
-            "X-API-KEY": process.env.SERPER_API_KEY,
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({ q: query, num: 5, gl: "in" }),
-          signal: AbortSignal.timeout(8000),
-        });
-        const data = await res.json();
-        const results = (data.organic || []).slice(0, 5).map((r) => ({
-          title:   r.title,
-          url:     r.link,
-          snippet: r.snippet,
-        }));
-        const answerBox = data.answerBox?.answer || data.answerBox?.snippet || null;
-        return { query, source: "Google", answerBox, results };
-      } catch (err) {
-        // Fall through to DuckDuckGo backup
-        console.warn("[search_web] Serper failed:", err.message);
-      }
-    }
-
-    // Free fallback: DuckDuckGo instant-answer API (no key needed)
-    try {
-      const ddUrl = `https://api.duckduckgo.com/?q=${encodeURIComponent(query)}&format=json&no_redirect=1&no_html=1&skip_disambig=1`;
-      const res = await fetch(ddUrl, { signal: AbortSignal.timeout(6000) });
-      const data = await res.json();
-      const topics = (data.RelatedTopics || [])
-        .slice(0, 5)
-        .map((t) => (t.Text ? { title: t.Text.slice(0, 80), snippet: t.Text } : null))
-        .filter(Boolean);
-      return {
-        query,
-        source: "DuckDuckGo",
-        answerBox: data.Answer || data.AbstractText || null,
-        results: topics,
-        note: "Limited results — add SERPER_API_KEY env var for full Google Search.",
-      };
-    } catch (err) {
-      return { error: `Search failed: ${err.message}. Try rephrasing or use your training knowledge.` };
-    }
-  }
-
-  return { error: `Unknown tool: ${toolName}` };
-}
-
 export async function POST(req) {
   // ── PHASE 1: Parse & validate — fast JSON responses, no stream yet ────────
   const apiKey = process.env.GEMINI_API_KEY;
@@ -928,6 +360,9 @@ export async function POST(req) {
   // Client's logical "today" (YYYY-MM-DD, 4am-rollover local day) for correct
   // food-log dates; null falls back to server UTC inside executeTool.
   const clientDay = typeof body.dayKey === "string" && /^\d{4}-\d{2}-\d{2}$/.test(body.dayKey) ? body.dayKey : null;
+  // Client's current meal (its local clock — the server runs in UTC), used when
+  // the user logs food without naming a meal.
+  const mealHint = MEAL_LABELS.includes(body.meal) ? body.meal : null;
   const clientHistory = Array.isArray(body.history) ? body.history : [];
   const message = sanitizeMessage(body.message);
   // Image attachment — validated server-side
@@ -1071,9 +506,37 @@ export async function POST(req) {
           : userMessageParts;         // multipart (image + text) — send as array
         let response = await chat.sendMessage(msgPayload);
         let candidate = response.response;
-        const toolCallLog = [];
+        const toolCallLog = []; // { tool, ok }
         const MAX_TOOL_ROUNDS = 5;
         let rounds = 0;
+        // Per-request tool state (food DB incl. custom foods, medical
+        // conditions) shared by every tool call in this turn.
+        const toolCtx = { clientDay, mealHint };
+
+        const runTool = async (call) => {
+          // Emit immediately so the client badge appears while the tool runs
+          emit({ type: "tool", name: call.name });
+          let result;
+          try {
+            result = await executeTool(call.name, call.args || {}, userId, db, toolCtx);
+          } catch (toolErr) {
+            result = { error: `Tool ${call.name} failed: ${toolErr.message}` };
+          }
+          const ok = toolSucceeded(call.name, result);
+          toolCallLog.push({ tool: call.name, ok });
+          // A structured receipt the UI can render ("Logged to Lunch ✓").
+          if (call.name === "log_food_item" && ok) {
+            emit({
+              type: "logged",
+              id: result.id,
+              food: result.food,
+              qty: result.qty,
+              meal: result.meal,
+              calories: result.nutrients?.calories ?? null,
+            });
+          }
+          return { functionResponse: { name: call.name, response: result } };
+        };
 
         while (
           rounds < MAX_TOOL_ROUNDS &&
@@ -1081,21 +544,19 @@ export async function POST(req) {
           candidate.functionCalls()?.length > 0
         ) {
           const calls = candidate.functionCalls() ?? [];
-          const toolResults = await Promise.all(
-            calls.map(async (call) => {
-              // Emit immediately so the client badge appears while the tool runs
-              emit({ type: "tool", name: call.name });
-
-              let result;
-              try {
-                result = await executeTool(call.name, call.args || {}, userId, db, clientDay);
-              } catch (toolErr) {
-                result = { error: `Tool ${call.name} failed: ${toolErr.message}` };
-              }
-              toolCallLog.push({ tool: call.name });
-              return { functionResponse: { name: call.name, response: result } };
-            })
+          // The model often saves a new custom food AND logs it in the same
+          // round. Run the saves first (in order), so the logs can find them —
+          // previously everything ran in parallel and the log lost the race.
+          const results = new Array(calls.length);
+          for (let i = 0; i < calls.length; i++) {
+            if (calls[i].name === "save_food_to_database") results[i] = await runTool(calls[i]);
+          }
+          await Promise.all(
+            calls.map(async (call, i) => {
+              if (call.name !== "save_food_to_database") results[i] = await runTool(call);
+            }),
           );
+          const toolResults = results;
           response = await chat.sendMessage(toolResults);
           candidate = response.response;
           rounds++;
@@ -1119,6 +580,7 @@ export async function POST(req) {
           event: "agent_request",
           userId, latencyMs, rounds,
           toolsUsed:    toolCallLog.map((t) => t.tool),
+          toolsFailed:  toolCallLog.filter((t) => !t.ok).map((t) => t.tool),
           toolCount:    toolCallLog.length,
           inputTokens, outputTokens, totalTokens,
           cachedTokens,                                             // how many were cache hits
@@ -1157,9 +619,12 @@ export async function POST(req) {
         // agent page history.
         if (!skipHistory) {
           const turnTs = new Date();
+          // Failed calls are stored as "<tool>:error" so failures are visible in
+          // the data (a silent log_food_item failure went unnoticed for months).
+          const persistedTools = toolCallLog.map((t) => (t.ok ? t.tool : `${t.tool}:error`));
           const { error: saveErr } = await db.from("chat_sessions").insert([
             { user_id: userId, role: "user",  content: message,   tools_used: [],                                      created_at: new Date(turnTs.getTime()).toISOString() },
-            { user_id: userId, role: "model", content: replyText, tools_used: toolCallLog.map((t) => t.tool), created_at: new Date(turnTs.getTime() + 1).toISOString() },
+            { user_id: userId, role: "model", content: replyText, tools_used: persistedTools, created_at: new Date(turnTs.getTime() + 1).toISOString() },
           ]);
           if (saveErr) console.error("[chat history] save error:", saveErr.message);
         }

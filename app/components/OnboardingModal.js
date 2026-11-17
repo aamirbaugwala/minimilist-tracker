@@ -1,29 +1,81 @@
 "use client";
 
 /**
- * OnboardingModal — the first-run goal setter. Opens automatically for a user
- * with an incomplete profile (no weight). Four steps: Basics → Goal → Health →
- * Review, with a live target preview that already reflects self-reported
- * conditions (via lib/conditions.js). Basics are required to finish.
+ * Onboarding (Direction A) — full-screen first-run setup for a user with an
+ * incomplete profile (no weight). Four steps: Basics → Goal → Health → Review.
+ * Progress is always visible, each choice says what it does, and the daily
+ * target preview (already respecting self-reported conditions) updates live.
+ * Basics are required; Health is optional.
  */
 
 import { useState } from "react";
-import { ArrowLeft, Loader2, Sparkles, AlertTriangle } from "lucide-react";
+import { AlertTriangle, Check, Info, Loader2 } from "lucide-react";
 import { calculateTargets, GOAL_PRESETS } from "../lib/nutrition";
 import { conditionsFromProfile } from "../lib/conditions";
 import HealthProfileFields from "./HealthProfileFields";
+import { sheetInput, sheetLabel, primaryBtn, secondaryBtn } from "./Sheet";
 
-const inputStyle = {
-  width: "100%",
-  padding: 11,
-  background: "#000",
-  border: "1px solid #333",
-  color: "#fff",
-  borderRadius: 10,
-  fontSize: 16, // 16px avoids iOS focus-zoom
-  boxSizing: "border-box",
+const STEPS = ["Basics", "Goal", "Health", "Review"];
+const GOAL_TITLE = { lose: "Lose fat", gain: "Build muscle", maintain: "Maintain", recomp: "Lose fat, gain muscle" };
+const GOAL_HINT = {
+  lose: "About 0.5 kg a week · protects muscle",
+  maintain: "Keep your weight, eat well",
+  gain: "A small surplus with steady protein",
+  recomp: "Same calories, more protein",
 };
-const fieldLabel = { fontSize: "0.72rem", color: "#888", marginBottom: 5, display: "block", fontWeight: 600 };
+const ACTIVITY = [
+  { id: "sedentary", label: "Mostly sitting", hint: "Desk job, little exercise" },
+  { id: "light", label: "Lightly active", hint: "Exercise 1–3 days a week" },
+  { id: "moderate", label: "Active", hint: "Exercise 3–5 days a week" },
+  { id: "active", label: "Very active", hint: "Exercise 6–7 days a week" },
+];
+const fmt = (n) => Math.round(n || 0).toLocaleString("en-IN");
+
+function RadioCard({ on, title, hint, onClick }) {
+  return (
+    <button
+      role="radio"
+      aria-checked={on}
+      onClick={onClick}
+      style={{
+        display: "flex",
+        alignItems: "center",
+        gap: 14,
+        padding: 16,
+        borderRadius: 16,
+        border: on ? "1.5px solid var(--accent)" : "1px solid var(--border)",
+        background: on ? "var(--accent-soft)" : "var(--surface)",
+        color: "var(--text)",
+        fontFamily: "inherit",
+        textAlign: "left",
+        cursor: "pointer",
+        width: "100%",
+      }}
+    >
+      <span style={{ flex: 1 }}>
+        <span style={{ display: "block", fontSize: 16, fontWeight: 600 }}>{title}</span>
+        {hint && <span style={{ display: "block", fontSize: 13, color: "var(--text-muted)", marginTop: 3 }}>{hint}</span>}
+      </span>
+      <span
+        aria-hidden="true"
+        style={{
+          width: 22,
+          height: 22,
+          flexShrink: 0,
+          borderRadius: "50%",
+          boxSizing: "border-box",
+          border: on ? "none" : "2px solid var(--border)",
+          background: on ? "var(--accent)" : "transparent",
+          color: "var(--on-accent)",
+          display: "grid",
+          placeItems: "center",
+        }}
+      >
+        {on && <Check size={13} strokeWidth={3} />}
+      </span>
+    </button>
+  );
+}
 
 export default function OnboardingModal({ initialProfile, username, onComplete }) {
   const [step, setStep] = useState(0);
@@ -34,226 +86,155 @@ export default function OnboardingModal({ initialProfile, username, onComplete }
     health_conditions: [], dietary_pattern: "", allergies: [],
     ...initialProfile,
   });
-
   const set = (patch) => setP((prev) => ({ ...prev, ...patch }));
   const basicsDone = p.weight && p.height && p.age;
-
-  const STEPS = ["Basics", "Goal", "Health", "Review"];
-
-  // Live preview already respects self-reported conditions.
   const preview = calculateTargets(p, conditionsFromProfile(p));
 
   const finish = async () => {
     setSaving(true);
     await onComplete(p);
-    // parent unmounts us on success; if it doesn't, release the button
-    setSaving(false);
+    setSaving(false); // parent unmounts us on success
   };
 
-  return (
-    <div className="modal-overlay" style={{ zIndex: 10001, alignItems: "flex-end", paddingBottom: 62 }}>
-      <div
-        style={{
-          background: "var(--surface)",
-          border: "1px solid var(--border)",
-          borderRadius: "20px 20px 0 0",
-          width: "100%",
-          maxWidth: 480,
-          maxHeight: "calc(92dvh - 62px)",
-          display: "flex",
-          flexDirection: "column",
-          margin: "0 auto",
-          boxShadow: "0 -10px 40px rgba(0,0,0,0.5)",
-        }}
-      >
-        {/* Header + progress */}
-        <div style={{ padding: "18px 20px 12px", flexShrink: 0 }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-            {step > 0 && (
-              <button
-                onClick={() => setStep((s) => s - 1)}
-                style={{ background: "none", border: "none", color: "#a1a1aa", cursor: "pointer", padding: 0, display: "flex" }}
-              >
-                <ArrowLeft size={18} />
-              </button>
-            )}
-            <div style={{ flex: 1 }}>
-              <div style={{ fontSize: "0.68rem", color: "#14b8a6", fontWeight: 800, letterSpacing: "0.1em", textTransform: "uppercase" }}>
-                Step {step + 1} of {STEPS.length}
-              </div>
-              <div style={{ fontWeight: 800, fontSize: "1.2rem", letterSpacing: "-0.01em" }}>
-                {step === 0
-                  ? `Welcome${username ? `, ${username}` : ""} 👋`
-                  : STEPS[step] === "Goal"
-                    ? "What's your goal?"
-                    : STEPS[step] === "Health"
-                      ? "Your health"
-                      : "You're all set 🎯"}
-              </div>
-            </div>
-          </div>
-          <div style={{ display: "flex", gap: 5, marginTop: 12 }}>
-            {STEPS.map((_, i) => (
-              <div
-                key={i}
-                style={{
-                  flex: 1,
-                  height: 4,
-                  borderRadius: 99,
-                  background: i <= step ? "linear-gradient(90deg,#14b8a6,#3b82f6)" : "#27272a",
-                  transition: "background .3s",
-                }}
-              />
-            ))}
-          </div>
-        </div>
+  const title = [
+    `Welcome${username ? `, ${username}` : ""}`,
+    "What are you aiming for?",
+    "Anything we should know?",
+    "You’re all set",
+  ][step];
+  const intro = [
+    "Takes about a minute. This is how we work out your daily calories and protein.",
+    "This sets your daily calories and protein. You can change it any time in Me.",
+    "Optional. It tailors your targets and food suggestions — skip if none apply.",
+    "Here’s your daily plan. It adapts as you log and if you add a blood report.",
+  ][step];
 
-        {/* Body */}
-        <div style={{ overflowY: "auto", flex: 1, padding: "6px 20px 20px" }}>
+  return (
+    <div style={{ position: "fixed", inset: 0, zIndex: 10001, background: "var(--bg)", color: "var(--text)", overflowY: "auto" }}>
+      <div style={{ maxWidth: 560, minHeight: "100%", margin: "0 auto", boxSizing: "border-box", display: "flex", flexDirection: "column", padding: "calc(24px + env(safe-area-inset-top, 0px)) 24px calc(24px + env(safe-area-inset-bottom, 0px))" }}>
+        <div role="progressbar" aria-label={`Step ${step + 1} of ${STEPS.length}`} aria-valuenow={step + 1} aria-valuemin={1} aria-valuemax={STEPS.length} style={{ display: "grid", gridTemplateColumns: `repeat(${STEPS.length}, minmax(0, 1fr))`, gap: 6 }}>
+          {STEPS.map((s, i) => (
+            <span key={s} style={{ height: 4, borderRadius: 99, background: i <= step ? "var(--accent)" : "var(--track)" }} />
+          ))}
+        </div>
+        <div style={{ fontSize: 13, color: "var(--text-muted)", marginTop: 12 }}>Step {step + 1} of {STEPS.length} · {STEPS[step]}</div>
+        <h1 style={{ margin: "6px 0 0", fontSize: 26, fontWeight: 600, letterSpacing: -0.5 }}>{title}</h1>
+        <p style={{ margin: "8px 0 0", fontSize: 15, lineHeight: 1.5, color: "var(--text-muted)" }}>{intro}</p>
+
+        <div style={{ marginTop: 22, display: "flex", flexDirection: "column", gap: 16, flex: 1 }}>
           {step === 0 && (
-            <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-              <div style={{ fontSize: "0.82rem", color: "#a1a1aa", lineHeight: 1.5, marginBottom: 2 }}>
-                A few details so we can calculate targets that fit <em>you</em> — not a generic 2,000 kcal.
+            <>
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(3, minmax(0, 1fr))", gap: 10 }}>
+                {[
+                  ["weight", "Weight", "kg", "70"],
+                  ["height", "Height", "cm", "172"],
+                  ["age", "Age", "", "28"],
+                ].map(([k, l, u, ph]) => (
+                  <label key={k} style={sheetLabel}>
+                    {l}{u ? ` (${u})` : ""}
+                    <input type="number" inputMode="decimal" value={p[k]} placeholder={ph} onChange={(e) => set({ [k]: e.target.value })} style={sheetInput} />
+                  </label>
+                ))}
               </div>
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
-                <div>
-                  <label style={fieldLabel}>Weight (kg)</label>
-                  <input type="number" inputMode="decimal" value={p.weight} placeholder="70"
-                    onChange={(e) => set({ weight: e.target.value })} style={inputStyle} />
-                </div>
-                <div>
-                  <label style={fieldLabel}>Height (cm)</label>
-                  <input type="number" inputMode="decimal" value={p.height} placeholder="172"
-                    onChange={(e) => set({ height: e.target.value })} style={inputStyle} />
-                </div>
-                <div>
-                  <label style={fieldLabel}>Age</label>
-                  <input type="number" inputMode="numeric" value={p.age} placeholder="28"
-                    onChange={(e) => set({ age: e.target.value })} style={inputStyle} />
-                </div>
-                <div>
-                  <label style={fieldLabel}>Sex</label>
-                  <div style={{ display: "flex", height: 44, background: "#000", border: "1px solid #333", borderRadius: 10, overflow: "hidden" }}>
-                    {["male", "female"].map((g) => (
-                      <button key={g} onClick={() => set({ gender: g })}
-                        style={{ flex: 1, background: p.gender === g ? "#27272a" : "transparent", border: "none",
-                          color: p.gender === g ? "#fff" : "#666", textTransform: "capitalize", fontSize: "0.85rem",
-                          cursor: "pointer", fontFamily: "inherit", fontWeight: p.gender === g ? 700 : 400 }}>
-                        {g}
-                      </button>
-                    ))}
-                  </div>
-                </div>
+              <div role="radiogroup" aria-label="Sex" style={{ display: "grid", gridTemplateColumns: "repeat(2, minmax(0, 1fr))", padding: 3, borderRadius: 12, background: "var(--surface)", border: "1px solid var(--border)" }}>
+                {["male", "female"].map((g) => (
+                  <button key={g} role="radio" aria-checked={p.gender === g} onClick={() => set({ gender: g })} style={{ height: 38, border: "none", borderRadius: 9, background: p.gender === g ? "var(--surface-highlight)" : "none", color: p.gender === g ? "var(--text)" : "var(--text-muted)", fontFamily: "inherit", fontSize: 14, fontWeight: p.gender === g ? 600 : 400, textTransform: "capitalize", cursor: "pointer" }}>
+                    {g}
+                  </button>
+                ))}
               </div>
-              <div>
-                <label style={fieldLabel}>Activity level</label>
-                <select value={p.activity} onChange={(e) => set({ activity: e.target.value })}
-                  style={{ ...inputStyle, cursor: "pointer" }}>
-                  <option value="sedentary">Sedentary (office job)</option>
-                  <option value="light">Light exercise (1–3 days)</option>
-                  <option value="moderate">Moderate (3–5 days)</option>
-                  <option value="active">Active (6–7 days)</option>
-                </select>
+              <div style={{ fontSize: 13, color: "var(--text-muted)", marginTop: 4 }}>How active are you?</div>
+              <div role="radiogroup" aria-label="Activity" style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                {ACTIVITY.map((a) => (
+                  <RadioCard key={a.id} on={p.activity === a.id} title={a.label} hint={a.hint} onClick={() => set({ activity: a.id })} />
+                ))}
               </div>
-            </div>
+            </>
           )}
 
           {step === 1 && (
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
-              {GOAL_PRESETS.map((g) => {
-                const on = p.goal === g.id;
-                return (
-                  <button key={g.id}
-                    onClick={() => set({ goal: g.id, calorie_adjustment: g.calorie_adjustment, protein_priority: g.protein_priority })}
-                    style={{
-                      padding: "16px 14px", textAlign: "left", borderRadius: 14, cursor: "pointer", fontFamily: "inherit",
-                      background: on ? `${g.color}22` : "#000",
-                      border: on ? `2px solid ${g.color}` : "1px solid #333",
-                      color: on ? g.color : "#aaa",
-                    }}>
-                    <div style={{ fontWeight: 800, fontSize: "0.95rem" }}>{g.label}</div>
-                    <div style={{ fontSize: "0.7rem", opacity: 0.8, marginTop: 3, lineHeight: 1.4 }}>{g.desc}</div>
-                  </button>
-                );
-              })}
+            <div role="radiogroup" aria-label="Goal" style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+              {GOAL_PRESETS.map((g) => (
+                <RadioCard
+                  key={g.id}
+                  on={p.goal === g.id}
+                  title={GOAL_TITLE[g.id] || g.label}
+                  hint={GOAL_HINT[g.id] || g.desc}
+                  onClick={() => set({ goal: g.id, calorie_adjustment: g.calorie_adjustment, protein_priority: g.protein_priority })}
+                />
+              ))}
             </div>
           )}
 
           {step === 2 && <HealthProfileFields profile={p} onChange={setP} />}
 
           {step === 3 && (
-            <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
-              <div style={{ background: "#0a0a0a", border: "1px solid #27272a", borderRadius: 14, padding: "14px 16px" }}>
-                <div style={{ fontSize: "0.68rem", color: "#52525b", fontWeight: 700, letterSpacing: "0.05em", textTransform: "uppercase", marginBottom: 10 }}>
-                  Your daily targets
-                </div>
-                <div style={{ display: "grid", gridTemplateColumns: "repeat(5,1fr)", gap: 4, textAlign: "center" }}>
-                  {[
-                    { l: "Cals", v: preview.cals, u: "", c: "#f59e0b" },
-                    { l: "Protein", v: preview.p, u: "g", c: "#3b82f6" },
-                    { l: "Carbs", v: preview.c, u: "g", c: "#22c55e" },
-                    { l: "Fat", v: preview.f, u: "g", c: "#ef4444" },
-                    { l: "Fiber", v: preview.fib, u: "g", c: "#8b5cf6" },
-                  ].map((m) => (
-                    <div key={m.l}>
-                      <div style={{ fontWeight: 800, fontSize: "0.95rem", color: m.c }}>{m.v}{m.u}</div>
-                      <div style={{ fontSize: "0.58rem", color: "#52525b", marginTop: 1 }}>{m.l}</div>
-                    </div>
-                  ))}
-                </div>
+            <>
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(5, minmax(0, 1fr))", gap: 6, padding: 16, borderRadius: 16, background: "var(--surface)", border: "1px solid var(--border)", textAlign: "center" }}>
+                {[
+                  [fmt(preview.cals), "kcal"],
+                  [`${fmt(preview.p)} g`, "protein"],
+                  [`${fmt(preview.c)} g`, "carbs"],
+                  [`${fmt(preview.f)} g`, "fat"],
+                  [`${fmt(preview.fib)} g`, "fibre"],
+                ].map(([v, l]) => (
+                  <div key={l}><div style={{ fontSize: 16, fontWeight: 600 }}>{v}</div><div style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 2 }}>{l}</div></div>
+                ))}
               </div>
-
-              {/* Medical adjustments / conflicts from self-reported conditions */}
               {preview.medical.conflicts.map((c) => (
-                <div key={c.title} style={{ background: "rgba(239,68,68,0.08)", border: "1px solid rgba(239,68,68,0.3)", borderRadius: 10, padding: "10px 12px" }}>
-                  <div style={{ display: "flex", alignItems: "center", gap: 6, fontWeight: 700, fontSize: "0.8rem", color: "#ef4444", marginBottom: 3 }}>
-                    <AlertTriangle size={13} /> {c.title}
-                  </div>
-                  <div style={{ fontSize: "0.75rem", color: "#a1a1aa", lineHeight: 1.5 }}>{c.detail}</div>
+                <div key={c.title} style={{ display: "flex", gap: 10, padding: 12, borderRadius: 12, background: "var(--warn-soft)", fontSize: 13, lineHeight: 1.5 }}>
+                  <AlertTriangle size={16} color="var(--warn)" style={{ flexShrink: 0, marginTop: 2 }} />
+                  <span><strong style={{ color: "var(--warn)" }}>{c.title}.</strong> {c.detail}</span>
                 </div>
               ))}
               {preview.medical.adjustments.map((a) => (
-                <div key={a.title} style={{ background: "rgba(59,130,246,0.07)", border: "1px solid rgba(59,130,246,0.25)", borderRadius: 10, padding: "9px 12px", fontSize: "0.75rem", color: "#93c5fd", lineHeight: 1.5 }}>
-                  <strong style={{ color: "#bfdbfe" }}>{a.title}.</strong> {a.detail}
+                <div key={a.title} style={{ display: "flex", gap: 10, padding: 12, borderRadius: 12, border: "1px solid var(--border)", fontSize: 13, lineHeight: 1.5, color: "var(--text-muted)" }}>
+                  <Info size={16} color="var(--accent-text)" style={{ flexShrink: 0, marginTop: 2 }} />
+                  <span><strong style={{ color: "var(--text)" }}>{a.title}.</strong> {a.detail}</span>
                 </div>
               ))}
-
-              {(p.health_conditions?.length > 0) && (
-                <div style={{ display: "flex", gap: 8, alignItems: "flex-start", fontSize: "0.72rem", color: "#52525b", lineHeight: 1.5 }}>
-                  <Sparkles size={13} style={{ marginTop: 2, flexShrink: 0, color: "#14b8a6" }} />
-                  <span>Based on what you told us. Upload a blood report anytime for precise, lab-driven targets — this is not medical advice.</span>
-                </div>
+              <div style={{ borderRadius: 16, border: "1px solid var(--border)" }}>
+                {[
+                  ["Goal", GOAL_TITLE[p.goal] || "Custom", 1],
+                  ["Activity", ACTIVITY.find((a) => a.id === p.activity)?.label || "—", 0],
+                  ["Diet & health", [p.dietary_pattern, ...(p.health_conditions || [])].filter(Boolean).length ? `${[p.dietary_pattern, ...(p.health_conditions || [])].filter(Boolean).length} set` : "None", 2],
+                ].map(([label, value, to], i) => (
+                  <div key={label} style={{ display: "flex", alignItems: "center", gap: 12, padding: "12px 16px", borderTop: i ? "1px solid var(--border)" : "none", fontSize: 15 }}>
+                    <span style={{ color: "var(--text-muted)", flex: 1 }}>{label}</span>
+                    <span style={{ fontWeight: 600 }}>{value}</span>
+                    <button onClick={() => setStep(to)} style={{ background: "none", border: "none", padding: 4, color: "var(--accent-text)", fontFamily: "inherit", fontSize: 14, cursor: "pointer" }}>Edit</button>
+                  </div>
+                ))}
+              </div>
+              {p.health_conditions?.length > 0 && (
+                <p style={{ margin: 0, fontSize: 12, color: "var(--text-faint)", lineHeight: 1.5 }}>
+                  Based on what you told us. Upload a blood report any time for lab-based targets. Not medical advice.
+                </p>
               )}
-            </div>
+            </>
           )}
         </div>
 
-        {/* Footer */}
-        <div style={{ padding: "12px 20px", paddingBottom: "calc(20px + env(safe-area-inset-bottom,0px))", borderTop: "1px solid var(--border)", flexShrink: 0 }}>
+        {step < 3 && (
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 20, padding: "14px 16px", borderRadius: 14, border: "1px solid var(--border)" }}>
+            <span style={{ fontSize: 13, color: "var(--text-muted)" }}>Your daily target</span>
+            <span style={{ fontSize: 15, fontWeight: 600 }}>{basicsDone ? `${fmt(preview.cals)} kcal · ${fmt(preview.p)} g protein` : "—"}</span>
+          </div>
+        )}
+
+        <div style={{ display: "flex", gap: 10, marginTop: 16 }}>
+          {step > 0 && <button onClick={() => setStep((s) => s - 1)} style={secondaryBtn}>Back</button>}
           {step < 3 ? (
             <button
               onClick={() => setStep((s) => s + 1)}
               disabled={step === 0 && !basicsDone}
-              style={{
-                width: "100%", padding: 14, borderRadius: 12, border: "none", fontWeight: 800, fontSize: "0.95rem",
-                cursor: step === 0 && !basicsDone ? "not-allowed" : "pointer", fontFamily: "inherit",
-                background: step === 0 && !basicsDone ? "#1e1e26" : "linear-gradient(135deg,#14b8a6,#3b82f6)",
-                color: step === 0 && !basicsDone ? "#52525b" : "#fff",
-              }}
+              style={{ ...primaryBtn, flex: 1, opacity: step === 0 && !basicsDone ? 0.5 : 1, cursor: step === 0 && !basicsDone ? "not-allowed" : "pointer" }}
             >
-              {step === 0 && !basicsDone ? "Fill in your basics" : "Continue →"}
+              {step === 0 && !basicsDone ? "Fill in weight, height and age" : step === 2 ? "Continue (or skip)" : "Continue"}
             </button>
           ) : (
-            <button
-              onClick={finish}
-              disabled={saving}
-              style={{
-                width: "100%", padding: 14, borderRadius: 12, border: "none", fontWeight: 800, fontSize: "0.95rem",
-                cursor: "pointer", fontFamily: "inherit", background: "linear-gradient(135deg,#22c55e,#16a34a)", color: "#fff",
-                display: "flex", alignItems: "center", justifyContent: "center", gap: 8,
-              }}
-            >
-              {saving ? <Loader2 size={17} className="animate-spin" /> : "Start tracking 🚀"}
+            <button onClick={finish} disabled={saving} style={{ ...primaryBtn, flex: 1, display: "flex", alignItems: "center", justifyContent: "center", gap: 8 }}>
+              {saving ? <Loader2 size={18} className="animate-spin" /> : "Start tracking"}
             </button>
           )}
         </div>

@@ -1,121 +1,71 @@
 "use client";
 
 /**
- * QuestsCard — today's three daily quests, derived from the day's logs (see
- * lib/gamification.js). A "come back today" hook that resets at midnight.
+ * Daily goals (Direction A keeps gamification quiet): one line with a dot per
+ * goal; tap to see the three goals and their progress. Same quests as before
+ * (lib/gamification.js), still awarding XP when completed.
  */
 
+import { useState } from "react";
+import { ChevronDown } from "lucide-react";
+
 export default function QuestsCard({ quests }) {
+  const [open, setOpen] = useState(false);
   if (!quests?.length) return null;
-  const left = quests.filter((q) => !q.done).length;
+  const done = quests.filter((q) => q.done).length;
 
   return (
-    <section style={{ padding: "18px 20px 0" }}>
-      <div
+    <section style={{ padding: "0 20px" }}>
+      <button
+        onClick={() => setOpen((o) => !o)}
+        aria-expanded={open}
         style={{
+          width: "100%",
           display: "flex",
           alignItems: "center",
           justifyContent: "space-between",
-          marginBottom: 10,
+          padding: "6px 0",
+          border: "none",
+          background: "none",
+          color: "var(--text-muted)",
+          font: "inherit",
+          fontSize: 13,
+          cursor: "pointer",
         }}
       >
-        <span
-          style={{
-            fontSize: "0.72rem",
-            fontWeight: 800,
-            letterSpacing: 1.2,
-            textTransform: "uppercase",
-            color: "#555",
-          }}
-        >
-          🎮 Today&apos;s quests
-        </span>
-        <span style={{ fontSize: "0.66rem", color: "#3f3f46" }}>
-          {left ? `${left} left` : "all done 🎉"}
-        </span>
-      </div>
-
-      <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-        {quests.map((q) => {
-          const pct = Math.min(100, (q.current / q.max) * 100);
-          return (
-            <div
+        <span>Daily goals · {done} of {quests.length} done</span>
+        <span style={{ display: "flex", alignItems: "center", gap: 6 }}>
+          {quests.map((q) => (
+            <span
               key={q.id}
-              style={{
-                display: "flex",
-                alignItems: "center",
-                gap: 11,
-                background: q.done
-                  ? "rgba(34,197,94,0.06)"
-                  : "linear-gradient(180deg, #15151b, #0f0f13)",
-                border: `1px solid ${q.done ? "rgba(34,197,94,0.4)" : "#1e1e26"}`,
-                borderRadius: 15,
-                padding: "11px 13px",
-                transition: "border-color .3s, background .3s",
-              }}
-            >
-              <div
-                style={{
-                  width: 30,
-                  height: 30,
-                  borderRadius: 9,
-                  background: "#0a0a0c",
-                  display: "grid",
-                  placeItems: "center",
-                  fontSize: "1.05rem",
-                  flexShrink: 0,
-                }}
-              >
-                {q.icon}
-              </div>
-              <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ fontSize: "0.8rem", fontWeight: 700, color: "#e4e4e7" }}>{q.title}</div>
-                <div style={{ height: 5, borderRadius: 99, background: "#1e1e26", overflow: "hidden", marginTop: 6 }}>
-                  <div
-                    style={{
-                      height: "100%",
-                      width: `${pct}%`,
-                      borderRadius: 99,
-                      background: "linear-gradient(90deg,#3b82f6,#8b5cf6)",
-                      transition: "width .6s cubic-bezier(.2,.8,.2,1)",
-                    }}
-                  />
+              aria-hidden="true"
+              style={{ width: 8, height: 8, borderRadius: "50%", background: q.done ? "var(--accent)" : "var(--track)" }}
+            />
+          ))}
+          <ChevronDown size={14} style={{ marginLeft: 4, transform: open ? "rotate(180deg)" : "none", transition: "transform .2s" }} />
+        </span>
+      </button>
+
+      {open && (
+        <ul style={{ listStyle: "none", margin: "6px 0 0", padding: 0, display: "flex", flexDirection: "column", gap: 12 }}>
+          {quests.map((q) => {
+            const pct = Math.min(100, (q.current / q.max) * 100);
+            return (
+              <li key={q.id}>
+                <div style={{ display: "flex", justifyContent: "space-between", fontSize: 14 }}>
+                  <span style={{ color: q.done ? "var(--text-muted)" : "var(--text)" }}>{q.title}</span>
+                  <span style={{ color: q.done ? "var(--accent-text)" : "var(--text-muted)", fontVariantNumeric: "tabular-nums" }}>
+                    {q.done ? "Done" : `${q.current}/${q.max}${q.unit || ""}`} · +{q.xp} XP
+                  </span>
                 </div>
-              </div>
-              <div
-                style={{
-                  display: "flex",
-                  flexDirection: "column",
-                  alignItems: "flex-end",
-                  gap: 3,
-                  flexShrink: 0,
-                }}
-              >
-                <div
-                  style={{
-                    fontSize: "0.72rem",
-                    fontWeight: 800,
-                    color: q.done ? "#22c55e" : "#d4d4d8",
-                    fontVariantNumeric: "tabular-nums",
-                  }}
-                >
-                  {q.done ? "✓" : `${q.current}/${q.max}${q.unit || ""}`}
+                <div style={{ height: 3, borderRadius: 99, background: "var(--track)", marginTop: 6 }}>
+                  <div style={{ width: `${pct}%`, height: "100%", borderRadius: 99, background: "var(--accent)" }} />
                 </div>
-                <div
-                  style={{
-                    fontSize: "0.58rem",
-                    fontWeight: 800,
-                    letterSpacing: 0.2,
-                    color: q.done ? "#22c55e" : "#a78bfa",
-                  }}
-                >
-                  +{q.xp} XP
-                </div>
-              </div>
-            </div>
-          );
-        })}
-      </div>
+              </li>
+            );
+          })}
+        </ul>
+      )}
     </section>
   );
 }

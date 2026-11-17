@@ -1,28 +1,87 @@
+/* ── Design tokens — Direction A "Calm & minimal" ─────────────────────────────
+   One mint accent, quiet neutrals. Dark is the default; the light palette is
+   wired but only applies with <html data-theme="light"> (turned on per user
+   from Me › Appearance once every screen is migrated to tokens).
+   Use these in new code instead of hex values. Legacy names below map onto
+   them so older screens pick up the palette automatically. */
 :root {
-  /* Base Palette - Deep Zinc/Slate */
-  --bg: #09090b;
-  --surface: #18181b;
-  --surface-highlight: #27272a;
-  --border: #27272a;
-  
-  /* Text */
-  --text-primary: #fafafa;
-  --text-secondary: #a1a1aa;
-  --text-tertiary: #52525b;
+  color-scheme: dark;
 
-  /* Brand Accents */
-  --brand: #6366f1; /* Indigo */
-  --brand-glow: rgba(99, 102, 241, 0.15);
-  
-  /* Macros */
-  --protein: #3b82f6; /* Blue */
-  --carbs: #10b981;   /* Emerald */
-  --fats: #f59e0b;    /* Amber */
-  
+  --bg: #0E0F11;
+  --surface: #16181B;
+  --surface-2: #1B1E22;
+  --surface-highlight: #23272C;
+  --sheet: #14161A;
+  --border: #262A2F;
+  --track: #24282D;
+  --scrim: rgba(0, 0, 0, 0.55);
+
+  --text: #F2F3F4;
+  --text-muted: #A3AAB2;
+  --text-faint: #8A929A;
+
+  --accent: #4CC9A0;
+  --accent-text: #5FD6AE;
+  --accent-soft: rgba(76, 201, 160, 0.12);
+  --accent-muted: #2E6E5A;
+  --on-accent: #06261B;
+
+  --warn: #F0B35A;
+  --warn-soft: rgba(240, 179, 90, 0.12);
+  --danger: #F2766B;
+  --danger-soft: rgba(242, 118, 107, 0.12);
+
+  --protein: #7AA7FF;
+  --carbs: #E8C26A;
+  --fats: #EF8F7E;
+  --fiber: #7FD1A8;
+  --water: #6BB8F0;
+
+  /* Legacy names (pre-redesign code) → tokens */
+  --text-primary: var(--text);
+  --text-secondary: var(--text-muted);
+  --text-tertiary: var(--text-faint);
+  --brand: var(--accent);
+  --brand-glow: var(--accent-soft);
+
   /* UI Metrics */
   --radius-lg: 24px;
   --radius-md: 16px;
   --radius-sm: 12px;
+}
+
+:root[data-theme="light"] {
+  color-scheme: light;
+
+  --bg: #F7F7F5;
+  --surface: #FFFFFF;
+  --surface-2: #F4F5F2;
+  --surface-highlight: #ECEDE9;
+  --sheet: #FFFFFF;
+  --border: #E3E4E0;
+  --track: #E6E7E3;
+  --scrim: rgba(20, 22, 26, 0.35);
+
+  --text: #15171A;
+  --text-muted: #585E65;
+  --text-faint: #676D74;
+
+  --accent: #0F8A6A;
+  --accent-text: #0B7458;
+  --accent-soft: rgba(15, 138, 106, 0.10);
+  --accent-muted: #9CCDBE;
+  --on-accent: #FFFFFF;
+
+  --warn: #9A5B00;
+  --warn-soft: rgba(240, 179, 90, 0.18);
+  --danger: #C23A2E;
+  --danger-soft: rgba(194, 58, 46, 0.10);
+
+  --protein: #2F6FDB;
+  --carbs: #A87A12;
+  --fats: #C2513F;
+  --fiber: #2E8B5E;
+  --water: #2A7BC4;
 }
 
 * { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
@@ -30,7 +89,7 @@
 body {
   background-color: var(--bg);
   color: var(--text-primary);
-  font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+  font-family: var(--font-inter), 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
   min-height: 100vh;
   display: flex;
   justify-content: center;
@@ -117,6 +176,15 @@ body {
   flex-direction: column;
   gap: 8px;
   box-shadow: 0 0 0 1px rgba(255,255,255,0.05);
+}
+/* Inside LogFoodSheet the sheet is the card — no nested card chrome. */
+.command-center.in-sheet {
+  background: transparent;
+  border: none;
+  box-shadow: none;
+  border-radius: 0;
+  padding: 0;
+  margin: 0;
 }
 
 .input-row { display: flex; gap: 8px; }
@@ -299,6 +367,9 @@ body {
   from { transform: rotate(0deg); }
   to { transform: rotate(360deg); }
 }
+/* Loader icons everywhere use className="animate-spin" (no Tailwind here). */
+.animate-spin { animation: spin 1s linear infinite; }
+@media (prefers-reduced-motion: reduce) { .animate-spin { animation-duration: 2.5s; } }
 
 .chart-header { display: flex; justify-content: space-between; align-items: flex-end; margin-bottom: 1rem; }
 .chart-title { font-size: 1rem; font-weight: 600; color: var(--text-secondary); }
@@ -455,3 +526,54 @@ input, textarea, select { font-size: 16px !important; }
 
 /* Prevent the bottom nav from overlapping page content on very short screens */
 .page-scroll-container { padding-bottom: var(--nav-height) !important; }
+/* Me tab rows: no divider under the last row in a group */
+.me-row { border-bottom: 1px solid var(--border) !important; }
+.me-row:last-child { border-bottom: none !important; }
+
+/* Visually hidden, still read by screen readers */
+.sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0,0,0,0); white-space: nowrap; border: 0; }
+
+/* Horizontal chip rows (Quick add): swipeable, no scrollbar, no divider */
+.chip-scroll { -webkit-overflow-scrolling: touch; scrollbar-width: none; }
+.chip-scroll::-webkit-scrollbar { display: none; }
+
+/* Our search fields draw their own clear button */
+input[type="search"]::-webkit-search-cancel-button { -webkit-appearance: none; appearance: none; display: none; }
+
+/* ── Today layout (Direction A) ─────────────────────────────────────────────
+   Phones: one column; .today-col is display:contents so every .tw item joins
+   one flex column, ordered by its inline `order` (the original sequence).
+   Desktop: main log left, nudges/goals right (sticky). */
+.today-grid { display: flex; flex-direction: column; gap: 24px; width: 100%; }
+.today-col { display: contents; }
+.tw:empty { display: none; }
+
+/* ── Desktop (≥1024px): bottom tabs become a left sidebar ─────────────────── */
+.app-nav-brand { display: none; }
+@media (min-width: 1024px) {
+  body:has(.app-nav) { padding-left: 232px; }
+  .app-nav {
+    top: 0 !important; bottom: 0 !important; left: 0 !important; transform: none !important;
+    width: 232px !important; max-width: none !important;
+    flex-direction: column !important; align-items: stretch !important; gap: 4px;
+    padding: 24px 14px !important;
+    border-top: none !important; border-right: 1px solid var(--border);
+  }
+  .app-nav-brand { display: flex; align-items: center; gap: 10px; padding: 0 10px 22px; font-size: 16px; font-weight: 600; color: var(--text); }
+  .app-nav-tab {
+    flex: 0 0 auto !important; flex-direction: row !important; justify-content: flex-start !important;
+    gap: 12px !important; padding: 11px 12px !important; border-radius: 12px;
+  }
+  .app-nav-tab span { font-size: 15px !important; }
+  .app-nav-tab[aria-current="page"] { background: var(--accent-soft) !important; }
+  .app-nav-tab:hover { background: var(--surface); }
+
+  /* overflow must be visible here or the sticky right column can't stick */
+  .app-wrapper.today-wrapper { max-width: 1180px !important; padding: 8px 24px 40px !important; overflow-x: visible !important; }
+  .today-grid { display: grid; grid-template-columns: minmax(0, 1fr) 360px; gap: 28px; align-items: start; }
+  .today-col { display: flex; flex-direction: column; gap: 24px; min-width: 0; }
+  .today-aside { position: sticky; top: 24px; padding-top: 12px; }
+
+  /* Pages sized for the bottom bar don't need its clearance on desktop. */
+  .coach-root { height: 100dvh !important; }
+}

@@ -1,42 +1,53 @@
 "use client";
 
-// Shared presentational primitives for the social screens.
+// Shared bits for the social screens (Direction A).
 
-function Avatar({ name, size = 44, color = "#3b82f6", fontSize = "1.1rem" }) {
+export function Avatar({ name, size = 40, me = false }) {
   return (
-    <div style={{
-      width: size, height: size, borderRadius: "50%",
-      background: `linear-gradient(135deg, ${color}44, ${color}22)`,
-      border: `2px solid ${color}55`,
-      display: "flex", alignItems: "center", justifyContent: "center",
-      fontWeight: 800, fontSize, color, flexShrink: 0,
-    }}>
-      {name?.[0]?.toUpperCase() ?? "?"}
+    <div
+      aria-hidden="true"
+      style={{
+        width: size,
+        height: size,
+        borderRadius: "50%",
+        flexShrink: 0,
+        display: "grid",
+        placeItems: "center",
+        background: me ? "var(--accent-soft)" : "var(--surface-highlight)",
+        color: me ? "var(--accent-text)" : "var(--text)",
+        fontWeight: 600,
+        fontSize: Math.round(size * 0.4),
+      }}
+    >
+      {name?.replace(" (You)", "")?.[0]?.toUpperCase() ?? "?"}
     </div>
   );
 }
 
-function StatTile({ label, value, max, unit, color }) {
+/** Label + value/target + thin bar. */
+export function StatRow({ label, value, max, unit = "", color = "var(--accent)" }) {
   const pct = Math.min(100, max > 0 ? (value / max) * 100 : 0);
   return (
-    <div style={{
-      background: "rgba(255,255,255,0.04)",
-      border: `1px solid ${color}33`,
-      borderRadius: 12, padding: "10px 12px",
-    }}>
-      <div style={{ fontSize: "0.62rem", color: "#666", textTransform: "uppercase", letterSpacing: 1, marginBottom: 5 }}>{label}</div>
-      <div style={{ display: "flex", alignItems: "baseline", gap: 3, marginBottom: 7 }}>
-        <span style={{ fontSize: "1rem", fontWeight: 800, color }}>{value}<span style={{ fontSize: "0.62rem", fontWeight: 400, color: "#888" }}>{unit}</span></span>
-        <span style={{ fontSize: "0.62rem", color: "#555" }}>/ {max}{unit}</span>
+    <div>
+      <div style={{ display: "flex", justifyContent: "space-between", fontSize: 13 }}>
+        <span style={{ color: "var(--text-muted)" }}>{label}</span>
+        <span>
+          {value}
+          {unit} <span style={{ color: "var(--text-faint)" }}>/ {max}{unit}</span>
+        </span>
       </div>
-      <div style={{ height: 5, background: "rgba(255,255,255,0.06)", borderRadius: 99, overflow: "hidden" }}>
-        <div style={{ width: `${pct}%`, height: "100%", background: color, borderRadius: 99, transition: "width 0.6s ease" }} />
-      </div>
-      <div style={{ marginTop: 4, fontSize: "0.6rem", fontWeight: 700, color: pct >= 90 ? color : "#444", textAlign: "right" }}>
-        {Math.round(pct)}%
+      <div style={{ height: 6, borderRadius: 99, background: "var(--track)", marginTop: 6, overflow: "hidden" }}>
+        <div style={{ width: `${pct}%`, height: "100%", borderRadius: 99, background: color, transition: "width 0.6s ease" }} />
       </div>
     </div>
   );
 }
 
-export { Avatar, StatTile };
+/** Status words for a day score (no emoji; tone via tokens). */
+export function statusFor(score) {
+  if (score >= 120) return { label: "Top form", color: "var(--accent-text)" };
+  if (score > 90) return { label: "Crushing it", color: "var(--accent-text)" };
+  if (score > 60) return { label: "On track", color: "var(--text)" };
+  if (score > 20) return { label: "Started", color: "var(--text-muted)" };
+  return { label: "Not started", color: "var(--text-faint)" };
+}

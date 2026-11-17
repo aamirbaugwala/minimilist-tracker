@@ -4,171 +4,104 @@ import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { supabase } from "../supabase";
 import { dayKey } from "../lib/day";
+import { defaultMeal } from "../lib/mealPeriod";
 import { compressImage } from "../lib/image";
-import {
-  ArrowLeft,
-  Send,
-  Bot,
-  User,
-  Loader2,
-  Sparkles,
-  Trash2,
-  Database,
-  Zap,
-  Scale,
-  Utensils,
-  TrendingUp,
-  Droplets,
-  Flame,
-  PenLine,
-  Copy,
-  Check,
-  Target,
-  Mic,
-  UtensilsCrossed,
-  BarChart2,
-  HeartPulse,
-  SaveAll,
-  Globe,
-  ImageIcon,
-  X,
-} from "lucide-react";
+import { Send, Loader2, Trash2, Copy, Check, Mic, ChefHat, ImageIcon, X, Undo2 } from "lucide-react";
 
-// ─── TOOL BADGE METADATA ──────────────────────────────────────────────────────
-const TOOL_META = {
-  get_todays_logs:      { label: "Read Today's Logs",    icon: Utensils,        color: "#3b82f6" },
-  get_logs_for_days:    { label: "Fetching History",     icon: TrendingUp,      color: "#8b5cf6" },
-  get_macro_gap:        { label: "Calculating Gap",      icon: Zap,             color: "#f59e0b" },
-  search_food_database: { label: "Searching Foods",      icon: Database,        color: "#10b981" },
-  get_weight_trend:     { label: "Reading Weight Data",  icon: Scale,           color: "#ec4899" },
-  get_user_profile:     { label: "Loading Your Profile", icon: User,            color: "#6366f1" },
-  log_food_item:        { label: "Logging Food",         icon: PenLine,         color: "#f97316" },
-  get_streak:           { label: "Checking Streak",      icon: Flame,           color: "#ef4444" },
-  update_goal:          { label: "Updating Your Goal",   icon: Target,          color: "#22c55e" },
-  generate_meal_plan:   { label: "Building Meal Plan",   icon: UtensilsCrossed, color: "#06b6d4" },
-  get_medical_context:  { label: "Reading Medical Data", icon: HeartPulse,      color: "#f43f5e" },
-  save_food_to_database:{ label: "Saving Food",          icon: SaveAll,         color: "#84cc16" },
-  search_web:           { label: "Searching Web",        icon: Globe,           color: "#a78bfa" },
+// What the coach did, in plain words (shown as one quiet line under a reply).
+const TOOL_WORDS = {
+  get_todays_logs: "read today’s log",
+  get_logs_for_days: "looked at past days",
+  get_macro_gap: "worked out what’s left",
+  search_food_database: "searched foods",
+  get_weight_trend: "checked your weight",
+  get_user_profile: "checked your goals",
+  log_food_item: "logged food",
+  get_streak: "checked your streak",
+  update_goal: "updated your goal",
+  generate_meal_plan: "built a meal plan",
+  get_medical_context: "read your blood work",
+  save_food_to_database: "saved a food",
+  search_web: "searched the web",
 };
 
-// ─── SUGGESTED STARTER PROMPTS ────────────────────────────────────────────────
 const STARTERS = [
-  { text: "What should I eat for dinner?",          icon: Utensils },
-  { text: "Build me a meal plan for the rest of the day", icon: UtensilsCrossed },
-  { text: "How am I doing this week?",               icon: TrendingUp },
-  { text: "Am I losing weight?",                     icon: Scale },
-  { text: "How much water have I had today?",        icon: Droplets },
-  { text: "How many calories in chicken biryani?",   icon: Database },
-  { text: "What's my logging streak?",               icon: Flame },
-  { text: "Log 2 rotis for me",                      icon: PenLine },
-  { text: "Change my goal to lose weight",           icon: Target },
-  { text: "Give me a full weekly analysis",          icon: Sparkles },
+  "What should I eat for dinner?",
+  "How was my week?",
+  "How much protein is left today?",
+  "Log 2 rotis and a bowl of dal",
+  "Am I losing weight?",
 ];
 
-// ─── MARKDOWN-LIKE RENDERER (bold, bullets) ───────────────────────────────────
+// Light markdown: **bold**, bullets, blank lines.
 function RenderMessage({ text, streaming }) {
   const lines = text.split("\n");
   return (
-    <div style={{ lineHeight: 1.65 }}>
+    <div style={{ lineHeight: 1.6 }}>
       {lines.map((line, i) => {
-        // Bold: **text**
-        const parts = line.split(/(\*\*[^*]+\*\*)/g).map((part, j) => {
-          if (part.startsWith("**") && part.endsWith("**")) {
-            return <strong key={j}>{part.slice(2, -2)}</strong>;
-          }
-          return part;
-        });
-
-        // Bullet point
-        if (line.trim().startsWith("* ") || line.trim().startsWith("- ")) {
+        const t = line.trim();
+        const bullet = t.startsWith("* ") || t.startsWith("- ");
+        const body = bullet ? t.slice(2) : line;
+        const parts = body.split(/(\*\*[^*]+\*\*)/g).map((part, j) =>
+          part.startsWith("**") && part.endsWith("**") ? <strong key={j} style={{ fontWeight: 600 }}>{part.slice(2, -2)}</strong> : part,
+        );
+        if (bullet) {
           return (
-            <div key={i} style={{ display: "flex", gap: 8, margin: "4px 0" }}>
-              <span style={{ color: "#3b82f6", flexShrink: 0, marginTop: 2 }}>•</span>
-              <span>{parts.slice(1)}</span>
+            <div key={i} style={{ display: "flex", gap: 10, margin: "4px 0" }}>
+              <span style={{ color: "var(--text-faint)", flexShrink: 0 }}>•</span>
+              <span>{parts}</span>
             </div>
           );
         }
-
-        // Emoji headers (lines starting with emoji)
-        const emojiRegex = /^[\u{1F300}-\u{1FFFF}✅🛑📉💡🔥⚡]/u;
-        if (emojiRegex.test(line.trim()) && line.trim().length > 2) {
-          return (
-            <div key={i} style={{ fontWeight: 700, marginTop: i > 0 ? 12 : 0, marginBottom: 4 }}>
-              {parts}
-            </div>
-          );
-        }
-
-        if (line.trim() === "") return <div key={i} style={{ height: 8 }} />;
-
+        if (t === "") return <div key={i} style={{ height: 8 }} />;
         return <div key={i}>{parts}</div>;
       })}
-      {/* Blinking block cursor shown while streaming */}
-      {streaming && (
-        <span
-          style={{
-            display: "inline-block",
-            width: 2,
-            height: "1em",
-            background: "#3b82f6",
-            marginLeft: 1,
-            verticalAlign: "text-bottom",
-            animation: "nutricoach-blink 1s step-end infinite",
-          }}
-        />
-      )}
+      {streaming && <span className="coach-caret" />}
     </div>
   );
 }
 
-// ─── TOOL ACTIVITY BADGE ──────────────────────────────────────────────────────
-function ToolBadges({ tools }) {
-  if (!tools || tools.length === 0) return null;
+function ToolLine({ tools }) {
+  if (!tools?.length) return null;
+  const words = [...new Set(tools.map((t) => TOOL_WORDS[t.replace(/:error$/, "")]).filter(Boolean))];
+  if (!words.length) return null;
+  const line = words.join(" · ");
+  return <div style={{ fontSize: 12, color: "var(--text-faint)", marginBottom: 6 }}>{line.charAt(0).toUpperCase() + line.slice(1)}</div>;
+}
 
-  // Count how many times each tool was called (e.g. save_food_to_database x3)
-  const counts = tools.reduce((acc, t) => {
-    acc[t] = (acc[t] || 0) + 1;
-    return acc;
-  }, {});
-
+// "Logged to Lunch" receipt with per-item and all-at-once Undo.
+function Receipt({ items, onUndo }) {
+  const live = items.filter((r) => !r.undone);
+  const meals = [...new Set(items.map((r) => r.meal).filter(Boolean))];
+  const kcal = live.reduce((n, r) => n + (Number(r.calories) || 0), 0);
   return (
-    <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 8 }}>
-      {Object.entries(counts).map(([tool, count]) => {
-        const meta = TOOL_META[tool];
-        if (!meta) return null;
-        const Icon = meta.icon;
-        return (
-          <div
-            key={tool}
-            style={{
-              display: "inline-flex",
-              alignItems: "center",
-              gap: 5,
-              fontSize: "0.7rem",
-              color: meta.color,
-              background: `${meta.color}18`,
-              border: `1px solid ${meta.color}40`,
-              padding: "3px 8px",
-              borderRadius: 20,
-              fontWeight: 600,
-            }}
-          >
-            <Icon size={11} />
-            {meta.label}
-            {count > 1 && (
-              <span style={{
-                background: `${meta.color}33`,
-                borderRadius: 10,
-                padding: "0px 5px",
-                fontSize: "0.65rem",
-                fontWeight: 700,
-              }}>
-                ×{count}
-              </span>
+    <div style={{ padding: "14px 16px", borderRadius: 16, background: "var(--surface)", border: "1px solid var(--border)", margin: "4px 0 10px" }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 14, fontWeight: 600, color: live.length ? "var(--accent-text)" : "var(--text-muted)" }}>
+        <Check size={16} strokeWidth={2.6} /> {live.length ? `Logged to ${meals.join(" & ") || "today"}` : "Removed"}
+      </div>
+      <div style={{ marginTop: 8, display: "flex", flexDirection: "column", gap: 6 }}>
+        {items.map((r) => (
+          <div key={r.id || r.food} style={{ display: "flex", alignItems: "center", gap: 10, fontSize: 15, color: r.undone ? "var(--text-faint)" : "var(--text)", textDecoration: r.undone ? "line-through" : "none" }}>
+            <span style={{ flex: 1, minWidth: 0, textTransform: "capitalize" }}>{r.food} × {r.qty}</span>
+            <span style={{ color: "var(--text-muted)" }}>{Math.round(r.calories || 0)}</span>
+            {!r.undone && r.id && (
+              <button onClick={() => onUndo([r.id])} aria-label={`Undo ${r.food}`} style={{ background: "none", border: "none", padding: 4, color: "var(--text-faint)", cursor: "pointer", display: "grid" }}>
+                <X size={15} />
+              </button>
             )}
           </div>
-        );
-      })}
+        ))}
+      </div>
+      {live.length > 0 && (
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginTop: 10, fontSize: 13, color: "var(--text-muted)" }}>
+          <span>{Math.round(kcal)} kcal · saved</span>
+          {live.some((r) => r.id) && (
+            <button onClick={() => onUndo(live.filter((r) => r.id).map((r) => r.id))} style={{ display: "flex", alignItems: "center", gap: 6, background: "none", border: "none", padding: 4, color: "var(--accent-text)", fontFamily: "inherit", fontSize: 14, fontWeight: 600, cursor: "pointer" }}>
+              <Undo2 size={15} /> {live.length > 1 ? "Undo all" : "Undo"}
+            </button>
+          )}
+        </div>
+      )}
     </div>
   );
 }
@@ -201,8 +134,6 @@ export default function AgentPage() {
   const ttsQueueCountRef     = useRef(0);  // counts utterances still queued/playing
   // Always-current ref to sendMessage — prevents stale closure in voice callbacks
   const sendMessageRef       = useRef(null);
-  // ── Weekly report state ────────────────────────────────────────────────────
-  const [weeklyReport, setWeeklyReport] = useState(null); // { insight, score, weekStart }
   const bottomRef = useRef(null);
   const inputRef = useRef(null);
 
@@ -333,6 +264,14 @@ export default function AgentPage() {
       }
       setSession(session);
 
+      // ?ask=… (e.g. "Ask Coach about this report") pre-fills the box; the user
+      // still reviews and sends it. Strip it so a refresh doesn't refill.
+      const ask = new URLSearchParams(window.location.search).get("ask");
+      if (ask) {
+        setInput(ask.slice(0, 500));
+        window.history.replaceState(window.history.state, "", window.location.pathname);
+      }
+
       // Load chat history from server (source of truth — not localStorage)
       try {
         const params = new URLSearchParams({
@@ -418,6 +357,7 @@ export default function AgentPage() {
           imageBase64:  imageToSend?.base64  || null,
           imageMimeType: imageToSend?.mimeType || null,
           dayKey:      dayKey(),
+          meal:        defaultMeal(), // local meal; the server clock is UTC
         }),
       });
 
@@ -453,6 +393,16 @@ export default function AgentPage() {
                 const arr  = [...prev];
                 const last = { ...arr[arr.length - 1] };
                 last.toolsUsed = [...(last.toolsUsed || []), event.name];
+                arr[arr.length - 1] = last;
+                return arr;
+              });
+
+            } else if (event.type === "logged") {
+              // Receipt card on this reply, with the row id for Undo.
+              setMessages((prev) => {
+                const arr  = [...prev];
+                const last = { ...arr[arr.length - 1] };
+                last.receipts = [...(last.receipts || []), { id: event.id, food: event.food, qty: event.qty, meal: event.meal || defaultMeal(), calories: event.calories }];
                 arr[arr.length - 1] = last;
                 return arr;
               });
@@ -536,624 +486,175 @@ export default function AgentPage() {
     }
   };
 
+  // ── UNDO a Coach log (exact rows by id) ───────────────────────────────────
+  const undoLogs = async (msgIndex, ids) => {
+    const mark = (undone) =>
+      setMessages((prev) => prev.map((m, i) => (i === msgIndex ? { ...m, receipts: m.receipts.map((r) => (ids.includes(r.id) ? { ...r, undone } : r)) } : m)));
+    mark(true);
+    const { error: delErr } = await supabase.from("food_logs").delete().in("id", ids).eq("user_id", session.user.id);
+    if (delErr) {
+      mark(false);
+      setError("Couldn’t undo that — remove it from Today instead.");
+    }
+  };
+
   // ── LOADING STATE ──────────────────────────────────────────────────────────
   if (pageLoading) {
     return (
-      <div style={{ height: "100dvh", display: "flex", alignItems: "center", justifyContent: "center", background: "#09090b", color: "#666" }}>
-        <Loader2 size={28} className="animate-spin" />
+      <div style={{ height: "100dvh", display: "grid", placeItems: "center", background: "var(--bg)" }}>
+        <Loader2 size={24} color="var(--text-muted)" className="animate-spin" />
       </div>
     );
   }
 
   const isEmpty = messages.length === 0;
+  const canSend = (input.trim() || selectedImage) && !loading;
+  const lastIsCoach = messages.length > 0 && messages[messages.length - 1].role === "model" && !loading;
+  const tool = { display: "flex", alignItems: "center", gap: 6, padding: "8px 14px", borderRadius: 99, border: "1px solid var(--border)", background: "transparent", color: "var(--text)", fontFamily: "inherit", fontSize: 14, cursor: "pointer", whiteSpace: "nowrap" };
+  const chip = { padding: "8px 14px", borderRadius: 99, border: "1px solid var(--border)", background: "transparent", color: "var(--text-muted)", fontFamily: "inherit", fontSize: 14, cursor: "pointer", whiteSpace: "nowrap", flexShrink: 0 };
 
-  // ── RENDER ─────────────────────────────────────────────────────────────────
   return (
-    <div
-      style={{
-        height: "calc(100dvh - 62px)",
-        display: "flex",
-        flexDirection: "column",
-        background: "#09090b",
-        color: "#fff",
-        fontFamily: "system-ui, -apple-system, sans-serif",
-        maxWidth: 720,
-        margin: "0 auto",
-        width: "100%",
-      }}
-    >
-      {/* ── HEADER ── */}
-      <div
-        style={{
-          padding: "14px 16px",
-          borderBottom: "1px solid #1f1f22",
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "space-between",
-          flexShrink: 0,
-          background: "#09090b",
-        }}
-      >
-        <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-          <button
-            onClick={() => router.back()}
-            style={{
-              background: "#1f1f22",
-              border: "1px solid #333",
-              color: "#fff",
-              cursor: "pointer",
-              padding: 8,
-              borderRadius: 10,
-              display: "flex",
-              alignItems: "center",
-            }}
-          >
-            <ArrowLeft size={18} />
-          </button>
-
-          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-            <div
-              style={{
-                width: 36,
-                height: 36,
-                borderRadius: "50%",
-                background: "linear-gradient(135deg, #3b82f6, #8b5cf6)",
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "center",
-              }}
-            >
-              <Bot size={18} color="#fff" />
-            </div>
-            <div>
-              <div style={{ fontWeight: 800, fontSize: "1rem", lineHeight: 1.2 }}>
-                NutriCoach
-              </div>
-              <div style={{ fontSize: "0.72rem", color: "#22c55e", display: "flex", alignItems: "center", gap: 4 }}>
-                <div style={{ width: 6, height: 6, borderRadius: "50%", background: "#22c55e" }} />
-                AI Agent · Live Data Access
-              </div>
-            </div>
+    <div className="coach-root" style={{ height: "calc(100dvh - 64px - env(safe-area-inset-bottom, 0px))", display: "flex", flexDirection: "column", background: "var(--bg)", color: "var(--text)", maxWidth: 720, margin: "0 auto", width: "100%" }}>
+      {/* ── HEADER ── tab root: no back button */}
+      <header style={{ padding: "calc(14px + env(safe-area-inset-top, 0px)) 20px 10px", flexShrink: 0 }}>
+        <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 12 }}>
+          <div>
+            <h1 style={{ margin: 0, fontSize: 26, fontWeight: 600, letterSpacing: -0.4 }}>Coach</h1>
+            <div style={{ fontSize: 14, color: "var(--text-muted)", marginTop: 2 }}>Reads your log, goals and blood work</div>
           </div>
-        </div>
-
-        {/* Right side actions */}
-        <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-          {/* Full voice page link */}
-          <button
-            onClick={() => router.push("/voice")}
-            title="Open full voice conversation mode"
-            style={{
-              background: "linear-gradient(135deg,#3b82f620,#8b5cf620)",
-              border: "1px solid #8b5cf644",
-              color: "#a78bfa",
-              cursor: "pointer",
-              padding: "6px 10px",
-              borderRadius: 8,
-              display: "flex",
-              alignItems: "center",
-              gap: 5,
-              fontSize: "0.72rem",
-              fontWeight: 600,
-            }}
-          >
-            <Mic size={13} /> Voice
-          </button>
-
           {messages.length > 0 && (
-            <button
-              onClick={clearHistory}
-              style={{
-                background: "transparent",
-                border: "1px solid #333",
-                color: "#666",
-                cursor: "pointer",
-                padding: "6px 10px",
-                borderRadius: 8,
-                display: "flex",
-                alignItems: "center",
-                gap: 5,
-                fontSize: "0.78rem",
-              }}
-            >
-              <Trash2 size={13} /> Clear
+            <button onClick={clearHistory} aria-label="Clear conversation" title="Clear conversation" style={{ width: 38, height: 38, borderRadius: 10, border: "1px solid var(--border)", background: "transparent", color: "var(--text-muted)", display: "grid", placeItems: "center", cursor: "pointer", flexShrink: 0 }}>
+              <Trash2 size={16} />
             </button>
           )}
         </div>
-      </div>
+        <div className="chip-scroll" style={{ display: "flex", gap: 8, marginTop: 14, overflowX: "auto" }}>
+          <button onClick={() => router.push("/voice")} style={tool}><Mic size={15} color="var(--accent-text)" /> Voice</button>
+          <button onClick={() => imageInputRef.current?.click()} style={tool}><ImageIcon size={15} color="var(--accent-text)" /> Photo</button>
+          <button onClick={() => router.push("/recipes")} style={tool}><ChefHat size={15} color="var(--accent-text)" /> Recipes</button>
+        </div>
+      </header>
 
-      {/* ── MESSAGES AREA ── */}
-      <div
-        style={{
-          flex: 1,
-          overflowY: "auto",
-          padding: "16px",
-          display: "flex",
-          flexDirection: "column",
-          gap: 16,
-        }}
-      >
-        {/* Empty state */}
+      {/* ── MESSAGES ── */}
+      <div style={{ flex: 1, overflowY: "auto", padding: "8px 20px 12px", display: "flex", flexDirection: "column", gap: 18, borderTop: "1px solid var(--border)" }}>
         {isEmpty && (
-          <div
-            style={{
-              flex: 1,
-              display: "flex",
-              flexDirection: "column",
-              alignItems: "center",
-              justifyContent: "center",
-              textAlign: "center",
-              padding: "20px 0",
-            }}
-          >
-            <div
-              style={{
-                width: 64,
-                height: 64,
-                borderRadius: "50%",
-                background: "linear-gradient(135deg, #3b82f6, #8b5cf6)",
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "center",
-                marginBottom: 16,
-                boxShadow: "0 0 40px rgba(59, 130, 246, 0.3)",
-              }}
-            >
-              <Sparkles size={28} color="#fff" />
-            </div>
-            <h2 style={{ fontSize: "1.4rem", fontWeight: 800, marginBottom: 6 }}>
-              NutriCoach
-            </h2>
-            <p style={{ color: "#666", fontSize: "0.9rem", maxWidth: 300, lineHeight: 1.5, marginBottom: 28 }}>
-              Your AI nutrition agent. It reads your real logs, calculates your gaps, and gives you grounded advice — not guesses.
+          <div style={{ margin: "auto 0", padding: "24px 0" }}>
+            <div style={{ fontSize: 20, fontWeight: 600, letterSpacing: -0.2 }}>Ask about your day</div>
+            <p style={{ margin: "6px 0 18px", fontSize: 15, lineHeight: 1.5, color: "var(--text-muted)" }}>
+              Coach sees what you’ve logged, your targets and your blood reports — so answers are about you, not averages. It can log food for you too.
             </p>
-
-            {/* Capability pills */}
-            <div style={{ display: "flex", flexWrap: "wrap", gap: 8, justifyContent: "center", marginBottom: 28 }}>
-              {Object.values(TOOL_META).map((meta) => {
-                const Icon = meta.icon;
-                return (
-                  <div
-                    key={meta.label}
-                    style={{
-                      display: "flex",
-                      alignItems: "center",
-                      gap: 5,
-                      fontSize: "0.72rem",
-                      color: meta.color,
-                      background: `${meta.color}15`,
-                      border: `1px solid ${meta.color}35`,
-                      padding: "4px 10px",
-                      borderRadius: 20,
-                    }}
-                  >
-                    <Icon size={11} />
-                    {meta.label}
-                  </div>
-                );
-              })}
-            </div>
-
-            {/* Starter prompts */}
-            <div
-              style={{
-                display: "grid",
-                gridTemplateColumns: "1fr 1fr",
-                gap: 10,
-                width: "100%",
-                maxWidth: 520,
-              }}
-            >
-              {STARTERS.map((s) => {
-                const Icon = s.icon;
-                return (
-                  <button
-                    key={s.text}
-                    onClick={() => sendMessage(s.text)}
-                    style={{
-                      background: "#1f1f22",
-                      border: "1px solid #2a2a2e",
-                      color: "#ccc",
-                      cursor: "pointer",
-                      padding: "12px 14px",
-                      borderRadius: 12,
-                      textAlign: "left",
-                      fontSize: "0.82rem",
-                      display: "flex",
-                      alignItems: "center",
-                      gap: 8,
-                      lineHeight: 1.3,
-                      transition: "border-color 0.2s",
-                    }}
-                    onMouseEnter={(e) => (e.currentTarget.style.borderColor = "#3b82f6")}
-                    onMouseLeave={(e) => (e.currentTarget.style.borderColor = "#2a2a2e")}
-                  >
-                    <Icon size={14} color="#3b82f6" style={{ flexShrink: 0 }} />
-                    {s.text}
-                  </button>
-                );
-              })}
-            </div>
-          </div>
-        )}
-
-        {/* ── WEEKLY REPORT CARD ── */}
-        {weeklyReport && (
-          <div
-            style={{
-              background: "linear-gradient(135deg, #0f2a0f, #1a3a1a)",
-              border: "1px solid #22c55e44",
-              borderRadius: 16,
-              padding: "16px 18px",
-              marginBottom: 8,
-            }}
-          >
-            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
-              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                <BarChart2 size={16} color="#22c55e" />
-                <span style={{ fontWeight: 700, fontSize: "0.9rem", color: "#22c55e" }}>
-                  Weekly Insight · {weeklyReport.weekStart}
-                </span>
-              </div>
-              <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                {/* Adherence score ring */}
-                <div style={{
-                  background: weeklyReport.score >= 70 ? "#22c55e22" : weeklyReport.score >= 40 ? "#f59e0b22" : "#ef444422",
-                  border: `1px solid ${weeklyReport.score >= 70 ? "#22c55e" : weeklyReport.score >= 40 ? "#f59e0b" : "#ef4444"}`,
-                  color: weeklyReport.score >= 70 ? "#22c55e" : weeklyReport.score >= 40 ? "#f59e0b" : "#ef4444",
-                  borderRadius: 20,
-                  padding: "2px 10px",
-                  fontSize: "0.75rem",
-                  fontWeight: 700,
-                }}>
-                  {weeklyReport.score}/100
-                </div>
-                <button
-                  onClick={() => setWeeklyReport(null)}
-                  style={{ background: "transparent", border: "none", color: "#555", cursor: "pointer", fontSize: "1rem", lineHeight: 1, padding: 0 }}
-                >
-                  ✕
+            <div style={{ borderRadius: 16, border: "1px solid var(--border)" }}>
+              {STARTERS.map((t, i) => (
+                <button key={t} onClick={() => sendMessage(t)} style={{ width: "100%", padding: "13px 16px", border: "none", borderTop: i ? "1px solid var(--border)" : "none", background: "transparent", color: "var(--text)", fontFamily: "inherit", fontSize: 15, textAlign: "left", cursor: "pointer" }}>
+                  {t}
                 </button>
-              </div>
+              ))}
             </div>
-            <p style={{ margin: 0, fontSize: "0.88rem", color: "#ccc", lineHeight: 1.6 }}>
-              {weeklyReport.insight}
-            </p>
           </div>
         )}
 
-        {/* Message bubbles */}
         {messages.map((msg, i) => {
           const isUser = msg.role === "user";
-          return (
-            <div
-              key={i}
-              style={{
-                display: "flex",
-                flexDirection: "column",
-                alignItems: isUser ? "flex-end" : "flex-start",
-              }}
-            >
-              {/* Avatar row */}
-              <div
-                style={{
-                  display: "flex",
-                  alignItems: "flex-end",
-                  gap: 8,
-                  flexDirection: isUser ? "row-reverse" : "row",
-                  maxWidth: "88%",
-                }}
-              >
-                {/* Avatar */}
-                <div
-                  style={{
-                    width: 28,
-                    height: 28,
-                    borderRadius: "50%",
-                    background: isUser
-                      ? "#27272a"
-                      : "linear-gradient(135deg, #3b82f6, #8b5cf6)",
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "center",
-                    flexShrink: 0,
-                  }}
-                >
-                  {isUser ? (
-                    <User size={14} color="#888" />
-                  ) : (
-                    <Bot size={14} color="#fff" />
+          if (isUser) {
+            return (
+              <div key={i} style={{ display: "flex", justifyContent: "flex-end" }}>
+                <div style={{ maxWidth: "85%", padding: "10px 14px", borderRadius: "18px 18px 6px 18px", background: "var(--surface-highlight)", fontSize: 15, lineHeight: 1.5, wordBreak: "break-word" }}>
+                  {msg.imagePreview && (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img src={msg.imagePreview} alt="Attached" style={{ display: "block", maxWidth: "100%", maxHeight: 200, borderRadius: 12, marginBottom: msg.content ? 8 : 0, objectFit: "cover" }} />
                   )}
-                </div>
-
-                {/* Bubble */}
-                <div
-                  style={{
-                    background: isUser ? "#1d4ed8" : "#1f1f22",
-                    color: "#fff",
-                    padding: "12px 16px",
-                    borderRadius: isUser ? "18px 18px 4px 18px" : "18px 18px 18px 4px",
-                    fontSize: "0.9rem",
-                    lineHeight: 1.55,
-                    border: isUser ? "none" : "1px solid #2a2a2e",
-                    maxWidth: "100%",
-                    wordBreak: "break-word",
-                  }}
-                >
-                  {/* Tool badges above AI message */}
-                  {!isUser && msg.toolsUsed && msg.toolsUsed.length > 0 && (
-                    <ToolBadges tools={msg.toolsUsed} />
-                  )}
-
-                  {isUser ? (
-                    <span>
-                      {msg.imagePreview && (
-                        // eslint-disable-next-line @next/next/no-img-element
-                        <img
-                          src={msg.imagePreview}
-                          alt="Attached"
-                          style={{ display: "block", maxWidth: "100%", maxHeight: 200, borderRadius: 10, marginBottom: msg.content ? 8 : 0, objectFit: "cover" }}
-                        />
-                      )}
-                      {msg.content}
-                    </span>
-                  ) : msg.streaming && !msg.content ? (
-                    // Tool-calling phase: no text yet — show inline thinking state
-                    <div style={{ display: "flex", alignItems: "center", gap: 8, color: "#666", fontSize: "0.85rem" }}>
-                      <Loader2 size={14} className="animate-spin" color="#3b82f6" />
-                      <span>{msg.toolsUsed?.length > 0 ? "Processing…" : "Thinking…"}</span>
-                    </div>
-                  ) : (
-                    <RenderMessage text={msg.content} streaming={msg.streaming} />
-                  )}
-
-                  {/* Copy button — hidden while streaming */}
-                  {!isUser && !msg.streaming && (
-                    <div style={{ marginTop: 8, display: "flex", justifyContent: "flex-end" }}>
-                      <button
-                        onClick={() => copyMessage(msg.content, i)}
-                        title="Copy response"
-                        style={{
-                          background: "transparent",
-                          border: "none",
-                          color: copiedIndex === i ? "#22c55e" : "#555",
-                          cursor: "pointer",
-                          padding: "2px 4px",
-                          borderRadius: 4,
-                          display: "flex",
-                          alignItems: "center",
-                          gap: 4,
-                          fontSize: "0.7rem",
-                          transition: "color 0.2s",
-                        }}
-                      >
-                        {copiedIndex === i ? <Check size={12} /> : <Copy size={12} />}
-                        {copiedIndex === i ? "Copied" : "Copy"}
-                      </button>
-                    </div>
-                  )}
+                  {msg.content}
                 </div>
               </div>
+            );
+          }
+          return (
+            <div key={i} style={{ maxWidth: "100%", fontSize: 15, wordBreak: "break-word" }}>
+              <ToolLine tools={msg.toolsUsed} />
+              {msg.receipts?.length > 0 && <Receipt items={msg.receipts} onUndo={(ids) => undoLogs(i, ids)} />}
+              {msg.streaming && !msg.content ? (
+                <div style={{ display: "flex", alignItems: "center", gap: 8, color: "var(--text-muted)", fontSize: 14 }}>
+                  <Loader2 size={15} className="animate-spin" /> {msg.toolsUsed?.length ? "Working on it…" : "Thinking…"}
+                </div>
+              ) : (
+                <RenderMessage text={msg.content} streaming={msg.streaming} />
+              )}
+              {!msg.streaming && msg.content && (
+                <button onClick={() => copyMessage(msg.content, i)} style={{ marginTop: 6, display: "inline-flex", alignItems: "center", gap: 5, background: "none", border: "none", padding: "4px 0", color: copiedIndex === i ? "var(--accent-text)" : "var(--text-faint)", fontFamily: "inherit", fontSize: 12, cursor: "pointer" }}>
+                  {copiedIndex === i ? <Check size={13} /> : <Copy size={13} />} {copiedIndex === i ? "Copied" : "Copy"}
+                </button>
+              )}
             </div>
           );
         })}
 
-        {/* Typing indicator — only shown while loading but before the
-            streaming placeholder has been added to messages */}
         {loading && !messages.some((m) => m.streaming) && (
-          <div style={{ display: "flex", alignItems: "flex-end", gap: 8 }}>
-            <div
-              style={{
-                width: 28,
-                height: 28,
-                borderRadius: "50%",
-                background: "linear-gradient(135deg, #3b82f6, #8b5cf6)",
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "center",
-                flexShrink: 0,
-              }}
-            >
-              <Bot size={14} color="#fff" />
-            </div>
-            <div
-              style={{
-                background: "#1f1f22",
-                border: "1px solid #2a2a2e",
-                padding: "12px 16px",
-                borderRadius: "18px 18px 18px 4px",
-                display: "flex",
-                alignItems: "center",
-                gap: 8,
-                color: "#666",
-                fontSize: "0.85rem",
-              }}
-            >
-              <Loader2 size={14} className="animate-spin" color="#3b82f6" />
-              <span style={{ color: "#888" }}>Agent is working</span>
-              <span style={{ animation: "pulse 1.5s infinite", color: "#3b82f6" }}>•••</span>
-            </div>
+          <div style={{ display: "flex", alignItems: "center", gap: 8, color: "var(--text-muted)", fontSize: 14 }}>
+            <Loader2 size={15} className="animate-spin" /> Thinking…
           </div>
         )}
 
-        {/* Error */}
         {error && (
-          <div
-            style={{
-              background: "rgba(239, 68, 68, 0.1)",
-              border: "1px solid #ef4444",
-              color: "#ef4444",
-              padding: "10px 14px",
-              borderRadius: 10,
-              fontSize: "0.85rem",
-              textAlign: "center",
-            }}
-          >
-            ⚠️ {error}
+          <div role="alert" style={{ padding: "12px 14px", borderRadius: 12, background: "var(--danger-soft)", color: "var(--danger)", fontSize: 14 }}>
+            {error}
           </div>
         )}
-
         <div ref={bottomRef} />
       </div>
 
-      {/* ── INPUT BAR ── */}
-      <div
-        style={{
-          padding: "12px 16px",
-          borderTop: "1px solid #1f1f22",
-          background: "#09090b",
-          flexShrink: 0,
-        }}
-      >
-        {/* Image preview strip */}
-        {selectedImage && (
-          <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
-            <div style={{ position: "relative", flexShrink: 0 }}>
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img src={selectedImage.preview} alt="Preview" style={{ width: 56, height: 56, borderRadius: 10, objectFit: "cover", border: "1px solid #333" }} />
-              <button
-                onClick={() => setSelectedImage(null)}
-                style={{ position: "absolute", top: -6, right: -6, background: "#ef4444", border: "none", borderRadius: "50%", width: 18, height: 18, display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", padding: 0 }}
-              >
-                <X size={10} color="#fff" />
-              </button>
-            </div>
-            <span style={{ fontSize: "0.72rem", color: "#666" }}>Image attached — ask me anything about it</span>
+      {/* ── INPUT ── */}
+      <div style={{ padding: "8px 16px 12px", flexShrink: 0, background: "var(--bg)" }}>
+        {lastIsCoach && !input && !selectedImage && (
+          <div className="chip-scroll" style={{ display: "flex", gap: 8, overflowX: "auto", marginBottom: 10 }}>
+            {["What should I eat next?", "How was my week?", "Explain my blood report"].map((t) => (
+              <button key={t} onClick={() => sendMessage(t)} style={chip}>{t}</button>
+            ))}
           </div>
         )}
-        <div
-          className="agent-input-bar"
-          style={{
-            display: "flex",
-            gap: 10,
-            alignItems: "flex-end",
-            background: "#1f1f22",
-            border: "1px solid #333",
-            borderRadius: 16,
-            padding: "8px 8px 8px 16px",
-          }}
-        >
+        {selectedImage && (
+          <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 10 }}>
+            <div style={{ position: "relative", flexShrink: 0 }}>
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img src={selectedImage.preview} alt="Attached photo" style={{ width: 56, height: 56, borderRadius: 12, objectFit: "cover", border: "1px solid var(--border)" }} />
+              <button onClick={() => setSelectedImage(null)} aria-label="Remove photo" style={{ position: "absolute", top: -6, right: -6, width: 22, height: 22, borderRadius: "50%", border: "none", background: "var(--surface-highlight)", color: "var(--text)", display: "grid", placeItems: "center", cursor: "pointer", padding: 0 }}>
+                <X size={12} />
+              </button>
+            </div>
+            <span style={{ fontSize: 13, color: "var(--text-muted)" }}>Photo attached — ask about it, or say “log this”</span>
+          </div>
+        )}
+        <div style={{ display: "flex", gap: 8, alignItems: "flex-end", padding: "6px 6px 6px 16px", borderRadius: 18, background: "var(--surface)", border: "1px solid var(--border)" }}>
           <textarea
             ref={inputRef}
             value={input}
             onChange={(e) => {
               setInput(e.target.value);
-              // Auto-resize
               e.target.style.height = "auto";
               e.target.style.height = Math.min(e.target.scrollHeight, 120) + "px";
             }}
             onKeyDown={handleKeyDown}
-            placeholder={selectedImage ? "Ask about this image…" : "Ask your coach anything…"}
+            placeholder={selectedImage ? "Ask about this photo…" : "Ask or log a meal…"}
+            aria-label="Message Coach"
             rows={1}
-            style={{
-              flex: 1,
-              background: "transparent",
-              border: "none",
-              outline: "none",
-              color: "#fff",
-              fontSize: "0.95rem",
-              resize: "none",
-              lineHeight: 1.5,
-              padding: 0,
-              minHeight: 24,
-              maxHeight: 120,
-              fontFamily: "inherit",
-            }}
+            maxLength={1000}
+            style={{ flex: 1, alignSelf: "center", background: "transparent", border: "none", outline: "none", color: "var(--text)", fontSize: 16, resize: "none", lineHeight: 1.5, padding: "6px 0", minHeight: 24, maxHeight: 120, fontFamily: "inherit" }}
           />
-          {/* Hidden image file input — no `capture` so users can attach from the
-              gallery or take a new photo (the OS offers both). */}
-          <input
-            ref={imageInputRef}
-            type="file"
-            accept="image/*"
-            onChange={handleImagePick}
-            style={{ display: "none" }}
-          />
-          {/* Image attach button */}
-          <button
-            onClick={() => imageInputRef.current?.click()}
-            title="Attach image"
-            style={{
-              background: selectedImage ? "#3b82f620" : "transparent",
-              border: `1px solid ${selectedImage ? "#3b82f6" : "#333"}`,
-              color: selectedImage ? "#3b82f6" : "#555",
-              cursor: "pointer",
-              padding: 9,
-              borderRadius: 10,
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              flexShrink: 0,
-              transition: "all 0.2s",
-            }}
-          >
-            <ImageIcon size={16} />
-          </button>
+          <input ref={imageInputRef} type="file" accept="image/*" onChange={handleImagePick} style={{ display: "none" }} />
           <button
             onClick={() => sendMessage()}
-            disabled={(!input.trim() && !selectedImage) || loading}
-            style={{
-              background: (input.trim() || selectedImage) && !loading
-                ? "linear-gradient(135deg, #3b82f6, #8b5cf6)"
-                : "#27272a",
-              border: "none",
-              color: (input.trim() || selectedImage) && !loading ? "#fff" : "#444",
-              cursor: (input.trim() || selectedImage) && !loading ? "pointer" : "not-allowed",
-              padding: 10,
-              borderRadius: 10,
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              flexShrink: 0,
-              transition: "all 0.2s",
-            }}
+            disabled={!canSend}
+            aria-label="Send"
+            style={{ width: 40, height: 40, borderRadius: 12, border: "none", background: canSend ? "var(--accent)" : "var(--surface-highlight)", color: canSend ? "var(--on-accent)" : "var(--text-faint)", display: "grid", placeItems: "center", cursor: canSend ? "pointer" : "not-allowed", flexShrink: 0 }}
           >
-            {loading ? (
-              <Loader2 size={18} className="animate-spin" />
-            ) : (
-              <Send size={18} />
-            )}
+            {loading ? <Loader2 size={18} className="animate-spin" /> : <Send size={18} />}
           </button>
-        </div>
-        <div
-          style={{
-            display: "flex",
-            justifyContent: "space-between",
-            alignItems: "center",
-            marginTop: 8,
-          }}
-        >
-          <div style={{ fontSize: "0.7rem", color: "#444" }}>
-            Agent reads your live data · Image · Web Search · Voice · Powered by Gemini
-          </div>
-          <div
-            style={{
-              fontSize: "0.7rem",
-              color: input.length > 900 ? "#ef4444" : "#444",
-              transition: "color 0.2s",
-            }}
-          >
-            {input.length > 0 ? `${input.length}/1000` : ""}
-          </div>
         </div>
       </div>
 
       <style>{`
-        @keyframes pulse {
-          0%, 100% { opacity: 1; }
-          50% { opacity: 0.3; }
-        }
-        .animate-spin {
-          animation: spin 1s linear infinite;
-        }
-        @keyframes spin {
-          from { transform: rotate(0deg); }
-          to { transform: rotate(360deg); }
-        }
-        textarea::placeholder { color: #444; }
-        ::-webkit-scrollbar { width: 4px; }
-        ::-webkit-scrollbar-track { background: transparent; }
-        ::-webkit-scrollbar-thumb { background: #333; border-radius: 2px; }
+        .coach-caret { display: inline-block; width: 2px; height: 1em; background: var(--accent-text); margin-left: 2px; vertical-align: text-bottom; animation: coach-blink 1s step-end infinite; }
+        @keyframes coach-blink { 50% { opacity: 0; } }
+        textarea::placeholder { color: var(--text-faint); }
       `}</style>
     </div>
   );

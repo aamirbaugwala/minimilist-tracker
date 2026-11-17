@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import TrafficPanel from "../components/admin/TrafficPanel";
 import LlmCostPanel from "../components/admin/LlmCostPanel";
+import LogSourcesCard from "../components/admin/LogSourcesCard";
 import {
   ArrowLeft,
   Users,
@@ -23,17 +24,17 @@ import {
 import { supabase } from "../supabase";
 
 // ─── COLORS ───────────────────────────────────────────────────────────────────
-const COLORS = { pro: "#3b82f6", carb: "#10b981", fat: "#f59e0b" };
+const COLORS = { pro: "var(--protein)", carb: "var(--accent-text)", fat: "var(--warn)" };
 
 // Each event type: emoji, accent color, display label
 const EVENT_CONFIG = {
-  food:    { emoji: "🍽️", color: "#10b981", label: "Food Logged" },
-  agent:   { emoji: "🤖", color: "#8b5cf6", label: "AI Agent Chat" },
-  medical: { emoji: "🩺", color: "#ef4444", label: "Medical Report" },
-  insight: { emoji: "📊", color: "#06b6d4", label: "Weekly AI Report" },
-  recipe:  { emoji: "🥘", color: "#f97316", label: "Recipe Saved" },
-  reminder: { emoji: "🔔", color: "#6366f1", label: "Reminder Created" },
-  device:   { emoji: "📱", color: "#14b8a6", label: "Push Device Added" },
+  food:    { emoji: "🍽️", color: "var(--accent-text)", label: "Food Logged" },
+  agent:   { emoji: "🤖", color: "var(--protein)", label: "AI Agent Chat" },
+  medical: { emoji: "🩺", color: "var(--danger)", label: "Medical Report" },
+  insight: { emoji: "📊", color: "var(--water)", label: "Weekly AI Report" },
+  recipe:  { emoji: "🥘", color: "var(--warn)", label: "Recipe Saved" },
+  reminder: { emoji: "🔔", color: "var(--accent)", label: "Reminder Created" },
+  device:   { emoji: "📱", color: "var(--fiber)", label: "Push Device Added" },
 };
 
 // ─── HELPERS ──────────────────────────────────────────────────────────────────
@@ -383,9 +384,9 @@ export default function AdminDashboard() {
         .tab-btn {
           padding: 7px 14px;
           border-radius: 8px;
-          border: 1px solid #333;
+          border: 1px solid var(--border);
           background: transparent;
-          color: #888;
+          color: var(--text-muted);
           cursor: pointer;
           font-size: 0.82rem;
           font-weight: 500;
@@ -394,17 +395,17 @@ export default function AdminDashboard() {
         }
         .tab-btn.active {
           background: rgba(99, 102, 241, 0.15);
-          border-color: #6366f1;
-          color: #818cf8;
+          border-color: var(--accent);
+          color: var(--accent-text);
         }
         .stat-pill {
-          background: #27272a;
+          background: var(--border);
           border-radius: 10px;
           padding: 8px 14px;
           display: flex;
           align-items: center;
           gap: 8px;
-          border: 1px solid #333;
+          border: 1px solid var(--border);
         }
         .overview-stat-grid {
           display: grid;
@@ -412,17 +413,17 @@ export default function AdminDashboard() {
           gap: 10px;
         }
         .overview-stat {
-          background: #18181b;
+          background: var(--surface);
           border-radius: 10px;
           padding: 14px 10px;
           text-align: center;
-          border: 1px solid #27272a;
+          border: 1px solid var(--border);
         }
         .activity-row {
           display: flex;
           gap: 12px;
           padding: 10px 0;
-          border-bottom: 1px solid #27272a;
+          border-bottom: 1px solid var(--border);
         }
         .activity-row:last-child { border-bottom: none; }
         .evt-icon {
@@ -465,7 +466,7 @@ export default function AdminDashboard() {
       <div style={{ display: "flex", flexDirection: "column", gap: 16, marginBottom: 24 }}>
         <button
           onClick={() => router.back()}
-          style={{ background: "none", border: "none", color: "#aaa", cursor: "pointer", display: "flex", alignItems: "center", gap: 6, width: "fit-content" }}
+          style={{ background: "none", border: "none", color: "var(--text-muted)", cursor: "pointer", display: "flex", alignItems: "center", gap: 6, width: "fit-content" }}
         >
           <ArrowLeft size={18} /> Back to App
         </button>
@@ -473,25 +474,25 @@ export default function AdminDashboard() {
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", flexWrap: "wrap", gap: 16 }}>
           <div>
             <h1 style={{ fontSize: "2rem", fontWeight: 800 }}>Admin Portal</h1>
-            <p style={{ color: "#666", marginTop: 2 }}>Full user activity tracking</p>
+            <p style={{ color: "var(--text-faint)", marginTop: 2 }}>Full user activity tracking</p>
           </div>
 
           {/* Global stats pills */}
           <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
             {[
-              { icon: <Users size={13} color="#6366f1" />,       label: "Users",       value: globalStats.totalUsers,     color: "#fff"     },
-              { icon: <Activity size={13} color="#22c55e" />,     label: "Active Today",value: globalStats.activeToday,    color: "#22c55e"  },
-              { icon: <MessageSquare size={13} color="#8b5cf6" />,label: "Agent Today", value: globalStats.agentMsgsToday, color: "#8b5cf6"  },
-              { icon: <FileText size={13} color="#ef4444" />,     label: "Reports",     value: globalStats.medicalTotal,   color: "#ef4444"  },
-              { icon: <ChefHat size={13} color="#f97316" />,      label: "Recipes",     value: globalStats.recipesTotal,   color: "#f97316"  },
-              { icon: <Bell size={13} color="#6366f1" />,         label: "Reminders",   value: globalStats.remindersTotal, color: "#6366f1"  },
-              { icon: <Smartphone size={13} color="#14b8a6" />,   label: "Push Users",  value: globalStats.pushUsers,      color: "#14b8a6"  },
-              { icon: <TrendingUp size={13} color="#06b6d4" />,   label: "Food Logs",   value: globalStats.totalLogs,      color: "#06b6d4"  },
+              { icon: <Users size={13} color="var(--accent)" />,       label: "Users",       value: globalStats.totalUsers,     color: "var(--text)"     },
+              { icon: <Activity size={13} color="var(--accent-text)" />,     label: "Active Today",value: globalStats.activeToday,    color: "var(--accent-text)"  },
+              { icon: <MessageSquare size={13} color="var(--protein)" />,label: "Agent Today", value: globalStats.agentMsgsToday, color: "var(--protein)"  },
+              { icon: <FileText size={13} color="var(--danger)" />,     label: "Reports",     value: globalStats.medicalTotal,   color: "var(--danger)"  },
+              { icon: <ChefHat size={13} color="var(--warn)" />,      label: "Recipes",     value: globalStats.recipesTotal,   color: "var(--warn)"  },
+              { icon: <Bell size={13} color="var(--accent)" />,         label: "Reminders",   value: globalStats.remindersTotal, color: "var(--accent)"  },
+              { icon: <Smartphone size={13} color="var(--fiber)" />,   label: "Push Users",  value: globalStats.pushUsers,      color: "var(--fiber)"  },
+              { icon: <TrendingUp size={13} color="var(--water)" />,   label: "Food Logs",   value: globalStats.totalLogs,      color: "var(--water)"  },
             ].map((s) => (
               <div key={s.label} className="stat-pill">
                 {s.icon}
                 <div>
-                  <div style={{ fontSize: "0.6rem", color: "#777", textTransform: "uppercase", letterSpacing: 0.5 }}>{s.label}</div>
+                  <div style={{ fontSize: "0.6rem", color: "var(--text-muted)", textTransform: "uppercase", letterSpacing: 0.5 }}>{s.label}</div>
                   <div style={{ fontWeight: 700, fontSize: "0.95rem", color: s.color }}>{s.value}</div>
                 </div>
               </div>
@@ -503,9 +504,9 @@ export default function AdminDashboard() {
       <div className="admin-grid">
         {/* ── LEFT: USER LIST ──────────────────────────────────────────────── */}
         <section className="chart-card user-list-panel" style={{ padding: 0 }}>
-          <div style={{ padding: 12, borderBottom: "1px solid #333", background: "#27272a" }}>
-            <div style={{ display: "flex", alignItems: "center", background: "#18181b", border: "1px solid #333", borderRadius: 8, padding: "8px 12px" }}>
-              <Search size={14} color="#666" />
+          <div style={{ padding: 12, borderBottom: "1px solid var(--border)", background: "var(--border)" }}>
+            <div style={{ display: "flex", alignItems: "center", background: "var(--surface)", border: "1px solid var(--border)", borderRadius: 8, padding: "8px 12px" }}>
+              <Search size={14} color="var(--text-faint)" />
               <input
                 placeholder="Search email or ID…"
                 value={searchQuery}
@@ -517,9 +518,9 @@ export default function AdminDashboard() {
 
           <div style={{ overflowY: "auto", flex: 1 }}>
             {loading ? (
-              <div style={{ padding: 24, textAlign: "center", color: "#666" }}>Loading all activity data…</div>
+              <div style={{ padding: 24, textAlign: "center", color: "var(--text-faint)" }}>Loading all activity data…</div>
             ) : filteredUsers.length === 0 ? (
-              <div style={{ padding: 24, textAlign: "center", color: "#666" }}>No users found.</div>
+              <div style={{ padding: 24, textAlign: "center", color: "var(--text-faint)" }}>No users found.</div>
             ) : (
               filteredUsers.map((user) => (
                 <div
@@ -527,35 +528,35 @@ export default function AdminDashboard() {
                   onClick={() => { setSelectedUserId(user.userId); setActiveTab("overview"); }}
                   style={{
                     padding: "13px 14px",
-                    borderBottom: "1px solid #27272a",
+                    borderBottom: "1px solid var(--border)",
                     cursor: "pointer",
                     background: selectedUserId === user.userId ? "rgba(99,102,241,0.1)" : "transparent",
-                    borderLeft: selectedUserId === user.userId ? "3px solid #6366f1" : "3px solid transparent",
+                    borderLeft: selectedUserId === user.userId ? "3px solid var(--accent)" : "3px solid transparent",
                   }}
                 >
-                  <div style={{ fontSize: "0.88rem", color: "#fff", fontWeight: 600, marginBottom: 5, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                  <div style={{ fontSize: "0.88rem", color: "var(--text)", fontWeight: 600, marginBottom: 5, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                     {user.email}
                   </div>
 
                   {/* Activity badges */}
                   <div style={{ display: "flex", gap: 5, flexWrap: "wrap", marginBottom: 5 }}>
-                    {user.foodLogs       > 0 && <span style={{ fontSize: "0.68rem", background: "rgba(16,185,129,0.15)",  color: "#10b981", padding: "2px 6px", borderRadius: 4 }}>🍽️ {user.foodLogs}</span>}
-                    {user.agentMessages  > 0 && <span style={{ fontSize: "0.68rem", background: "rgba(139,92,246,0.15)",  color: "#8b5cf6", padding: "2px 6px", borderRadius: 4 }}>🤖 {user.agentMessages}</span>}
-                    {user.medicalReports > 0 && <span style={{ fontSize: "0.68rem", background: "rgba(239,68,68,0.15)",   color: "#ef4444", padding: "2px 6px", borderRadius: 4 }}>🩺 {user.medicalReports}</span>}
-                    {user.weeklyInsights > 0 && <span style={{ fontSize: "0.68rem", background: "rgba(6,182,212,0.15)",   color: "#06b6d4", padding: "2px 6px", borderRadius: 4 }}>📊 {user.weeklyInsights}</span>}
-                    {user.recipes        > 0 && <span style={{ fontSize: "0.68rem", background: "rgba(249,115,22,0.15)",  color: "#f97316", padding: "2px 6px", borderRadius: 4 }}>🥘 {user.recipes}</span>}
-                    {user.reminders      > 0 && <span style={{ fontSize: "0.68rem", background: "rgba(99,102,241,0.15)",  color: "#818cf8", padding: "2px 6px", borderRadius: 4 }}>🔔 {user.reminders}</span>}
-                    {user.pushDevices    > 0 && <span style={{ fontSize: "0.68rem", background: "rgba(20,184,166,0.15)",  color: "#14b8a6", padding: "2px 6px", borderRadius: 4 }}>📱 {user.pushDevices}</span>}
+                    {user.foodLogs       > 0 && <span style={{ fontSize: "0.68rem", background: "rgba(16,185,129,0.15)",  color: "var(--accent-text)", padding: "2px 6px", borderRadius: 4 }}>🍽️ {user.foodLogs}</span>}
+                    {user.agentMessages  > 0 && <span style={{ fontSize: "0.68rem", background: "rgba(139,92,246,0.15)",  color: "var(--protein)", padding: "2px 6px", borderRadius: 4 }}>🤖 {user.agentMessages}</span>}
+                    {user.medicalReports > 0 && <span style={{ fontSize: "0.68rem", background: "rgba(239,68,68,0.15)",   color: "var(--danger)", padding: "2px 6px", borderRadius: 4 }}>🩺 {user.medicalReports}</span>}
+                    {user.weeklyInsights > 0 && <span style={{ fontSize: "0.68rem", background: "rgba(6,182,212,0.15)",   color: "var(--water)", padding: "2px 6px", borderRadius: 4 }}>📊 {user.weeklyInsights}</span>}
+                    {user.recipes        > 0 && <span style={{ fontSize: "0.68rem", background: "rgba(249,115,22,0.15)",  color: "var(--warn)", padding: "2px 6px", borderRadius: 4 }}>🥘 {user.recipes}</span>}
+                    {user.reminders      > 0 && <span style={{ fontSize: "0.68rem", background: "rgba(99,102,241,0.15)",  color: "var(--accent-text)", padding: "2px 6px", borderRadius: 4 }}>🔔 {user.reminders}</span>}
+                    {user.pushDevices    > 0 && <span style={{ fontSize: "0.68rem", background: "rgba(20,184,166,0.15)",  color: "var(--fiber)", padding: "2px 6px", borderRadius: 4 }}>📱 {user.pushDevices}</span>}
                   </div>
 
                   <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                    <span style={{ fontSize: "0.7rem", color: "#555" }}>
+                    <span style={{ fontSize: "0.7rem", color: "var(--text-faint)" }}>
                       {user.lastLogin ? <>
                         <LogIn size={10} style={{ marginRight: 3, verticalAlign: "middle" }} />
                         {formatRelativeTime(user.lastLogin)}
                       </> : "No login data"}
                     </span>
-                    <span style={{ fontSize: "0.7rem", color: user.lastActive === new Date().toISOString().slice(0, 10) ? "#22c55e" : "#555" }}>
+                    <span style={{ fontSize: "0.7rem", color: user.lastActive === new Date().toISOString().slice(0, 10) ? "var(--accent-text)" : "var(--text-faint)" }}>
                       {user.lastActive || "—"}
                     </span>
                   </div>
@@ -570,7 +571,7 @@ export default function AdminDashboard() {
           {selectedUserId && (
             <button
               onClick={() => setSelectedUserId(null)}
-              style={{ display: "flex", alignItems: "center", gap: 6, background: "transparent", border: "none", color: "#6366f1", padding: "10px 0", fontSize: "1rem", cursor: "pointer" }}
+              style={{ display: "flex", alignItems: "center", gap: 6, background: "transparent", border: "none", color: "var(--accent)", padding: "10px 0", fontSize: "1rem", cursor: "pointer" }}
               className="mobile-back-btn"
             >
               <ChevronLeft size={20} /> Back to List
@@ -595,9 +596,9 @@ export default function AdminDashboard() {
                     style={{
                       padding: "9px 16px", minHeight: 38, borderRadius: 20, cursor: "pointer",
                       fontSize: "0.8rem", fontWeight: 700,
-                      border: `1px solid ${globalView === v.id ? "#6366f1" : "var(--border)"}`,
-                      background: globalView === v.id ? "#6366f120" : "transparent",
-                      color: globalView === v.id ? "#818cf8" : "#71717a",
+                      border: `1px solid ${globalView === v.id ? "var(--accent)" : "var(--border)"}`,
+                      background: globalView === v.id ? "var(--accent-soft)" : "transparent",
+                      color: globalView === v.id ? "var(--accent-text)" : "var(--text-faint)",
                     }}
                   >
                     {v.label}
@@ -605,8 +606,15 @@ export default function AdminDashboard() {
                 ))}
               </div>
 
-              {globalView === "traffic" ? <TrafficPanel /> : <LlmCostPanel />}
-              <div className="chart-card desktop-only-msg" style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 10, color: "#666", padding: 18 }}>
+              {globalView === "traffic" ? (
+                <>
+                  <LogSourcesCard />
+                  <TrafficPanel />
+                </>
+              ) : (
+                <LlmCostPanel />
+              )}
+              <div className="chart-card desktop-only-msg" style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 10, color: "var(--text-faint)", padding: 18 }}>
                 <Users size={20} style={{ opacity: 0.3 }} />
                 <p style={{ margin: 0, fontSize: "0.85rem" }}>Select a user to view their full activity.</p>
               </div>
@@ -618,23 +626,23 @@ export default function AdminDashboard() {
               {/* User header + tabs */}
               <div className="chart-card" style={{ padding: 18, marginBottom: 14 }}>
                 <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 14 }}>
-                  <div style={{ background: "rgba(99,102,241,0.2)", padding: 10, borderRadius: 50, color: "#6366f1", flexShrink: 0 }}>
+                  <div style={{ background: "rgba(99,102,241,0.2)", padding: 10, borderRadius: 50, color: "var(--accent)", flexShrink: 0 }}>
                     <Database size={22} />
                   </div>
                   <div style={{ overflow: "hidden", flex: 1 }}>
-                    <div style={{ fontSize: "0.68rem", color: "#888", textTransform: "uppercase", letterSpacing: 1 }}>Selected User</div>
-                    <div style={{ fontSize: "1rem", fontWeight: 700, color: "#fff", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                    <div style={{ fontSize: "0.68rem", color: "var(--text-muted)", textTransform: "uppercase", letterSpacing: 1 }}>Selected User</div>
+                    <div style={{ fontSize: "1rem", fontWeight: 700, color: "var(--text)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                       {selectedUser.email}
                     </div>
                     <div style={{ display: "flex", gap: 14, marginTop: 3, flexWrap: "wrap" }}>
-                      <span style={{ fontSize: "0.72rem", color: "#666" }}>
-                        <span style={{ color: "#888" }}>Last login:</span>{" "}
-                        <span style={{ color: "#ccc" }}>{formatRelativeTime(selectedUser.lastLogin)}</span>
+                      <span style={{ fontSize: "0.72rem", color: "var(--text-faint)" }}>
+                        <span style={{ color: "var(--text-muted)" }}>Last login:</span>{" "}
+                        <span style={{ color: "var(--text)" }}>{formatRelativeTime(selectedUser.lastLogin)}</span>
                       </span>
                       {selectedUser.joined && (
-                        <span style={{ fontSize: "0.72rem", color: "#666" }}>
-                          <span style={{ color: "#888" }}>Joined:</span>{" "}
-                          <span style={{ color: "#ccc" }}>{formatDate(selectedUser.joined)}</span>
+                        <span style={{ fontSize: "0.72rem", color: "var(--text-faint)" }}>
+                          <span style={{ color: "var(--text-muted)" }}>Joined:</span>{" "}
+                          <span style={{ color: "var(--text)" }}>{formatDate(selectedUser.joined)}</span>
                         </span>
                       )}
                     </div>
@@ -656,21 +664,21 @@ export default function AdminDashboard() {
 
                   {/* Stats grid */}
                   <div className="chart-card" style={{ padding: 18 }}>
-                    <div style={{ fontSize: "0.72rem", color: "#888", textTransform: "uppercase", letterSpacing: 1, marginBottom: 14 }}>Activity Breakdown</div>
+                    <div style={{ fontSize: "0.72rem", color: "var(--text-muted)", textTransform: "uppercase", letterSpacing: 1, marginBottom: 14 }}>Activity Breakdown</div>
                     <div className="overview-stat-grid">
                       {[
-                        { label: "Food Logs",   value: selectedUser.foodLogs,       emoji: "🍽️", color: "#10b981" },
-                        { label: "Agent Msgs",  value: selectedUser.agentMessages,  emoji: "🤖", color: "#8b5cf6" },
-                        { label: "Reports",     value: selectedUser.medicalReports, emoji: "🩺", color: "#ef4444" },
-                        { label: "Wkly AI",     value: selectedUser.weeklyInsights, emoji: "📊", color: "#06b6d4" },
-                        { label: "Recipes",     value: selectedUser.recipes,        emoji: "🥘", color: "#f97316" },
-                        { label: "Reminders",   value: selectedUser.reminders,      emoji: "🔔", color: "#6366f1" },
-                        { label: "Push Devices",value: selectedUser.pushDevices,    emoji: "📱", color: "#14b8a6" },
+                        { label: "Food Logs",   value: selectedUser.foodLogs,       emoji: "🍽️", color: "var(--accent-text)" },
+                        { label: "Agent Msgs",  value: selectedUser.agentMessages,  emoji: "🤖", color: "var(--protein)" },
+                        { label: "Reports",     value: selectedUser.medicalReports, emoji: "🩺", color: "var(--danger)" },
+                        { label: "Wkly AI",     value: selectedUser.weeklyInsights, emoji: "📊", color: "var(--water)" },
+                        { label: "Recipes",     value: selectedUser.recipes,        emoji: "🥘", color: "var(--warn)" },
+                        { label: "Reminders",   value: selectedUser.reminders,      emoji: "🔔", color: "var(--accent)" },
+                        { label: "Push Devices",value: selectedUser.pushDevices,    emoji: "📱", color: "var(--fiber)" },
                       ].map((s) => (
                         <div key={s.label} className="overview-stat">
                           <div style={{ fontSize: 22, marginBottom: 6 }}>{s.emoji}</div>
                           <div style={{ fontWeight: 800, fontSize: "1.5rem", color: s.color }}>{s.value}</div>
-                          <div style={{ fontSize: "0.66rem", color: "#777", textTransform: "uppercase", marginTop: 2 }}>{s.label}</div>
+                          <div style={{ fontSize: "0.66rem", color: "var(--text-muted)", textTransform: "uppercase", marginTop: 2 }}>{s.label}</div>
                         </div>
                       ))}
                     </div>
@@ -679,21 +687,21 @@ export default function AdminDashboard() {
                   {/* Recent agent messages */}
                   {allChats.filter((c) => c.user_id === selectedUserId && c.role === "user").length > 0 && (
                     <div className="chart-card" style={{ padding: 18 }}>
-                      <div style={{ fontSize: "0.72rem", color: "#888", textTransform: "uppercase", letterSpacing: 1, marginBottom: 12 }}>Recent Agent Messages</div>
+                      <div style={{ fontSize: "0.72rem", color: "var(--text-muted)", textTransform: "uppercase", letterSpacing: 1, marginBottom: 12 }}>Recent Agent Messages</div>
                       {allChats
                         .filter((c) => c.user_id === selectedUserId && c.role === "user")
                         .slice(0, 6)
                         .map((c, i, arr) => (
-                          <div key={i} style={{ padding: "10px 0", borderBottom: i < arr.length - 1 ? "1px solid #27272a" : "none" }}>
-                            <div style={{ fontSize: "0.83rem", color: "#ccc", marginBottom: 3 }}>
+                          <div key={i} style={{ padding: "10px 0", borderBottom: i < arr.length - 1 ? "1px solid var(--border)" : "none" }}>
+                            <div style={{ fontSize: "0.83rem", color: "var(--text)", marginBottom: 3 }}>
                               &ldquo;{c.content?.slice(0, 110)}{(c.content?.length || 0) > 110 ? "…" : ""}&rdquo;
                             </div>
                             <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
-                              <span style={{ fontSize: "0.68rem", color: "#555" }}>
+                              <span style={{ fontSize: "0.68rem", color: "var(--text-faint)" }}>
                                 {c.created_at ? new Date(c.created_at).toLocaleString("en-IN", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" }) : ""}
                               </span>
                               {(c.tools_used || []).length > 0 && (
-                                <span style={{ fontSize: "0.65rem", color: "#8b5cf6", background: "rgba(139,92,246,0.1)", padding: "1px 6px", borderRadius: 4 }}>
+                                <span style={{ fontSize: "0.65rem", color: "var(--protein)", background: "rgba(139,92,246,0.1)", padding: "1px 6px", borderRadius: 4 }}>
                                   {c.tools_used.join(", ")}
                                 </span>
                               )}
@@ -706,19 +714,19 @@ export default function AdminDashboard() {
                   {/* Medical reports */}
                   {allMedical.filter((m) => m.user_id === selectedUserId).length > 0 && (
                     <div className="chart-card" style={{ padding: 18 }}>
-                      <div style={{ fontSize: "0.72rem", color: "#888", textTransform: "uppercase", letterSpacing: 1, marginBottom: 12 }}>Medical Reports</div>
+                      <div style={{ fontSize: "0.72rem", color: "var(--text-muted)", textTransform: "uppercase", letterSpacing: 1, marginBottom: 12 }}>Medical Reports</div>
                       {allMedical.filter((m) => m.user_id === selectedUserId).map((m, i, arr) => {
                         const abnormal = (m.flags || []).filter((f) => f.status !== "normal").length;
                         return (
-                          <div key={m.id || i} style={{ padding: "10px 0", borderBottom: i < arr.length - 1 ? "1px solid #27272a" : "none", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                          <div key={m.id || i} style={{ padding: "10px 0", borderBottom: i < arr.length - 1 ? "1px solid var(--border)" : "none", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                             <div>
-                              <div style={{ fontSize: "0.88rem", color: "#fff", fontWeight: 600 }}>🩺 {m.file_name}</div>
-                              <div style={{ fontSize: "0.72rem", color: "#666", marginTop: 2 }}>
+                              <div style={{ fontSize: "0.88rem", color: "var(--text)", fontWeight: 600 }}>🩺 {m.file_name}</div>
+                              <div style={{ fontSize: "0.72rem", color: "var(--text-faint)", marginTop: 2 }}>
                                 {(m.flags || []).length} markers · {formatDate(m.created_at)}
                               </div>
                             </div>
                             {abnormal > 0 && (
-                              <span style={{ fontSize: "0.68rem", background: "rgba(239,68,68,0.15)", color: "#ef4444", padding: "2px 8px", borderRadius: 4 }}>
+                              <span style={{ fontSize: "0.68rem", background: "rgba(239,68,68,0.15)", color: "var(--danger)", padding: "2px 8px", borderRadius: 4 }}>
                                 {abnormal} abnormal
                               </span>
                             )}
@@ -731,16 +739,16 @@ export default function AdminDashboard() {
                   {/* Saved recipes */}
                   {allRecipes.filter((r) => r.user_id === selectedUserId).length > 0 && (
                     <div className="chart-card" style={{ padding: 18 }}>
-                      <div style={{ fontSize: "0.72rem", color: "#888", textTransform: "uppercase", letterSpacing: 1, marginBottom: 12 }}>Saved Recipes</div>
+                      <div style={{ fontSize: "0.72rem", color: "var(--text-muted)", textTransform: "uppercase", letterSpacing: 1, marginBottom: 12 }}>Saved Recipes</div>
                       {allRecipes.filter((r) => r.user_id === selectedUserId).map((r, i, arr) => (
-                        <div key={r.id || i} style={{ padding: "10px 0", borderBottom: i < arr.length - 1 ? "1px solid #27272a" : "none", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                        <div key={r.id || i} style={{ padding: "10px 0", borderBottom: i < arr.length - 1 ? "1px solid var(--border)" : "none", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                           <div>
-                            <div style={{ fontSize: "0.88rem", color: "#fff", fontWeight: 600 }}>🥘 {r.name}</div>
+                            <div style={{ fontSize: "0.88rem", color: "var(--text)", fontWeight: 600 }}>🥘 {r.name}</div>
                             {(r.tags || []).length > 0 && (
-                              <div style={{ fontSize: "0.7rem", color: "#f97316", marginTop: 2 }}>{r.tags.join(" · ")}</div>
+                              <div style={{ fontSize: "0.7rem", color: "var(--warn)", marginTop: 2 }}>{r.tags.join(" · ")}</div>
                             )}
                           </div>
-                          <div style={{ fontSize: "0.68rem", color: "#555" }}>{formatDate(r.created_at)}</div>
+                          <div style={{ fontSize: "0.68rem", color: "var(--text-faint)" }}>{formatDate(r.created_at)}</div>
                         </div>
                       ))}
                     </div>
@@ -749,15 +757,15 @@ export default function AdminDashboard() {
                   {/* Weekly insights */}
                   {allInsights.filter((i) => i.user_id === selectedUserId).length > 0 && (
                     <div className="chart-card" style={{ padding: 18 }}>
-                      <div style={{ fontSize: "0.72rem", color: "#888", textTransform: "uppercase", letterSpacing: 1, marginBottom: 12 }}>Weekly AI Reports</div>
+                      <div style={{ fontSize: "0.72rem", color: "var(--text-muted)", textTransform: "uppercase", letterSpacing: 1, marginBottom: 12 }}>Weekly AI Reports</div>
                       {allInsights.filter((i) => i.user_id === selectedUserId).map((ins, i, arr) => (
-                        <div key={ins.id || i} style={{ padding: "10px 0", borderBottom: i < arr.length - 1 ? "1px solid #27272a" : "none", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                        <div key={ins.id || i} style={{ padding: "10px 0", borderBottom: i < arr.length - 1 ? "1px solid var(--border)" : "none", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                           <div>
-                            <div style={{ fontSize: "0.88rem", color: "#fff", fontWeight: 600 }}>📊 Week of {ins.week_start}</div>
-                            <div style={{ fontSize: "0.72rem", color: "#666", marginTop: 2 }}>{formatDate(ins.created_at)}</div>
+                            <div style={{ fontSize: "0.88rem", color: "var(--text)", fontWeight: 600 }}>📊 Week of {ins.week_start}</div>
+                            <div style={{ fontSize: "0.72rem", color: "var(--text-faint)", marginTop: 2 }}>{formatDate(ins.created_at)}</div>
                           </div>
                           {ins.score != null && (
-                            <span style={{ fontWeight: 700, fontSize: "1.1rem", color: ins.score >= 70 ? "#22c55e" : ins.score >= 40 ? "#f59e0b" : "#ef4444" }}>
+                            <span style={{ fontWeight: 700, fontSize: "1.1rem", color: ins.score >= 70 ? "var(--accent-text)" : ins.score >= 40 ? "var(--warn)" : "var(--danger)" }}>
                               {ins.score}/100
                             </span>
                           )}
@@ -768,16 +776,16 @@ export default function AdminDashboard() {
 
                   {allReminders.filter((r) => r.user_id === selectedUserId).length > 0 && (
                     <div className="chart-card" style={{ padding: 18 }}>
-                      <div style={{ fontSize: "0.72rem", color: "#888", textTransform: "uppercase", letterSpacing: 1, marginBottom: 12 }}>Reminder Settings</div>
+                      <div style={{ fontSize: "0.72rem", color: "var(--text-muted)", textTransform: "uppercase", letterSpacing: 1, marginBottom: 12 }}>Reminder Settings</div>
                       {allReminders.filter((r) => r.user_id === selectedUserId).map((r, i, arr) => (
-                        <div key={r.id || i} style={{ padding: "10px 0", borderBottom: i < arr.length - 1 ? "1px solid #27272a" : "none", display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12 }}>
+                        <div key={r.id || i} style={{ padding: "10px 0", borderBottom: i < arr.length - 1 ? "1px solid var(--border)" : "none", display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12 }}>
                           <div>
-                            <div style={{ fontSize: "0.88rem", color: "#fff", fontWeight: 600 }}>🔔 {r.title}</div>
-                            <div style={{ fontSize: "0.72rem", color: "#666", marginTop: 2 }}>
+                            <div style={{ fontSize: "0.88rem", color: "var(--text)", fontWeight: 600 }}>🔔 {r.title}</div>
+                            <div style={{ fontSize: "0.72rem", color: "var(--text-faint)", marginTop: 2 }}>
                               {r.time_hhmm} · {(r.days || []).join(", ")} · {r.type}
                             </div>
                           </div>
-                          <span style={{ fontSize: "0.68rem", padding: "2px 8px", borderRadius: 4, background: r.active ? "rgba(34,197,94,0.15)" : "rgba(161,161,170,0.15)", color: r.active ? "#22c55e" : "#a1a1aa" }}>
+                          <span style={{ fontSize: "0.68rem", padding: "2px 8px", borderRadius: 4, background: r.active ? "rgba(34,197,94,0.15)" : "rgba(161,161,170,0.15)", color: r.active ? "var(--accent-text)" : "var(--text-muted)" }}>
                             {r.active ? "active" : "paused"}
                           </span>
                         </div>
@@ -787,13 +795,13 @@ export default function AdminDashboard() {
 
                   {allPushSubs.filter((p) => p.user_id === selectedUserId).length > 0 && (
                     <div className="chart-card" style={{ padding: 18 }}>
-                      <div style={{ fontSize: "0.72rem", color: "#888", textTransform: "uppercase", letterSpacing: 1, marginBottom: 12 }}>Registered Push Devices</div>
+                      <div style={{ fontSize: "0.72rem", color: "var(--text-muted)", textTransform: "uppercase", letterSpacing: 1, marginBottom: 12 }}>Registered Push Devices</div>
                       {allPushSubs.filter((p) => p.user_id === selectedUserId).map((p, i, arr) => (
-                        <div key={p.id || i} style={{ padding: "10px 0", borderBottom: i < arr.length - 1 ? "1px solid #27272a" : "none", display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12 }}>
-                          <div style={{ fontSize: "0.82rem", color: "#ccc", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: "78%" }}>
+                        <div key={p.id || i} style={{ padding: "10px 0", borderBottom: i < arr.length - 1 ? "1px solid var(--border)" : "none", display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12 }}>
+                          <div style={{ fontSize: "0.82rem", color: "var(--text)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: "78%" }}>
                             📱 …{(p.endpoint || "").slice(-38)}
                           </div>
-                          <div style={{ fontSize: "0.68rem", color: "#666" }}>{formatDate(p.created_at)}</div>
+                          <div style={{ fontSize: "0.68rem", color: "var(--text-faint)" }}>{formatDate(p.created_at)}</div>
                         </div>
                       ))}
                     </div>
@@ -805,27 +813,27 @@ export default function AdminDashboard() {
               {activeTab === "activity" && (
                 <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
                   {activityFeed.length === 0 ? (
-                    <div style={{ textAlign: "center", color: "#666", padding: 48 }}>No activity recorded yet.</div>
+                    <div style={{ textAlign: "center", color: "var(--text-faint)", padding: 48 }}>No activity recorded yet.</div>
                   ) : (
                     activityFeed.map((dayGroup) => (
                       <div key={dayGroup.date} className="chart-card" style={{ padding: 16 }}>
-                        <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12, paddingBottom: 10, borderBottom: "1px solid #2a2a2a" }}>
-                          <Calendar size={13} color="#666" />
-                          <span style={{ fontWeight: 600, color: "#bbb", fontSize: "0.88rem" }}>{dayGroup.date}</span>
-                          <span style={{ fontSize: "0.72rem", color: "#555" }}>· {dayGroup.events.length} event{dayGroup.events.length > 1 ? "s" : ""}</span>
+                        <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12, paddingBottom: 10, borderBottom: "1px solid var(--border)" }}>
+                          <Calendar size={13} color="var(--text-faint)" />
+                          <span style={{ fontWeight: 600, color: "var(--text-muted)", fontSize: "0.88rem" }}>{dayGroup.date}</span>
+                          <span style={{ fontSize: "0.72rem", color: "var(--text-faint)" }}>· {dayGroup.events.length} event{dayGroup.events.length > 1 ? "s" : ""}</span>
                         </div>
                         {dayGroup.events.map((evt, i) => {
                           const cfg = EVENT_CONFIG[evt.type];
                           return (
                             <div key={i} className="activity-row">
-                              <div className="evt-icon" style={{ background: `${cfg.color}18` }}>
+                              <div className="evt-icon" style={{ background: `color-mix(in srgb, ${cfg.color} 9%, transparent)` }}>
                                 {cfg.emoji}
                               </div>
                               <div style={{ flex: 1, minWidth: 0 }}>
-                                <div style={{ fontSize: "0.82rem", color: "#e5e5e5", fontWeight: 600 }}>{cfg.label}</div>
-                                <div style={{ fontSize: "0.78rem", color: "#aaa", marginTop: 1 }}>{evt.summary}</div>
-                                {evt.detail && <div style={{ fontSize: "0.72rem", color: "#666", marginTop: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{evt.detail}</div>}
-                                {evt.extra  && <div style={{ fontSize: "0.68rem", color: "#8b5cf6", marginTop: 2 }}>{evt.extra}</div>}
+                                <div style={{ fontSize: "0.82rem", color: "var(--text)", fontWeight: 600 }}>{cfg.label}</div>
+                                <div style={{ fontSize: "0.78rem", color: "var(--text-muted)", marginTop: 1 }}>{evt.summary}</div>
+                                {evt.detail && <div style={{ fontSize: "0.72rem", color: "var(--text-faint)", marginTop: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{evt.detail}</div>}
+                                {evt.extra  && <div style={{ fontSize: "0.68rem", color: "var(--protein)", marginTop: 2 }}>{evt.extra}</div>}
                               </div>
                             </div>
                           );
@@ -840,16 +848,16 @@ export default function AdminDashboard() {
               {activeTab === "food" && (
                 <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
                   {groupedFoodData.length === 0 ? (
-                    <div style={{ textAlign: "center", color: "#666", padding: 24 }}>No food logs for this user.</div>
+                    <div style={{ textAlign: "center", color: "var(--text-faint)", padding: 24 }}>No food logs for this user.</div>
                   ) : (
                     groupedFoodData.map((dayGroup) => (
-                      <div key={dayGroup.date} className="chart-card" style={{ padding: 0, overflow: "hidden", border: "1px solid #333" }}>
-                        <div style={{ background: "#202022", padding: "12px 16px", display: "flex", justifyContent: "space-between", alignItems: "center", borderBottom: "1px solid #333" }}>
+                      <div key={dayGroup.date} className="chart-card" style={{ padding: 0, overflow: "hidden", border: "1px solid var(--border)" }}>
+                        <div style={{ background: "var(--surface-highlight)", padding: "12px 16px", display: "flex", justifyContent: "space-between", alignItems: "center", borderBottom: "1px solid var(--border)" }}>
                           <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                            <Calendar size={15} color="#aaa" />
-                            <span style={{ fontWeight: 600, color: "#fff", fontSize: "0.95rem" }}>{dayGroup.date}</span>
+                            <Calendar size={15} color="var(--text-muted)" />
+                            <span style={{ fontWeight: 600, color: "var(--text)", fontSize: "0.95rem" }}>{dayGroup.date}</span>
                           </div>
-                          <span style={{ fontWeight: 800, color: "#fff", fontSize: "1rem" }}>{dayGroup.totals.cals} kcal</span>
+                          <span style={{ fontWeight: 800, color: "var(--text)", fontSize: "1rem" }}>{dayGroup.totals.cals} kcal</span>
                         </div>
 
                         <div style={{ height: 4, width: "100%", display: "flex" }}>
@@ -860,16 +868,16 @@ export default function AdminDashboard() {
 
                         <div style={{ padding: "4px 0" }}>
                           {dayGroup.logs.map((log, i) => (
-                            <div key={i} style={{ padding: "11px 16px", borderBottom: i === dayGroup.logs.length - 1 ? "none" : "1px solid #27272a", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                              <div style={{ fontSize: "0.9rem", color: "#e5e5e5" }}>
+                            <div key={i} style={{ padding: "11px 16px", borderBottom: i === dayGroup.logs.length - 1 ? "none" : "1px solid var(--border)", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                              <div style={{ fontSize: "0.9rem", color: "var(--text)" }}>
                                 {log.qty}x <span style={{ textTransform: "capitalize" }}>{log.name}</span>
                               </div>
-                              <div style={{ fontSize: "0.9rem", color: "#888", minWidth: 60, textAlign: "right" }}>{log.calories}</div>
+                              <div style={{ fontSize: "0.9rem", color: "var(--text-muted)", minWidth: 60, textAlign: "right" }}>{log.calories}</div>
                             </div>
                           ))}
                         </div>
 
-                        <div style={{ background: "#18181b", padding: "8px 16px", display: "flex", gap: 12, justifyContent: "flex-end", fontSize: "0.8rem", borderTop: "1px solid #27272a" }}>
+                        <div style={{ background: "var(--surface)", padding: "8px 16px", display: "flex", gap: 12, justifyContent: "flex-end", fontSize: "0.8rem", borderTop: "1px solid var(--border)" }}>
                           <span style={{ color: COLORS.pro  }}>{dayGroup.totals.pro}g P</span>
                           <span style={{ color: COLORS.carb }}>{dayGroup.totals.carb}g C</span>
                           <span style={{ color: COLORS.fat  }}>{dayGroup.totals.fat}g F</span>

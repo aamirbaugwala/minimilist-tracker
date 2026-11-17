@@ -43,6 +43,27 @@ const keyWords = (k) =>
  * loose substring/single-shared-word matching is deliberately NOT used. Anything
  * that doesn't match cleanly returns null and is reported to the user instead.
  */
+// Everyday words whose default entry would otherwise be picked by DB order
+// ("milk" → chocolate milk, "rice" → brown rice, "tea" → iced tea). Values are
+// full keys; an alias is only used when that key exists.
+const DEFAULT_FOR = {
+  tea: "chai (with sugar, 1 cup)",
+  "milk tea": "chai (with sugar, 1 cup)",
+  "masala chai": "chai (with sugar, 1 cup)",
+  "masala tea": "chai (with sugar, 1 cup)",
+  "cutting chai": "chai (with sugar, 1 cup)",
+  rice: "rice (white, cooked 100g)",
+  "white rice": "rice (white, cooked 100g)",
+  "plain rice": "rice (white, cooked 100g)",
+  milk: "milk (toned, 200ml)",
+  curd: "curd / yogurt (100g)",
+  dahi: "curd / yogurt (100g)",
+  yogurt: "curd / yogurt (100g)",
+  yoghurt: "curd / yogurt (100g)",
+};
+// Too ambiguous to guess (hot vs cold, with or without milk): report unmatched.
+const AMBIGUOUS = new Set(["coffee"]);
+
 export function matchFood(name, db) {
   const n = String(name || "").toLowerCase().trim().replace(/\s+/g, " ");
   if (!n || !db) return null;
@@ -51,6 +72,9 @@ export function matchFood(name, db) {
 
   // 1. exact key (covers custom foods stored under their plain name)
   if (db[n]) return n;
+  // 1b. everyday defaults / deliberately ambiguous words
+  if (DEFAULT_FOR[n] && db[DEFAULT_FOR[n]]) return DEFAULT_FOR[n];
+  if (AMBIGUOUS.has(n)) return null;
   // 2. exact base-name match
   let m = keys.find((k) => base(k) === n);
   if (m) return m;

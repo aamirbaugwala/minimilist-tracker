@@ -26,6 +26,7 @@ import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { cacheInvalidate } from "../../../lib/agentCache";
 import { recordLlmUsage } from "../../../lib/llmCost";
+import { jpegsToPdf } from "../../../lib/jpegPdf";
 
 function getSupabaseForUser(accessToken) {
   return createClient(
@@ -35,32 +36,48 @@ function getSupabaseForUser(accessToken) {
   );
 }
 
-// Max PDF size: 10MB (base64 encoded ~13.3MB, well within Gemini's 20MB inline limit)
+// Max upload: 10MB in total (base64 ~13.3MB, within Gemini's 20MB inline limit)
 const MAX_FILE_BYTES = 10 * 1024 * 1024;
+const MAX_PHOTOS = 5;
+const IMAGE_TYPES = ["image/jpeg", "image/png", "image/webp", "image/heic", "image/heif"];
 
 export async function POST(req) {
   try {
     const apiKey = process.env.GEMINI_API_KEY;
     if (!apiKey) return NextResponse.json({ error: "API key missing" }, { status: 500 });
 
-    // Parse multipart form data
+    // Parse multipart form data. Either ONE PDF, or 1–5 photos of the pages of
+    // ONE report (the client compresses them to JPEG), read together in order.
     const formData = await req.formData();
-    const file = formData.get("file");
+    const files = formData.getAll("file").filter((f) => f instanceof Blob);
     const userId = formData.get("userId");
     const accessToken = formData.get("accessToken");
 
     if (!userId || !accessToken)
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    if (!file || !(file instanceof Blob))
-      return NextResponse.json({ error: "No PDF file provided." }, { status: 400 });
-    if (file.type !== "application/pdf")
-      return NextResponse.json({ error: "Only PDF files are supported." }, { status: 400 });
-    if (file.size > MAX_FILE_BYTES)
-      return NextResponse.json({ error: "PDF too large. Maximum size is 10MB." }, { status: 400 });
+    if (!files.length)
+      return NextResponse.json({ error: "No report file provided." }, { status: 400 });
 
-    // Convert file to base64 for Gemini inline data
-    const arrayBuffer = await file.arrayBuffer();
-    const base64Data = Buffer.from(arrayBuffer).toString("base64");
+    const isPdf = files.length === 1 && files[0].type === "application/pdf";
+    const isPhotos = files.every((f) => IMAGE_TYPES.includes(f.type));
+    if (!isPdf && !isPhotos)
+      return NextResponse.json({ error: "Send one PDF, or photos (JPEG/PNG) of the report’s pages." }, { status: 400 });
+    if (isPhotos && files.length > MAX_PHOTOS)
+      return NextResponse.json({ error: `Up to ${MAX_PHOTOS} photos per report.` }, { status: 400 });
+    const totalBytes = files.reduce((n, f) => n + f.size, 0);
+    if (totalBytes > MAX_FILE_BYTES)
+      return NextResponse.json({ error: "Report too large. Maximum is 10 MB." }, { status: 400 });
+
+    // Bytes + base64 for Gemini inline data, in page order.
+    const pages = await Promise.all(
+      files.map(async (f) => {
+        const bytes = new Uint8Array(await f.arrayBuffer());
+        return { mimeType: f.type, bytes, base64: Buffer.from(bytes).toString("base64") };
+      }),
+    );
+    const fileName = isPdf
+      ? files[0].name || "report.pdf"
+      : `Photo report (${files.length} page${files.length === 1 ? "" : "s"})`;
 
     const db = getSupabaseForUser(accessToken);
 
@@ -142,14 +159,13 @@ Rules:
 - CRITICAL: "report_date" must come from text inside the document, not today's date.
 - If the document is NOT a medical report, return: { "error": "This does not appear to be a medical report." }`;
 
+    const photoNote = isPhotos
+      ? `\n\nThe report is given as ${pages.length} photo${pages.length === 1 ? "" : "s"} of its pages, in order. Treat them as ONE report. If a value is blurred or cut off, leave that marker out rather than guessing. If the photos are too unclear to read, return: { "error": "The photos are too blurry to read. Retake them in good light, flat and in focus." }`
+      : "";
+
     const result = await model.generateContent([
-      { text: systemPrompt },
-      {
-        inlineData: {
-          mimeType: "application/pdf",
-          data: base64Data,
-        },
-      },
+      { text: systemPrompt + photoNote },
+      ...pages.map((pg) => ({ inlineData: { mimeType: pg.mimeType, data: pg.base64 } })),
     ]);
 
     const raw = result.response.text().trim();
@@ -172,7 +188,7 @@ Rules:
     } catch {
       console.error("Gemini returned non-JSON for medical report:", raw);
       return NextResponse.json(
-        { error: "AI could not parse the report. Please ensure the PDF is a readable medical document." },
+        { error: isPhotos ? "Couldn’t read the report from these photos. Retake them flat, in good light." : "Couldn’t read the report. Make sure the PDF is a readable medical document." },
         { status: 500 }
       );
     }
@@ -186,7 +202,7 @@ Rules:
       .from("medical_reports")
       .insert({
         user_id: userId,
-        file_name: file.name || "report.pdf",
+        file_name: fileName,
         report_date: parsed.report_date || null,
         analysis: parsed.analysis || "",
         include_foods: parsed.include_foods || [],
@@ -201,7 +217,7 @@ Rules:
       console.error("DB error saving report:", dbError);
       // Still return the analysis — don't lose the work
       return NextResponse.json({
-        report: { ...parsed, id: null, file_name: file.name, report_date: parsed.report_date || null, created_at: new Date().toISOString() },
+        report: { ...parsed, id: null, file_name: fileName, report_date: parsed.report_date || null, created_at: new Date().toISOString() },
         saved: false,
         warning: "Analysis complete but could not be saved to history.",
       });
@@ -210,12 +226,21 @@ Rules:
     // ── Store the ORIGINAL PDF in the private vault ─────────────────────────
     // Best-effort: the analysis is already persisted, so a storage hiccup must
     // not fail the request. Path is namespaced by user so RLS keeps it private.
+    // Photos are stored as one PDF (JPEG pages embedded as-is) so "Original
+    // PDF" works the same for both; non-JPEG photos are skipped (rare).
     let fileUrl = null;
     const storagePath = `${userId}/${saved.id}.pdf`;
+    let pdfBytes = null;
     try {
+      pdfBytes = isPdf ? pages[0].bytes : pages.every((pg) => pg.mimeType === "image/jpeg") ? jpegsToPdf(pages.map((pg) => pg.bytes)) : null;
+    } catch (e) {
+      console.error("Photo → PDF failed:", e.message);
+    }
+    try {
+      if (!pdfBytes) throw new Error("no storable original");
       const { error: upErr } = await db.storage
         .from("medical-reports")
-        .upload(storagePath, Buffer.from(arrayBuffer), {
+        .upload(storagePath, Buffer.from(pdfBytes), {
           contentType: "application/pdf",
           upsert: true,
         });
@@ -224,10 +249,10 @@ Rules:
       } else {
         await db
           .from("medical_reports")
-          .update({ file_path: storagePath, file_size: file.size })
+          .update({ file_path: storagePath, file_size: pdfBytes.length })
           .eq("id", saved.id);
         saved.file_path = storagePath;
-        saved.file_size = file.size;
+        saved.file_size = pdfBytes.length;
         const { data: signed } = await db.storage
           .from("medical-reports")
           .createSignedUrl(storagePath, 60 * 60); // 1 hour

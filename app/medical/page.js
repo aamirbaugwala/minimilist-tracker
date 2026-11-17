@@ -1,307 +1,39 @@
 "use client";
 
+/**
+ * Medical reports (Direction A) — one screen:
+ *   Add a blood report (choose PDFs → Analyse) and, below, Your reports.
+ * Each report opens a detail sheet (ReportDetail). The old AI-summary modal is
+ * gone: Coach is the single AI entry point ("Ask Coach about this report").
+ */
+
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { supabase } from "../supabase";
-import {
-  ArrowLeft,
-  Upload,
-  Loader2,
-  FileText,
-  CheckCircle,
-  XCircle,
-  AlertTriangle,
-  Trash2,
-  ChevronDown,
-  ChevronUp,
-  ShieldCheck,
-  Salad,
-  Ban,
-  Activity,
-  Info,
-  Clock,
-  TrendingUp,
-  TrendingDown,
-  Minus,
-  Sparkles,
-  X,
-  Download,
-  Paperclip,
-} from "lucide-react";
+import PageHeader, { headerActionStyle } from "../components/PageHeader";
+import ReportDetail from "../components/medical/ReportDetail";
+import { primaryBtn, secondaryBtn } from "../components/Sheet";
+import { reportTitle, reportDay, fmtDay, watchCount } from "../lib/medicalUi";
+import { compressImage } from "../lib/image";
+import { Activity, AlertTriangle, Camera, ChevronRight, FileText, Image as ImageIcon, Loader2, Plus, X } from "lucide-react";
 
-// ─── STATUS BADGE ─────────────────────────────────────────────────────────────
-const STATUS_STYLES = {
-  high:       { bg: "#ef444415", color: "#ef4444", border: "#ef444430", icon: ChevronUp,   label: "High" },
-  low:        { bg: "#3b82f615", color: "#3b82f6", border: "#3b82f630", icon: ChevronDown, label: "Low" },
-  borderline: { bg: "#f59e0b15", color: "#f59e0b", border: "#f59e0b30", icon: AlertTriangle, label: "Borderline" },
-  normal:     { bg: "#10b98115", color: "#10b981", border: "#10b98130", icon: CheckCircle, label: "Normal" },
-};
-
-function StatusBadge({ status }) {
-  const s = STATUS_STYLES[status] || STATUS_STYLES.normal;
-  const Icon = s.icon;
-  return (
-    <span style={{
-      display: "inline-flex", alignItems: "center", gap: 4,
-      padding: "2px 8px", borderRadius: 20, fontSize: "0.68rem", fontWeight: 700,
-      background: s.bg, color: s.color, border: `1px solid ${s.border}`,
-    }}>
-      <Icon size={10} /> {s.label}
-    </span>
-  );
-}
-
-// ─── REPORT CARD ──────────────────────────────────────────────────────────────
-function ReportCard({ report, onDelete }) {
-  const [expanded, setExpanded] = useState(false);
-
-  const hasFlags = report.flags?.length > 0;
-  const abnormal = report.flags?.filter((f) => f.status !== "normal").length || 0;
-
-  return (
-    <div style={{
-      background: "var(--surface)", borderRadius: 16,
-      border: `1px solid ${abnormal > 0 ? "#f59e0b30" : "var(--border)"}`,
-      overflow: "hidden",
-    }}>
-      {/* Header */}
-      <div
-        style={{ padding: "14px 16px", cursor: "pointer" }}
-        onClick={() => setExpanded((e) => !e)}
-      >
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
-          <div style={{ flex: 1 }}>
-            <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
-              <FileText size={14} color="#6366f1" />
-              <span style={{ fontWeight: 700, fontSize: "0.9rem" }}>{report.file_name}</span>
-            </div>
-            <div style={{ fontSize: "0.75rem", color: "#52525b", display: "flex", alignItems: "center", gap: 4 }}>
-              <Clock size={11} />
-              {report.report_date
-                ? new Date(report.report_date).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" })
-                : new Date(report.created_at).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" })}
-              {report.report_date && (
-                <span style={{ marginLeft: 4, fontSize: "0.68rem", color: "#3f3f46", fontStyle: "italic" }}>
-                  · report date
-                </span>
-              )}
-            </div>
-          </div>
-          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-            {report.file_url && (
-              <span title="Original PDF stored" style={{ color: "#52525b", display: "flex" }}>
-                <Paperclip size={13} />
-              </span>
-            )}
-            {abnormal > 0 && (
-              <span style={{
-                fontSize: "0.7rem", fontWeight: 700, padding: "3px 8px", borderRadius: 20,
-                background: "#f59e0b20", color: "#f59e0b", border: "1px solid #f59e0b30",
-              }}>{abnormal} abnormal</span>
-            )}
-            <span style={{ fontSize: "0.75rem", color: "#52525b" }}>{expanded ? "▲" : "▼"}</span>
-          </div>
-        </div>
-
-        {/* Summary always visible */}
-        {report.summary && (
-          <div style={{
-            marginTop: 10, padding: "8px 12px", borderRadius: 10,
-            background: "var(--surface-highlight)", fontSize: "0.8rem",
-            color: "#a1a1aa", lineHeight: 1.6,
-          }}>
-            {report.summary}
-          </div>
-        )}
-      </div>
-
-      {/* Expandable */}
-      {expanded && (
-        <div style={{ borderTop: "1px solid var(--border)", padding: "14px 16px", display: "flex", flexDirection: "column", gap: 16 }}>
-
-          {/* Flags / Markers */}
-          {hasFlags && (
-            <div>
-              <div style={{ fontWeight: 700, fontSize: "0.82rem", marginBottom: 8, display: "flex", alignItems: "center", gap: 6 }}>
-                <Activity size={13} color="#6366f1" /> Blood Markers
-              </div>
-              <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-                {report.flags.map((flag, i) => (
-                  <div key={i} style={{
-                    padding: "9px 12px", borderRadius: 10,
-                    background: "var(--surface-highlight)",
-                    display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 8,
-                  }}>
-                    <div style={{ flex: 1 }}>
-                      <div style={{ fontWeight: 600, fontSize: "0.82rem" }}>{flag.marker}
-                        <span style={{ fontWeight: 400, color: "#71717a", marginLeft: 8 }}>{flag.value}</span>
-                      </div>
-                      {flag.note && <div style={{ fontSize: "0.75rem", color: "#71717a", marginTop: 2 }}>{flag.note}</div>}
-                    </div>
-                    <StatusBadge status={flag.status} />
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {/* Trends across reports */}
-          {report.trends?.length > 0 && (
-            <div>
-              <div style={{ fontWeight: 700, fontSize: "0.82rem", marginBottom: 8, display: "flex", alignItems: "center", gap: 6, color: "#8b5cf6" }}>
-                <TrendingUp size={13} /> Trends vs Previous Reports
-              </div>
-              <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-                {report.trends.map((t, i) => {
-                  const isImproving = t.direction === "improving";
-                  const isWorsening = t.direction === "worsening";
-                  const TrendIcon = isImproving ? TrendingUp : isWorsening ? TrendingDown : Minus;
-                  const trendColor = isImproving ? "#10b981" : isWorsening ? "#ef4444" : "#71717a";
-                  const trendBg = isImproving ? "#10b98112" : isWorsening ? "#ef444412" : "#27272a";
-                  return (
-                    <div key={i} style={{
-                      padding: "10px 12px", borderRadius: 10,
-                      background: trendBg, border: `1px solid ${trendColor}25`,
-                    }}>
-                      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 4 }}>
-                        <span style={{ fontWeight: 700, fontSize: "0.82rem" }}>{t.marker}</span>
-                        <span style={{
-                          display: "inline-flex", alignItems: "center", gap: 4,
-                          fontSize: "0.7rem", fontWeight: 700, color: trendColor,
-                          padding: "2px 8px", borderRadius: 20,
-                          background: `${trendColor}18`, border: `1px solid ${trendColor}30`,
-                        }}>
-                          <TrendIcon size={10} />
-                          {t.direction.charAt(0).toUpperCase() + t.direction.slice(1)}
-                        </span>
-                      </div>
-                      <div style={{ fontSize: "0.75rem", color: "#71717a" }}>
-                        {t.previous} → <span style={{ color: "#e4e4e7", fontWeight: 600 }}>{t.current}</span>
-                      </div>
-                      {t.note && <div style={{ fontSize: "0.74rem", color: "#a1a1aa", marginTop: 4 }}>{t.note}</div>}
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
-          )}
-
-          {/* Include foods */}
-          {report.include_foods?.length > 0 && (
-            <div>
-              <div style={{ fontWeight: 700, fontSize: "0.82rem", marginBottom: 8, display: "flex", alignItems: "center", gap: 6, color: "#10b981" }}>
-                <Salad size={13} /> Include in Diet
-              </div>
-              <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
-                {report.include_foods.map((item, i) => (
-                  <div key={i} style={{ padding: "8px 12px", borderRadius: 10, background: "#10b98110", border: "1px solid #10b98120" }}>
-                    <div style={{ fontWeight: 600, fontSize: "0.82rem", color: "#10b981" }}>✅ {item.food}</div>
-                    <div style={{ fontSize: "0.75rem", color: "#6ee7b7", marginTop: 2 }}>{item.reason}</div>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {/* Exclude foods */}
-          {report.exclude_foods?.length > 0 && (
-            <div>
-              <div style={{ fontWeight: 700, fontSize: "0.82rem", marginBottom: 8, display: "flex", alignItems: "center", gap: 6, color: "#ef4444" }}>
-                <Ban size={13} /> Avoid / Limit
-              </div>
-              <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
-                {report.exclude_foods.map((item, i) => (
-                  <div key={i} style={{ padding: "8px 12px", borderRadius: 10, background: "#ef444410", border: "1px solid #ef444420" }}>
-                    <div style={{ fontWeight: 600, fontSize: "0.82rem", color: "#ef4444" }}>🚫 {item.food}</div>
-                    <div style={{ fontSize: "0.75rem", color: "#fca5a5", marginTop: 2 }}>{item.reason}</div>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {/* Full analysis */}
-          {report.analysis && (
-            <div>
-              <div style={{ fontWeight: 700, fontSize: "0.82rem", marginBottom: 8, display: "flex", alignItems: "center", gap: 6 }}>
-                <ShieldCheck size={13} color="#6366f1" /> Full Analysis
-              </div>
-              <div style={{ fontSize: "0.8rem", color: "#a1a1aa", lineHeight: 1.7, whiteSpace: "pre-wrap" }}>
-                {report.analysis}
-              </div>
-            </div>
-          )}
-
-          {/* Disclaimer */}
-          {report.disclaimer && (
-            <div style={{
-              padding: "8px 12px", borderRadius: 10, background: "#27272a",
-              fontSize: "0.72rem", color: "#52525b", lineHeight: 1.5,
-            }}>
-              ⚠️ {report.disclaimer}
-            </div>
-          )}
-
-          {/* View / download the original PDF from the vault */}
-          {report.file_url && (
-            <a
-              href={report.file_url}
-              target="_blank"
-              rel="noopener noreferrer"
-              style={{
-                display: "flex", alignItems: "center", justifyContent: "center", gap: 6,
-                padding: "9px", borderRadius: 10, border: "1px solid #6366f130",
-                background: "#6366f110", color: "#818cf8", cursor: "pointer",
-                fontSize: "0.8rem", fontWeight: 600, textDecoration: "none",
-              }}
-            >
-              <Download size={13} /> View original PDF
-              {report.file_size ? ` · ${(report.file_size / 1024 / 1024).toFixed(1)} MB` : ""}
-            </a>
-          )}
-
-          {/* Delete */}
-          <button
-            onClick={() => onDelete(report.id)}
-            style={{
-              display: "flex", alignItems: "center", justifyContent: "center", gap: 6,
-              padding: "9px", borderRadius: 10, border: "1px solid #ef444430",
-              background: "#ef444410", color: "#ef4444", cursor: "pointer", fontSize: "0.8rem",
-            }}
-          >
-            <Trash2 size={13} /> Delete Report
-          </button>
-        </div>
-      )}
-    </div>
-  );
-}
-
-// ─── MAIN PAGE ────────────────────────────────────────────────────────────────
 export default function MedicalPage() {
   const router = useRouter();
   const [session, setSession] = useState(null);
   const [pageLoading, setPageLoading] = useState(true);
 
-  // Upload state — now supports multiple files
   const [files, setFiles] = useState([]); // [{ file, id }]
   const [dragOver, setDragOver] = useState(false);
   const [analyzing, setAnalyzing] = useState(false);
   const [analyzeProgress, setAnalyzeProgress] = useState({ done: 0, total: 0 });
   const [uploadError, setUploadError] = useState("");
-  const [latestReports, setLatestReports] = useState([]); // newly analysed
 
-  // History
   const [reports, setReports] = useState([]);
   const [histLoading, setHistLoading] = useState(false);
-  const [tab, setTab] = useState("upload");
-
-  // Summary modal
-  const [summaryOpen, setSummaryOpen] = useState(false);
-  const [summaryText, setSummaryText] = useState("");
-  const [summaryLoading, setSummaryLoading] = useState(false);
+  const [openId, setOpenId] = useState(null);
 
   const fileInputRef = useRef(null);
+  const cameraInputRef = useRef(null);
 
   // ── AUTH ──────────────────────────────────────────────────────────────────
   useEffect(() => {
@@ -329,21 +61,26 @@ export default function MedicalPage() {
   };
 
   // ── FILE HANDLING (multiple) ───────────────────────────────────────────────
+  // PDFs are one report each; photos are the pages of ONE report, read together.
   const addFiles = (incoming) => {
     setUploadError("");
     const valid = [];
     const errors = [];
     for (const f of Array.from(incoming)) {
-      if (f.type !== "application/pdf") { errors.push(`${f.name}: only PDFs supported`); continue; }
-      if (f.size > 10 * 1024 * 1024) { errors.push(`${f.name}: too large (max 10MB)`); continue; }
-      valid.push({ file: f, id: `${f.name}-${Date.now()}-${Math.random()}` });
+      const isPdf = f.type === "application/pdf";
+      const isImage = f.type.startsWith("image/");
+      if (!isPdf && !isImage) { errors.push(`${f.name}: use a PDF or a photo`); continue; }
+      if (isPdf && f.size > 10 * 1024 * 1024) { errors.push(`${f.name}: larger than 10 MB`); continue; }
+      if (isImage && f.size > 25 * 1024 * 1024) { errors.push(`${f.name}: photo too large`); continue; }
+      valid.push({ file: f, kind: isPdf ? "pdf" : "photo", id: `${f.name}-${f.size}-${f.lastModified}-${Math.random()}` });
     }
+    // Computed here, not inside a setFiles updater: an updater runs later, so
+    // an error pushed from it would never reach setUploadError below.
+    const seen = new Set(files.map((x) => `${x.file.name}-${x.file.size}`));
+    const merged = [...files, ...valid.filter((v) => !seen.has(`${v.file.name}-${v.file.size}`))];
+    if (merged.length > 5) errors.push("Up to 5 files at a time");
+    setFiles(merged.slice(0, 5));
     if (errors.length) setUploadError(errors.join(" · "));
-    setFiles((prev) => {
-      // deduplicate by name
-      const existingNames = new Set(prev.map((x) => x.file.name));
-      return [...prev, ...valid.filter((v) => !existingNames.has(v.file.name))];
-    });
   };
 
   const removeFile = (id) => setFiles((prev) => prev.filter((f) => f.id !== id));
@@ -359,15 +96,26 @@ export default function MedicalPage() {
     if (!files.length || analyzing) return;
     setAnalyzing(true);
     setUploadError("");
-    setLatestReports([]);
-    setAnalyzeProgress({ done: 0, total: files.length });
+    const pdfs = files.filter((f) => f.kind === "pdf");
+    const photos = files.filter((f) => f.kind === "photo");
+    // Each PDF is a job; all photos together are one more job.
+    const jobs = [...pdfs.map((f) => ({ label: f.file.name, items: [f] })), ...(photos.length ? [{ label: "Photos", items: photos }] : [])];
+    setAnalyzeProgress({ done: 0, total: jobs.length });
 
     const newReports = [];
-    for (let i = 0; i < files.length; i++) {
-      const { file } = files[i];
+    for (let i = 0; i < jobs.length; i++) {
+      const job = jobs[i];
       try {
         const formData = new FormData();
-        formData.append("file", file);
+        for (const [n, { file, kind }] of job.items.entries()) {
+          if (kind === "pdf") formData.append("file", file);
+          else {
+            // Sharp enough for lab values, small enough to upload quickly.
+            const img = await compressImage(file, { maxDim: 2000, quality: 0.85 });
+            const bin = Uint8Array.from(atob(img.base64), (c) => c.charCodeAt(0));
+            formData.append("file", new Blob([bin], { type: "image/jpeg" }), `page-${n + 1}.jpg`);
+          }
+        }
         formData.append("userId", session.user.id);
         formData.append("accessToken", session.access_token);
 
@@ -375,443 +123,180 @@ export default function MedicalPage() {
         const data = await res.json();
 
         if (data.error) {
-          setUploadError((prev) => prev ? `${prev} · ${file.name}: ${data.error}` : `${file.name}: ${data.error}`);
+          setUploadError((prev) => (prev ? `${prev} · ${job.label}: ${data.error}` : `${job.label}: ${data.error}`));
         } else {
           newReports.push(data.report);
           setReports((prev) => [data.report, ...prev]);
         }
-      } catch {
-        setUploadError((prev) => prev ? `${prev} · ${file.name}: network error` : `${file.name}: network error`);
+      } catch (err) {
+        const msg = err?.message?.includes("image") ? err.message : "no connection";
+        setUploadError((prev) => (prev ? `${prev} · ${job.label}: ${msg}` : `${job.label}: ${msg}`));
       }
-      setAnalyzeProgress({ done: i + 1, total: files.length });
+      setAnalyzeProgress({ done: i + 1, total: jobs.length });
     }
 
-    setLatestReports(newReports);
     setFiles([]);
     setAnalyzing(false);
+    // One new report → open it straight away; several → they're at the top of the list.
+    if (newReports.length === 1 && newReports[0]?.id) setOpenId(newReports[0].id);
   };
 
   // ── DELETE ─────────────────────────────────────────────────────────────────
   const deleteReport = async (id) => {
-    if (!confirm("Delete this report?")) return;
+    if (!confirm("Delete this report? Its food advice and trend history go with it.")) return;
     const res = await fetch(`/api/medical/history?id=${id}&userId=${session.user.id}`, {
       method: "DELETE",
       headers: { Authorization: `Bearer ${session.access_token}` },
     });
     if (res.ok) {
+      setOpenId(null);
       setReports((prev) => prev.filter((r) => r.id !== id));
-      setLatestReports((prev) => prev.filter((r) => r.id !== id));
     }
-  };
-
-  // ── SUMMARY (AI summary of all history reports) ───────────────────────────
-  const generateSummary = async () => {
-    if (!reports.length) return;
-    setSummaryOpen(true);
-    setSummaryLoading(true);
-    setSummaryText("");
-
-    try {
-      // Build a compact digest of all reports for the prompt
-      const digest = reports.map((r, i) => {
-        const dateLabel = r.report_date
-          ? new Date(r.report_date).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" })
-          : new Date(r.created_at).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" });
-        const abnormal = (r.flags || []).filter((f) => f.status !== "normal");
-        return `Report ${i + 1} — ${r.file_name} (${dateLabel}):
-Summary: ${r.summary || r.analysis?.slice(0, 200) || "N/A"}
-Abnormal markers: ${abnormal.length ? abnormal.map((f) => `${f.marker} ${f.value} (${f.status})`).join(", ") : "None"}`;
-      }).join("\n\n");
-
-      const prompt = `You are a clinical dietitian. Below are ${reports.length} medical reports uploaded by a patient.
-
-${digest}
-
-Write a comprehensive longitudinal health summary in plain English (250-350 words). Structure it as:
-1. **Overall Health Status** — general picture across all reports
-2. **Key Concerns** — the most important abnormal markers and what they mean together
-3. **Positive Findings** — what's improving or already normal
-4. **Top Dietary Actions** — 3-5 specific, actionable diet changes based on the combined findings, with Indian food examples
-5. **Follow-up Advice** — which markers need re-testing and when
-
-Be specific — mention actual values. Prefer practical Indian food-based advice. End with a brief disclaimer.`;
-
-      const res = await fetch("/api/agent", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          message: prompt,
-          userId: session.user.id,
-          accessToken: session.access_token,
-          skipHistory: true,  // one-shot summary widget — must not pollute agent page history
-        }),
-      });
-
-      if (!res.ok) {
-        const errData = await res.json().catch(() => ({}));
-        setSummaryText(errData.error || "Could not generate summary.");
-        return;
-      }
-
-      setSummaryLoading(false); // show text area — stream will fill it in
-
-      const reader = res.body.getReader();
-      const decoder = new TextDecoder();
-      let buffer = "";
-      let accumulated = "";
-
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-
-        buffer += decoder.decode(value, { stream: true });
-        const lines = buffer.split("\n\n");
-        buffer = lines.pop() ?? "";
-
-        for (const line of lines) {
-          if (!line.startsWith("data: ")) continue;
-          try {
-            const event = JSON.parse(line.slice(6));
-            if (event.type === "chunk") {
-              accumulated += event.text;
-              setSummaryText(accumulated);
-            } else if (event.type === "error") {
-              setSummaryText(event.message || "Could not generate summary.");
-            }
-          } catch { /* skip malformed SSE line */ }
-        }
-      }
-    } catch {
-      setSummaryText("Network error. Please try again.");
-    }
-    setSummaryLoading(false);
   };
 
   if (pageLoading) {
     return (
-      <div style={{ height: "100dvh", display: "flex", alignItems: "center", justifyContent: "center", background: "#09090b" }}>
-        <Loader2 size={28} color="#6366f1" className="animate-spin" />
+      <div style={{ height: "100dvh", display: "grid", placeItems: "center", background: "var(--bg)" }}>
+        <Loader2 size={24} color="var(--text-muted)" className="animate-spin" />
       </div>
     );
   }
 
+  const open = reports.find((r) => r.id === openId);
+  const mb = (n) => (n / 1024 / 1024 >= 1 ? `${(n / 1024 / 1024).toFixed(1)} MB` : `${Math.max(1, Math.round(n / 1024))} KB`);
+
   return (
-    <div style={{
-      minHeight: "100dvh", background: "#09090b", color: "#fff",
-      fontFamily: "system-ui, -apple-system, sans-serif",
-      display: "flex", flexDirection: "column",
-      maxWidth: 600, margin: "0 auto",
-    }}>
-      {/* ── HEADER ── */}
-      <div style={{
-        position: "sticky", top: 0, zIndex: 10,
-        background: "#09090bdd", backdropFilter: "blur(12px)",
-        borderBottom: "1px solid var(--border)",
-        padding: "calc(14px + env(safe-area-inset-top, 0px)) 16px 14px",
-        display: "flex", alignItems: "center", gap: 12,
-      }}>
-        <button
-          onClick={() => router.push("/")}
-          style={{ background: "none", border: "none", color: "#a1a1aa", cursor: "pointer", padding: 4 }}
+    <div style={{ minHeight: "100dvh", background: "var(--bg)", color: "var(--text)", maxWidth: 640, margin: "0 auto", paddingBottom: "calc(100px + env(safe-area-inset-bottom, 0px))" }}>
+      <PageHeader
+        back="/me"
+        title="Medical reports"
+        subtitle="Blood work → food advice"
+        actions={
+          reports.length > 0 && (
+            <button onClick={() => router.push("/medical/trends")} style={headerActionStyle}>
+              <Activity size={14} /> Trends
+            </button>
+          )
+        }
+      />
+
+      <div style={{ padding: "8px 20px 0", display: "flex", flexDirection: "column", gap: 24 }}>
+        {/* ── ADD A REPORT ── */}
+        <section
+          onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
+          onDragLeave={() => setDragOver(false)}
+          onDrop={handleDrop}
+          style={{ padding: 20, borderRadius: 20, background: "var(--surface)", border: dragOver ? "1.5px dashed var(--accent)" : "1px solid var(--border)" }}
         >
-          <ArrowLeft size={20} />
-        </button>
-        <ShieldCheck size={20} color="#10b981" />
-        <div>
-          <div style={{ fontWeight: 700, fontSize: "1rem" }}>Medical Reports</div>
-          <div style={{ fontSize: "0.7rem", color: "#52525b" }}>AI analysis · Dietary recommendations</div>
-        </div>
-        <div style={{ marginLeft: "auto", display: "flex", gap: 6, alignItems: "center" }}>
-          <button
-            onClick={() => router.push("/medical/trends")}
-            style={{
-              display: "flex", alignItems: "center", gap: 5,
-              padding: "6px 12px", borderRadius: 8, border: "1px solid #6366f130",
-              background: "#6366f115", color: "#818cf8",
-              fontSize: "0.72rem", fontWeight: 700, cursor: "pointer",
-            }}
-          >
-            <Activity size={12} /> Trends
-          </button>
-          <div style={{ display: "flex", gap: 4, background: "var(--surface)", padding: 4, borderRadius: 10 }}>
-            {["upload", "history"].map((t) => (
-              <button key={t} onClick={() => setTab(t)} style={{
-                padding: "5px 12px", borderRadius: 7, border: "none",
-                background: tab === t ? "#10b981" : "transparent",
-                color: tab === t ? "#fff" : "#71717a",
-                fontSize: "0.75rem", fontWeight: 600, cursor: "pointer",
-                textTransform: "capitalize",
-              }}>{t === "history" ? `📋 ${reports.length}` : "⬆️ Upload"}</button>
-            ))}
-          </div>
-        </div>
-      </div>
+          <input ref={fileInputRef} type="file" accept="application/pdf,image/*" multiple hidden onChange={(e) => { addFiles(e.target.files); e.target.value = ""; }} />
+          <input ref={cameraInputRef} type="file" accept="image/*" capture="environment" hidden onChange={(e) => { addFiles(e.target.files); e.target.value = ""; }} />
+          <div style={{ fontSize: 17, fontWeight: 600 }}>Add a blood report</div>
+          <div style={{ fontSize: 14, color: "var(--text-muted)", marginTop: 4 }}>PDF or photos · up to 5 files</div>
 
-      <div style={{ flex: 1, padding: 16, display: "flex", flexDirection: "column", gap: 16 }}>
+          {files.length > 0 && (
+            <ul style={{ listStyle: "none", margin: "16px 0 0", padding: 0, display: "flex", flexDirection: "column", gap: 8 }}>
+              {files.map((f) => { const { file, id } = f; return (
+                <li key={id} style={{ display: "flex", alignItems: "center", gap: 12, padding: "10px 12px", borderRadius: 12, background: "var(--bg)", border: "1px solid var(--border)" }}>
+                  {f.kind === "photo" ? <ImageIcon size={18} color="var(--text-muted)" style={{ flexShrink: 0 }} /> : <FileText size={18} color="var(--text-muted)" style={{ flexShrink: 0 }} />}
+                  <span style={{ flex: 1, minWidth: 0, fontSize: 14, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{file.name}</span>
+                  <span style={{ fontSize: 13, color: "var(--text-faint)", flexShrink: 0 }}>{mb(file.size)}</span>
+                  {!analyzing && (
+                    <button onClick={() => removeFile(id)} aria-label={`Remove ${file.name}`} style={{ background: "none", border: "none", padding: 4, color: "var(--text-muted)", cursor: "pointer", display: "grid" }}>
+                      <X size={16} />
+                    </button>
+                  )}
+                </li>
+              ); })}
+            </ul>
+          )}
+          {files.filter((f) => f.kind === "photo").length > 1 && !analyzing && (
+            <div style={{ fontSize: 13, color: "var(--text-muted)", marginTop: 10 }}>Photos are read together as the pages of one report, in this order.</div>
+          )}
 
-        {tab === "upload" && (
-          <>
-            {/* ── DROP ZONE ── */}
-            <div
-              onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
-              onDragLeave={() => setDragOver(false)}
-              onDrop={handleDrop}
-              onClick={() => !files.length && fileInputRef.current?.click()}
-              style={{
-                border: `2px dashed ${dragOver ? "#10b981" : files.length ? "#6366f1" : "#27272a"}`,
-                borderRadius: 16, padding: "28px 20px",
-                display: "flex", flexDirection: "column", alignItems: "center", gap: 12,
-                textAlign: "center", cursor: files.length ? "default" : "pointer",
-                background: dragOver ? "#10b98108" : files.length ? "#6366f108" : "transparent",
-                transition: "all 0.2s",
-              }}
-            >
-              <input
-                ref={fileInputRef}
-                type="file"
-                accept="application/pdf"
-                multiple
-                style={{ display: "none" }}
-                onChange={(e) => addFiles(e.target.files)}
-              />
-              {files.length === 0 ? (
-                <>
-                  <Upload size={36} color="#52525b" />
-                  <div>
-                    <div style={{ fontWeight: 700, fontSize: "0.95rem" }}>Drop your medical reports here</div>
-                    <div style={{ fontSize: "0.8rem", color: "#52525b", marginTop: 4 }}>
-                      PDF only · Max 10MB each · Multiple files supported
-                    </div>
-                    <div style={{ fontSize: "0.72rem", color: "#3f3f46", marginTop: 6, display: "flex", alignItems: "center", justifyContent: "center", gap: 4 }}>
-                      <Paperclip size={11} /> Originals are saved privately to your report vault
-                    </div>
-                  </div>
-                  <span style={{
-                    padding: "6px 16px", borderRadius: 20,
-                    background: "var(--surface)", border: "1px solid var(--border)",
-                    fontSize: "0.8rem", color: "#a1a1aa",
-                  }}>Browse files</span>
-                </>
-              ) : (
-                <>
-                  <div style={{ width: "100%", display: "flex", flexDirection: "column", gap: 8 }}>
-                    {files.map(({ file, id }) => (
-                      <div key={id} style={{
-                        display: "flex", alignItems: "center", gap: 10,
-                        padding: "9px 12px", borderRadius: 10,
-                        background: "var(--surface)", border: "1px solid #6366f130",
-                        textAlign: "left",
-                      }}>
-                        <FileText size={15} color="#6366f1" style={{ flexShrink: 0 }} />
-                        <div style={{ flex: 1, overflow: "hidden" }}>
-                          <div style={{ fontWeight: 600, fontSize: "0.82rem", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{file.name}</div>
-                          <div style={{ fontSize: "0.72rem", color: "#52525b" }}>{(file.size / 1024).toFixed(0)} KB</div>
-                        </div>
-                        <button
-                          onClick={(e) => { e.stopPropagation(); removeFile(id); }}
-                          style={{ background: "none", border: "none", color: "#52525b", cursor: "pointer", padding: 4 }}
-                        >
-                          <XCircle size={14} />
-                        </button>
-                      </div>
-                    ))}
-                  </div>
+          {analyzing ? (
+            <div style={{ marginTop: 16 }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 10, fontSize: 14 }}>
+                <Loader2 size={16} className="animate-spin" color="var(--accent-text)" />
+                {analyzeProgress.total > 1 ? `Reading report ${Math.min(analyzeProgress.done + 1, analyzeProgress.total)} of ${analyzeProgress.total}…` : "Reading your report…"}
+              </div>
+              <div style={{ height: 4, borderRadius: 99, background: "var(--track)", marginTop: 10, overflow: "hidden" }}>
+                <div style={{ height: "100%", borderRadius: 99, background: "var(--accent)", width: `${analyzeProgress.total ? Math.max(8, (analyzeProgress.done / analyzeProgress.total) * 100) : 0}%`, transition: "width 0.4s" }} />
+              </div>
+              <div style={{ fontSize: 13, color: "var(--text-faint)", marginTop: 8 }}>About 20 seconds per report. You can leave this screen open.</div>
+            </div>
+          ) : files.length > 0 ? (
+            <div style={{ display: "flex", gap: 10, marginTop: 16 }}>
+              <button onClick={() => (files.some((f) => f.kind === "photo") ? cameraInputRef : fileInputRef).current?.click()} disabled={files.length >= 5} style={{ ...secondaryBtn, display: "flex", alignItems: "center", gap: 6, opacity: files.length >= 5 ? 0.5 : 1 }}>
+                <Plus size={16} /> {files.some((f) => f.kind === "photo") ? "Page" : "More"}
+              </button>
+              <button onClick={analyzeReports} style={{ ...primaryBtn, flex: 1 }}>
+                {(() => {
+                  const n = files.filter((f) => f.kind === "pdf").length + (files.some((f) => f.kind === "photo") ? 1 : 0);
+                  return n > 1 ? `Analyse ${n} reports` : "Analyse report";
+                })()}
+              </button>
+            </div>
+          ) : (
+            <div style={{ display: "flex", gap: 10, marginTop: 16 }}>
+              <button onClick={() => fileInputRef.current?.click()} style={{ ...primaryBtn, flex: 1, whiteSpace: "nowrap", padding: "0 12px" }}>
+                Choose files
+              </button>
+              <button onClick={() => cameraInputRef.current?.click()} aria-label="Take a photo of a report" style={{ ...secondaryBtn, flex: 1, display: "flex", alignItems: "center", justifyContent: "center", gap: 8, whiteSpace: "nowrap", padding: "0 12px" }}>
+                <Camera size={17} /> Camera
+              </button>
+            </div>
+          )}
+          <div style={{ fontSize: 12, color: "var(--text-faint)", marginTop: 10 }}>Private to you. Originals are kept in your report vault.</div>
+
+          {uploadError && (
+            <div role="alert" style={{ display: "flex", gap: 8, marginTop: 12, padding: 12, borderRadius: 12, background: "var(--danger-soft)", color: "var(--danger)", fontSize: 13, lineHeight: 1.45 }}>
+              <AlertTriangle size={16} style={{ flexShrink: 0, marginTop: 1 }} /> {uploadError}
+            </div>
+          )}
+        </section>
+
+        {/* ── YOUR REPORTS ── */}
+        <section>
+          <div style={{ fontSize: 13, color: "var(--text-muted)", marginBottom: 10 }}>Your reports</div>
+          {histLoading && reports.length === 0 ? (
+            <div style={{ padding: 24, display: "grid", placeItems: "center" }}>
+              <Loader2 size={20} className="animate-spin" color="var(--text-muted)" />
+            </div>
+          ) : reports.length === 0 ? (
+            <p style={{ margin: 0, padding: 20, borderRadius: 16, border: "1px dashed var(--border)", fontSize: 14, lineHeight: 1.55, color: "var(--text-muted)" }}>
+              No reports yet. Add a recent blood test and your targets and food suggestions will adjust to it — for example, less saturated fat if LDL is high.
+            </p>
+          ) : (
+            <div style={{ borderRadius: 16, border: "1px solid var(--border)", background: "var(--surface)" }}>
+              {reports.map((r, i) => {
+                const w = watchCount(r);
+                return (
                   <button
-                    onClick={(e) => { e.stopPropagation(); fileInputRef.current?.click(); }}
-                    style={{
-                      fontSize: "0.78rem", color: "#818cf8", background: "none", border: "none",
-                      cursor: "pointer", display: "flex", alignItems: "center", gap: 4,
-                    }}
+                    key={r.id}
+                    onClick={() => setOpenId(r.id)}
+                    style={{ width: "100%", display: "flex", alignItems: "center", gap: 12, padding: "14px 16px", border: "none", borderTop: i ? "1px solid var(--border)" : "none", background: "transparent", color: "var(--text)", fontFamily: "inherit", textAlign: "left", cursor: "pointer" }}
                   >
-                    <Upload size={12} /> Add more files
+                    <span style={{ flex: 1, minWidth: 0 }}>
+                      <span style={{ display: "block", fontSize: 15, fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{reportTitle(r)}</span>
+                      <span style={{ display: "block", fontSize: 13, color: "var(--text-muted)", marginTop: 2 }}>{fmtDay(reportDay(r))}</span>
+                    </span>
+                    <span style={{ fontSize: 13, fontWeight: 600, padding: "4px 10px", borderRadius: 99, flexShrink: 0, background: w ? "var(--warn-soft)" : "var(--accent-soft)", color: w ? "var(--warn)" : "var(--accent-text)" }}>
+                      {w ? `${w} to watch` : "All normal"}
+                    </span>
+                    <ChevronRight size={18} color="var(--text-faint)" style={{ flexShrink: 0 }} />
                   </button>
-                </>
-              )}
+                );
+              })}
             </div>
+          )}
+        </section>
 
-            {/* ── ANALYSE BUTTON ── */}
-            {files.length > 0 && !analyzing && (
-              <button
-                onClick={analyzeReports}
-                style={{
-                  width: "100%", padding: "14px", borderRadius: 12, border: "none",
-                  background: "#10b981", color: "#fff",
-                  fontWeight: 700, fontSize: "0.95rem", cursor: "pointer",
-                  display: "flex", alignItems: "center", justifyContent: "center", gap: 8,
-                }}
-              >
-                <ShieldCheck size={16} />
-                Analyse {files.length} Report{files.length > 1 ? "s" : ""} with AI
-              </button>
-            )}
-
-            {/* Analysing progress */}
-            {analyzing && (
-              <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-                <div style={{
-                  width: "100%", padding: "14px", borderRadius: 12, border: "none",
-                  background: "#27272a", color: "#52525b",
-                  fontWeight: 700, fontSize: "0.95rem",
-                  display: "flex", alignItems: "center", justifyContent: "center", gap: 8,
-                }}>
-                  <Loader2 size={16} className="animate-spin" />
-                  Analysing {analyzeProgress.done}/{analyzeProgress.total}…
-                </div>
-                {/* Progress bar */}
-                <div style={{ height: 4, background: "#27272a", borderRadius: 10, overflow: "hidden" }}>
-                  <div style={{
-                    height: "100%", background: "#10b981", borderRadius: 10,
-                    width: `${analyzeProgress.total ? (analyzeProgress.done / analyzeProgress.total) * 100 : 0}%`,
-                    transition: "width 0.4s",
-                  }} />
-                </div>
-                <div style={{ textAlign: "center", fontSize: "0.8rem", color: "#71717a" }}>
-                  Reading reports and identifying dietary recommendations…
-                </div>
-              </div>
-            )}
-
-            {/* Error */}
-            {uploadError && (
-              <div style={{ padding: "10px 14px", borderRadius: 10, background: "#ef444415", color: "#ef4444", fontSize: "0.82rem", border: "1px solid #ef444430", display: "flex", gap: 8 }}>
-                <AlertTriangle size={14} style={{ flexShrink: 0, marginTop: 1 }} />
-                {uploadError}
-              </div>
-            )}
-
-            {/* Latest results */}
-            {latestReports.length > 0 && !analyzing && (
-              <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-                <div style={{ fontSize: "0.78rem", color: "#10b981", display: "flex", alignItems: "center", gap: 5 }}>
-                  <CheckCircle size={13} /> {latestReports.length} report{latestReports.length > 1 ? "s" : ""} analysed · Saved to history
-                </div>
-                {latestReports.map((r) => (
-                  <ReportCard key={r.id || r.file_name} report={r} onDelete={deleteReport} />
-                ))}
-              </div>
-            )}
-          </>
-        )}
-
-        {tab === "history" && (
-          <>
-            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-              <div style={{ fontSize: "0.8rem", color: "#52525b", display: "flex", alignItems: "center", gap: 6 }}>
-                <FileText size={13} />
-                {reports.length === 0
-                  ? "No reports yet — upload your first medical report."
-                  : `${reports.length} report${reports.length > 1 ? "s" : ""} analysed`}
-              </div>
-              {reports.length >= 1 && (
-                <button
-                  onClick={generateSummary}
-                  style={{
-                    display: "flex", alignItems: "center", gap: 6,
-                    padding: "7px 14px", borderRadius: 10, border: "none",
-                    background: "linear-gradient(135deg, #8b5cf6, #6366f1)",
-                    color: "#fff", fontWeight: 700, fontSize: "0.78rem", cursor: "pointer",
-                    boxShadow: "0 4px 14px #6366f125",
-                  }}
-                >
-                  <Sparkles size={13} /> AI Summary
-                </button>
-              )}
-            </div>
-
-            {histLoading && (
-              <div style={{ textAlign: "center", padding: 40 }}>
-                <Loader2 size={24} color="#10b981" className="animate-spin" style={{ margin: "0 auto" }} />
-              </div>
-            )}
-
-            <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-              {reports.map((r) => (
-                <ReportCard key={r.id} report={r} onDelete={deleteReport} />
-              ))}
-            </div>
-          </>
-        )}
-
-        {/* ── DISCLAIMER FOOTER ── */}
-        <div style={{
-          marginTop: "auto", padding: "12px 14px", borderRadius: 12,
-          background: "#f59e0b08", border: "1px solid #f59e0b20",
-          display: "flex", gap: 8, fontSize: "0.73rem", color: "#78716c",
-        }}>
-          <Info size={13} style={{ flexShrink: 0, marginTop: 1 }} />
-          AI analysis is for informational purposes only. Always consult a qualified physician or registered dietitian before making dietary changes based on medical reports.
-        </div>
+        <p style={{ margin: 0, fontSize: 12, lineHeight: 1.5, color: "var(--text-faint)" }}>
+          Report reading is automated and can make mistakes. It isn’t a diagnosis — check anything worrying with your doctor.
+        </p>
       </div>
 
-      {/* ── SUMMARY MODAL ── */}
-      {summaryOpen && (
-        <div
-          className="modal-overlay"
-          style={{ alignItems: "flex-end", paddingBottom: 62 }}
-          onClick={(e) => { if (e.target === e.currentTarget) setSummaryOpen(false); }}
-        >
-          <div style={{
-            background: "var(--surface)",
-            border: "1px solid var(--border)",
-            borderRadius: "20px 20px 0 0",
-            width: "100%", maxWidth: 480,
-            maxHeight: "80dvh",
-            display: "flex", flexDirection: "column",
-            boxShadow: "0 -10px 40px rgba(0,0,0,0.5)",
-            margin: "0 auto",
-          }}>
-            {/* Drag handle */}
-            <div style={{ display: "flex", justifyContent: "center", padding: "10px 0 4px" }}>
-              <div style={{ width: 36, height: 4, borderRadius: 2, background: "#333" }} />
-            </div>
-
-            {/* Header */}
-            <div style={{
-              display: "flex", justifyContent: "space-between", alignItems: "center",
-              padding: "4px 20px 12px", borderBottom: "1px solid var(--border)", flexShrink: 0,
-            }}>
-              <h3 style={{ margin: 0, fontSize: "1rem", display: "flex", alignItems: "center", gap: 8 }}>
-                <Sparkles size={16} color="#8b5cf6" /> Longitudinal Health Summary
-              </h3>
-              <button
-                onClick={() => setSummaryOpen(false)}
-                style={{ background: "none", border: "none", color: "#52525b", cursor: "pointer", padding: 4 }}
-              >
-                <X size={18} />
-              </button>
-            </div>
-
-            {/* Body */}
-            <div style={{ flex: 1, overflowY: "auto", padding: "16px 20px" }}>
-              {summaryLoading ? (
-                <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 12, padding: "40px 0" }}>
-                  <Loader2 size={28} color="#8b5cf6" className="animate-spin" />
-                  <div style={{ fontSize: "0.82rem", color: "#71717a" }}>
-                    Analysing {reports.length} reports for longitudinal patterns…
-                  </div>
-                </div>
-              ) : (
-                <div style={{
-                  fontSize: "0.85rem", lineHeight: 1.75, color: "#d4d4d8",
-                  whiteSpace: "pre-wrap",
-                }}>
-                  {summaryText}
-                </div>
-              )}
-            </div>
-
-            {/* Footer */}
-            {!summaryLoading && summaryText && (
-              <div style={{ padding: "12px 20px", borderTop: "1px solid var(--border)", flexShrink: 0 }}>
-                <div style={{ fontSize: "0.72rem", color: "#52525b", display: "flex", gap: 6, alignItems: "flex-start" }}>
-                  <Info size={12} style={{ marginTop: 1, flexShrink: 0 }} />
-                  AI-generated summary for informational purposes only. Not a substitute for professional medical advice.
-                </div>
-              </div>
-            )}
-          </div>
-        </div>
-      )}
+      {open && <ReportDetail report={open} onClose={() => setOpenId(null)} onDelete={deleteReport} />}
     </div>
   );
 }

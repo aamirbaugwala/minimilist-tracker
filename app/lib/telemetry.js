@@ -9,20 +9,15 @@
  *   session_id  sessionStorage  30 min idle one browsing session
  */
 
+import { uuid } from "./uuid";
+
 const VISITOR_KEY = "nt_visitor_id";
 const SESSION_KEY = "nt_session_id";
 const SESSION_TS_KEY = "nt_session_ts";
 const UTM_KEY = "nt_session_utm";
 const SESSION_IDLE_MS = 30 * 60 * 1000;
 
-const uuid = () =>
-  typeof crypto !== "undefined" && crypto.randomUUID
-    ? crypto.randomUUID()
-    : // Pre-2021 Safari fallback; format only needs to satisfy the server's regex.
-      "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, (c) => {
-        const r = (Math.random() * 16) | 0;
-        return (c === "x" ? r : (r & 0x3) | 0x8).toString(16);
-      });
+
 
 /** Storage can throw in private mode / when disabled — never let that break a page. */
 const safeGet = (store, key) => {

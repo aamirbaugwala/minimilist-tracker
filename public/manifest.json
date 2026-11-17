@@ -4,8 +4,8 @@
   "description": "Scientific Calorie & Macro Tracker",
   "start_url": "/",
   "display": "standalone",
-  "background_color": "#000000",
-  "theme_color": "#000000",
+  "background_color": "#0E0F11",
+  "theme_color": "#0E0F11",
   "orientation": "portrait",
   "icons": [
     {
@@ -17,6 +17,47 @@
       "src": "/icon-512.png",
       "sizes": "512x512",
       "type": "image/png"
+    }
+  ],
+  "shortcuts": [
+    {
+      "name": "Snap a meal",
+      "short_name": "Snap",
+      "description": "Photograph your plate to log it",
+      "url": "/?snap=1",
+      "icons": [
+        {
+          "src": "/icon-192.png",
+          "sizes": "192x192",
+          "type": "image/png"
+        }
+      ]
+    },
+    {
+      "name": "Add a glass of water",
+      "short_name": "Water",
+      "description": "Log 250 ml of water",
+      "url": "/?water=1",
+      "icons": [
+        {
+          "src": "/icon-192.png",
+          "sizes": "192x192",
+          "type": "image/png"
+        }
+      ]
+    },
+    {
+      "name": "Ask Coach",
+      "short_name": "Coach",
+      "description": "Ask about your day or log by chat",
+      "url": "/agent",
+      "icons": [
+        {
+          "src": "/icon-192.png",
+          "sizes": "192x192",
+          "type": "image/png"
+        }
+      ]
     }
   ]
 }

@@ -1,517 +1,230 @@
 "use client";
 
-import { Utensils, Loader2, Edit3, Trash2 } from "lucide-react";
-import { calculateTargets } from "../lib/nutrition";
+/**
+ * Today's log (Direction A): quiet, scannable rows grouped by meal.
+ *
+ * - Meals with food: uppercase label · kcal · "+" (opens the logger on it).
+ * - The CURRENT meal, when empty, is always shown with a way forward:
+ *   "Same as yesterday's lunch" (one tap, if yesterday had one) or "Add lunch".
+ *   Previously an empty meal had no add button at all.
+ * - Water taps are clubbed into one row per meal.
+ * - Rows keep edit / delete (small icon buttons, 32px targets).
+ */
 
-import { defaultMeal, mealMeta } from "../lib/mealPeriod";
+import { Loader2, Pencil, Trash2, Plus, RotateCcw } from "lucide-react";
+import { defaultMeal, mealMeta, MEALS } from "../lib/mealPeriod";
+
+const labelStyle = {
+  fontSize: 13,
+  fontWeight: 600,
+  color: "var(--text-muted)",
+  textTransform: "uppercase",
+  letterSpacing: 0.8,
+};
+const iconBtn = {
+  width: 32,
+  height: 32,
+  borderRadius: 8,
+  border: "none",
+  background: "none",
+  color: "var(--text-faint)",
+  display: "grid",
+  placeItems: "center",
+  cursor: "pointer",
+  flexShrink: 0,
+};
+const r = (n) => Math.round(Number(n) || 0);
+
+function MealHeader({ label, kcal, onAdd }) {
+  return (
+    <div
+      style={{
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "space-between",
+        padding: "10px 0",
+        borderBottom: "1px solid var(--border)",
+      }}
+    >
+      <span style={labelStyle}>{label}</span>
+      <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+        <span style={{ fontSize: 13, color: kcal == null ? "var(--text-faint)" : "var(--text-muted)", fontVariantNumeric: "tabular-nums" }}>
+          {kcal == null ? "—" : r(kcal)}
+        </span>
+        {onAdd && (
+          <button
+            onClick={onAdd}
+            aria-label={`Add food to ${label}`}
+            style={{ ...iconBtn, border: "1px solid var(--border)", borderRadius: 10, color: "var(--text-muted)" }}
+          >
+            <Plus size={16} />
+          </button>
+        )}
+      </div>
+    </div>
+  );
+}
 
 export default function Timeline({
   logs,
   loading,
   totals,
-  userProfile,
   openEditModal,
   deleteLog,
+  onAddToMeal,
+  currentMeal,
+  yesterdayByMeal = {},
+  onRepeatMeal,
 }) {
+  const nowMeal = currentMeal || defaultMeal();
+
+  // Group by the meal the user filed things under; legacy rows (no meal) fall
+  // back to their time-of-day bucket.
+  const groups = {};
+  (logs || []).forEach((log) => {
+    const label = log.meal || defaultMeal(log.created_at);
+    if (!groups[label]) groups[label] = { label, order: mealMeta(label).order, items: [] };
+    groups[label].items.push(log);
+  });
+  if (!groups[nowMeal]) groups[nowMeal] = { label: nowMeal, order: mealMeta(nowMeal).order, items: [] };
+  const sorted = Object.values(groups).sort((a, b) => a.order - b.order);
+
+  const foodCount = (logs || []).filter((l) => l.name !== "Water").length;
+  const later = MEALS.map((m) => m.label).filter(
+    (m) => mealMeta(m).order > mealMeta(nowMeal).order && !groups[m],
+  );
+
   return (
-      <section className="timeline" style={{ padding: "0 20px 100px" }}>
-        {/* Section header */}
-        <div
-          style={{
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "space-between",
-            marginBottom: 12,
-            marginTop: 4,
-          }}
-        >
-          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-            <Utensils size={15} color="#555" />
-            <span
-              style={{
-                fontSize: "0.8rem",
-                fontWeight: 700,
-                color: "#555",
-                textTransform: "uppercase",
-                letterSpacing: 1.2,
-              }}
-            >
-              Today&apos;s Log
-            </span>
-            {logs.length > 0 && (
-              <span
-                style={{
-                  background: "#1e1e26",
-                  border: "1px solid #27272a",
-                  color: "#666",
-                  fontSize: "0.65rem",
-                  fontWeight: 700,
-                  padding: "1px 7px",
-                  borderRadius: 8,
-                }}
-              >
-                {logs.length}
-              </span>
-            )}
-          </div>
-          {/* Auto-saved (Phase 0): every log persists instantly — no Save button. */}
-          <span
-            style={{
-              display: "inline-flex",
-              alignItems: "center",
-              gap: 4,
-              color: "#22c55e",
-              fontSize: "0.66rem",
-              fontWeight: 700,
-            }}
-          >
-            <span style={{ width: 6, height: 6, borderRadius: "50%", background: "#22c55e" }} />
-            Auto-saved
-          </span>
+    <section aria-label="Today's log" style={{ padding: "0 20px", display: "flex", flexDirection: "column" }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 6 }}>
+        <h2 style={{ margin: 0, fontSize: 16, fontWeight: 600 }}>Today</h2>
+        <span style={{ fontSize: 13, color: "var(--text-muted)", fontVariantNumeric: "tabular-nums" }}>
+          {r(totals?.calories)} kcal · {foodCount} {foodCount === 1 ? "item" : "items"}
+        </span>
+      </div>
+
+      {loading ? (
+        <div style={{ display: "grid", placeItems: "center", padding: 24, color: "var(--text-faint)" }}>
+          <Loader2 className="animate-spin" size={20} />
         </div>
+      ) : (
+        sorted.map((group) => {
+          const foodLogs = group.items.filter((l) => l.name !== "Water");
+          const waterLogs = group.items.filter((l) => l.name === "Water");
+          const glasses = waterLogs.reduce((s, l) => s + (Number(l.qty) || 0), 0);
+          const kcal = group.items.reduce((s, l) => s + (l.calories || 0), 0);
+          const isEmpty = group.items.length === 0;
+          const repeat = isEmpty ? yesterdayByMeal[group.label] : null;
 
-        {/* Calorie budget bar */}
-        {logs.length > 0 &&
-          (() => {
-            const calTarget = calculateTargets(userProfile).cals || 2000;
-            const barPct = Math.min(
-              100,
-              Math.round((totals.calories / calTarget) * 100),
-            );
-            const isOver = totals.calories > calTarget;
-            const barColor = isOver
-              ? "linear-gradient(90deg,#ef4444,#f97316)"
-              : barPct > 85
-                ? "linear-gradient(90deg,#f59e0b,#eab308)"
-                : "linear-gradient(90deg,#3b82f6,#22c55e)";
-            return (
-              <div style={{ marginBottom: 16 }}>
-                <div
-                  style={{
-                    height: 5,
-                    borderRadius: 99,
-                    background: "#1e1e26",
-                    overflow: "hidden",
-                  }}
-                >
-                  <div
-                    style={{
-                      height: "100%",
-                      borderRadius: 99,
-                      width: `${barPct}%`,
-                      background: barColor,
-                      transition: "width 0.4s ease",
-                    }}
-                  />
+          return (
+            <div key={group.label} style={{ marginTop: 8 }}>
+              <MealHeader
+                label={group.label}
+                kcal={isEmpty ? null : kcal}
+                onAdd={!isEmpty && onAddToMeal ? () => onAddToMeal(group.label) : null}
+              />
+
+              {foodLogs.map((log) => (
+                <div key={log.id} style={{ display: "flex", alignItems: "center", gap: 6, padding: "10px 0" }}>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontSize: 15, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", textTransform: "capitalize" }}>
+                      {log.name}
+                    </div>
+                    <div style={{ fontSize: 12, color: "var(--text-faint)", marginTop: 2, fontVariantNumeric: "tabular-nums" }}>
+                      {log.qty}× · P {r(log.protein)} · C {r(log.carbs)} · F {r(log.fats)}
+                    </div>
+                  </div>
+                  <span style={{ fontSize: 15, fontVariantNumeric: "tabular-nums", marginLeft: 6 }}>{r(log.calories)}</span>
+                  <button onClick={() => openEditModal(log)} aria-label={`Edit ${log.name}`} style={iconBtn}>
+                    <Pencil size={14} />
+                  </button>
+                  <button onClick={() => deleteLog(log.id)} aria-label={`Delete ${log.name}`} style={{ ...iconBtn, marginRight: -8 }}>
+                    <Trash2 size={14} />
+                  </button>
                 </div>
-                <div
-                  style={{
-                    display: "flex",
-                    justifyContent: "space-between",
-                    marginTop: 4,
-                    fontSize: "0.65rem",
-                    color: "#444",
-                  }}
-                >
-                  <span>0</span>
-                  <span style={{ color: isOver ? "#ef4444" : "#555" }}>
-                    {totals.calories} / {calTarget} kcal
-                  </span>
-                </div>
-              </div>
-            );
-          })()}
+              ))}
 
-        {loading ? (
-          <div style={{ textAlign: "center", padding: 20, color: "#666" }}>
-            <Loader2 className="animate-spin" />
-          </div>
-        ) : logs.length === 0 ? (
-          <div
-            style={{
-              textAlign: "center",
-              padding: "30px 22px",
-              border: "1px dashed #26262e",
-              borderRadius: 16,
-              background: "linear-gradient(180deg, #131318, #0e0e12)",
-            }}
-          >
-            <div style={{ fontSize: "2rem", lineHeight: 1 }}>🍽️</div>
-            <div
-              style={{
-                fontSize: "0.95rem",
-                fontWeight: 700,
-                color: "#d4d4d8",
-                marginTop: 8,
-              }}
-            >
-              Your day is empty
-            </div>
-            <div
-              style={{
-                fontSize: "0.8rem",
-                color: "#71717a",
-                marginTop: 4,
-                lineHeight: 1.5,
-              }}
-            >
-              Pick a meal and tap a food above — it lands here, split into
-              Breakfast, Lunch, Snacks &amp; Dinner.
-            </div>
-          </div>
-        ) : (
-          (() => {
-            /* Group logs by the meal the user filed them under. Older logs
-               (no meal stored) fall back to their time-of-day bucket. */
-            const groups = {};
-            logs.forEach((log) => {
-              const label = log.meal || defaultMeal(log.created_at);
-              if (!groups[label]) {
-                const meta = mealMeta(label);
-                groups[label] = { label, icon: meta.icon, order: meta.order, items: [] };
-              }
-              groups[label].items.push(log);
-            });
-            const sortedGroups = Object.values(groups).sort(
-              (a, b) => a.order - b.order,
-            );
+              {waterLogs.length > 0 && (() => {
+                const latest = waterLogs.slice().sort((a, b) => new Date(b.created_at) - new Date(a.created_at))[0];
+                return (
+                  <div style={{ display: "flex", alignItems: "center", gap: 6, padding: "10px 0" }}>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ fontSize: 15 }}>Water</div>
+                      <div style={{ fontSize: 12, color: "var(--text-faint)", marginTop: 2 }}>
+                        {glasses} {glasses === 1 ? "glass" : "glasses"} · {(glasses * 0.25).toFixed(2)} L
+                      </div>
+                    </div>
+                    <button onClick={() => deleteLog(latest.id)} aria-label="Remove a glass of water" style={{ ...iconBtn, marginRight: -8 }}>
+                      <Trash2 size={14} />
+                    </button>
+                  </div>
+                );
+              })()}
 
-            return sortedGroups.map((group) => {
-              // Water taps are clubbed into a single summary row per meal.
-              const foodLogs = group.items.filter((l) => l.name !== "Water");
-              const waterLogs = group.items.filter((l) => l.name === "Water");
-              const glasses = waterLogs.reduce((s, l) => s + (Number(l.qty) || 0), 0);
-              const rowCount = foodLogs.length + (waterLogs.length ? 1 : 0);
-              return (
-              <div key={group.label} style={{ marginBottom: 20 }}>
-                {/* Meal period header */}
-                <div
+              {isEmpty && repeat?.items?.length > 0 && onRepeatMeal && (
+                <button
+                  onClick={() => onRepeatMeal(group.label, repeat.items)}
                   style={{
+                    width: "100%",
                     display: "flex",
                     alignItems: "center",
-                    gap: 10,
-                    marginBottom: 10,
+                    gap: 12,
+                    marginTop: 10,
+                    padding: 14,
+                    borderRadius: 14,
+                    border: "1px solid var(--border)",
+                    background: "var(--surface)",
+                    color: "var(--text)",
+                    font: "inherit",
+                    textAlign: "left",
+                    cursor: "pointer",
                   }}
                 >
-                  <span
-                    style={{
-                      width: 30,
-                      height: 30,
-                      borderRadius: 9,
-                      background: "#15151b",
-                      border: "1px solid #26262e",
-                      display: "grid",
-                      placeItems: "center",
-                      fontSize: "1rem",
-                      flexShrink: 0,
-                    }}
-                  >
-                    {group.icon}
-                  </span>
-                  <div style={{ display: "flex", flexDirection: "column", minWidth: 0 }}>
-                    <span
-                      style={{
-                        fontSize: "0.82rem",
-                        fontWeight: 800,
-                        color: "#e4e4e7",
-                      }}
-                    >
-                      {group.label}
+                  <RotateCcw size={18} color="var(--accent-text)" style={{ flexShrink: 0 }} />
+                  <span style={{ flex: 1, minWidth: 0 }}>
+                    <span style={{ display: "block", fontSize: 14, fontWeight: 600 }}>
+                      Same as yesterday’s {group.label.toLowerCase()}
                     </span>
-                    <span style={{ fontSize: "0.62rem", color: "#52525b" }}>
-                      {rowCount} {rowCount === 1 ? "item" : "items"}
+                    <span style={{ display: "block", fontSize: 12, color: "var(--text-muted)", marginTop: 2, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", textTransform: "capitalize" }}>
+                      {repeat.items.map((i) => i.name).join(" · ")} · {r(repeat.kcal)} kcal
                     </span>
-                  </div>
-                  <span
-                    style={{
-                      marginLeft: "auto",
-                      fontSize: "0.72rem",
-                      fontWeight: 800,
-                      color: "#f7c56b",
-                      background:
-                        "linear-gradient(135deg, rgba(245,158,11,0.14), rgba(239,68,68,0.1))",
-                      border: "1px solid rgba(245,158,11,0.25)",
-                      borderRadius: 8,
-                      padding: "3px 9px",
-                      fontVariantNumeric: "tabular-nums",
-                      flexShrink: 0,
-                    }}
-                  >
-                    {group.items.reduce((s, l) => s + (l.calories || 0), 0)} kcal
                   </span>
-                </div>
+                  <span style={{ fontSize: 13, fontWeight: 600, color: "var(--accent-text)" }}>Log</span>
+                </button>
+              )}
 
-                {/* Food rows (water is clubbed below) */}
-                {foodLogs.map((log) => {
-                  const pct =
-                    totals.calories > 0
-                      ? Math.round((log.calories / totals.calories) * 100)
-                      : 0;
-                  const isWater = log.name === "Water";
-                  return (
-                    <div
-                      key={log.id}
-                      style={{
-                        background: isWater
-                          ? "rgba(59,130,246,0.07)"
-                          : "linear-gradient(180deg, #15151b, #0f0f13)",
-                        border: isWater
-                          ? "1px solid rgba(59,130,246,0.2)"
-                          : "1px solid #1e1e26",
-                        borderRadius: 14,
-                        padding: "10px 12px",
-                        marginBottom: 8,
-                        display: "flex",
-                        alignItems: "center",
-                        gap: 10,
-                      }}
-                    >
-                      {/* Qty badge */}
-                      <div
-                        style={{
-                          background: isWater
-                            ? "rgba(59,130,246,0.2)"
-                            : "#1e1e26",
-                          color: isWater ? "#3b82f6" : "#666",
-                          borderRadius: 8,
-                          padding: "4px 8px",
-                          fontSize: "0.75rem",
-                          fontWeight: 700,
-                          minWidth: 34,
-                          textAlign: "center",
-                          flexShrink: 0,
-                        }}
-                      >
-                        {log.qty}×
-                      </div>
+              {isEmpty && onAddToMeal && (
+                <button
+                  onClick={() => onAddToMeal(group.label)}
+                  style={{
+                    width: "100%",
+                    display: "flex",
+                    justifyContent: "space-between",
+                    alignItems: "center",
+                    padding: "14px 0 4px",
+                    border: "none",
+                    background: "none",
+                    color: "var(--text-muted)",
+                    font: "inherit",
+                    fontSize: 14,
+                    textAlign: "left",
+                    cursor: "pointer",
+                  }}
+                >
+                  <span>{repeat?.items?.length ? "Something else?" : "Nothing yet"}</span>
+                  <span style={{ color: "var(--accent-text)", fontWeight: 600 }}>Add {group.label.toLowerCase()}</span>
+                </button>
+              )}
+            </div>
+          );
+        })
+      )}
 
-                      {/* Name + macros */}
-                      <div style={{ flex: 1, minWidth: 0 }}>
-                        <div
-                          style={{
-                            fontWeight: 600,
-                            color: "#e4e4e7",
-                            textTransform: "capitalize",
-                            fontSize: "0.9rem",
-                            overflow: "hidden",
-                            textOverflow: "ellipsis",
-                            whiteSpace: "nowrap",
-                          }}
-                        >
-                          {log.name}
-                        </div>
-                        {!isWater && (
-                          <div
-                            style={{
-                              display: "flex",
-                              gap: 5,
-                              marginTop: 4,
-                              flexWrap: "wrap",
-                            }}
-                          >
-                            <span
-                              style={{
-                                fontSize: "0.65rem",
-                                background: "rgba(59,130,246,0.12)",
-                                color: "#3b82f6",
-                                padding: "1px 5px",
-                                borderRadius: 4,
-                                fontWeight: 600,
-                              }}
-                            >
-                              P {log.protein}g
-                            </span>
-                            <span
-                              style={{
-                                fontSize: "0.65rem",
-                                background: "rgba(245,158,11,0.12)",
-                                color: "#f59e0b",
-                                padding: "1px 5px",
-                                borderRadius: 4,
-                                fontWeight: 600,
-                              }}
-                            >
-                              C {log.carbs}g
-                            </span>
-                            <span
-                              style={{
-                                fontSize: "0.65rem",
-                                background: "rgba(239,68,68,0.12)",
-                                color: "#ef4444",
-                                padding: "1px 5px",
-                                borderRadius: 4,
-                                fontWeight: 600,
-                              }}
-                            >
-                              F {log.fats}g
-                            </span>
-                            {log.fiber > 0 && (
-                              <span
-                                style={{
-                                  fontSize: "0.65rem",
-                                  background: "rgba(16,185,129,0.12)",
-                                  color: "#10b981",
-                                  padding: "1px 5px",
-                                  borderRadius: 4,
-                                  fontWeight: 600,
-                                }}
-                              >
-                                Fib {log.fiber}g
-                              </span>
-                            )}
-                          </div>
-                        )}
-                        {isWater && (
-                          <span
-                            style={{
-                              fontSize: "0.72rem",
-                              color: "#3b82f6",
-                              fontWeight: 600,
-                            }}
-                          >
-                            {log.qty * 0.25}L
-                          </span>
-                        )}
-                      </div>
-
-                      {/* Calorie + % badge */}
-                      <div style={{ textAlign: "right", flexShrink: 0 }}>
-                        <div
-                          style={{
-                            fontWeight: 700,
-                            fontSize: "0.95rem",
-                            color: isWater ? "#3b82f6" : "#fff",
-                          }}
-                        >
-                          {log.calories}
-                        </div>
-                        {!isWater && pct > 0 && (
-                          <div
-                            style={{
-                              fontSize: "0.62rem",
-                              color: "#aaa",
-                              fontWeight: 700,
-                              background: "rgba(255,255,255,0.07)",
-                              borderRadius: 5,
-                              padding: "1px 5px",
-                              marginTop: 2,
-                            }}
-                          >
-                            {pct}%
-                          </div>
-                        )}
-                      </div>
-
-                      {/* Actions — compact icon group */}
-                      <div
-                        style={{
-                          display: "flex",
-                          flexDirection: "column",
-                          gap: 2,
-                          flexShrink: 0,
-                        }}
-                      >
-                        <button
-                          onClick={() => openEditModal(log)}
-                          style={{
-                            background: "none",
-                            border: "none",
-                            color: "#444",
-                            cursor: "pointer",
-                            padding: 5,
-                            borderRadius: 6,
-                          }}
-                          title="Edit"
-                        >
-                          <Edit3 size={14} />
-                        </button>
-                        <button
-                          onClick={() => deleteLog(log.id)}
-                          style={{
-                            background: "none",
-                            border: "none",
-                            color: "#333",
-                            cursor: "pointer",
-                            padding: 5,
-                            borderRadius: 6,
-                          }}
-                          title="Delete"
-                        >
-                          <Trash2 size={14} />
-                        </button>
-                      </div>
-                    </div>
-                  );
-                })}
-
-                {/* Clubbed water — one summary row for all of this meal's water */}
-                {waterLogs.length > 0 && (() => {
-                  const latest = waterLogs
-                    .slice()
-                    .sort((a, b) => new Date(b.created_at) - new Date(a.created_at))[0];
-                  return (
-                    <div
-                      style={{
-                        background: "rgba(59,130,246,0.07)",
-                        border: "1px solid rgba(59,130,246,0.2)",
-                        borderRadius: 14,
-                        padding: "10px 12px",
-                        marginBottom: 8,
-                        display: "flex",
-                        alignItems: "center",
-                        gap: 10,
-                      }}
-                    >
-                      <div
-                        style={{
-                          background: "rgba(59,130,246,0.2)",
-                          color: "#3b82f6",
-                          borderRadius: 8,
-                          padding: "4px 8px",
-                          fontSize: "0.75rem",
-                          fontWeight: 700,
-                          minWidth: 34,
-                          textAlign: "center",
-                          flexShrink: 0,
-                        }}
-                      >
-                        {glasses}×
-                      </div>
-                      <div style={{ flex: 1, minWidth: 0 }}>
-                        <div style={{ fontWeight: 600, color: "#e4e4e7", fontSize: "0.9rem" }}>
-                          💧 Water
-                        </div>
-                        <span style={{ fontSize: "0.72rem", color: "#3b82f6", fontWeight: 600 }}>
-                          {(glasses * 0.25).toFixed(2)}L · {glasses} {glasses === 1 ? "glass" : "glasses"}
-                        </span>
-                      </div>
-                      <div style={{ textAlign: "right", flexShrink: 0 }}>
-                        <div style={{ fontWeight: 700, fontSize: "0.95rem", color: "#3b82f6" }}>0</div>
-                      </div>
-                      <div style={{ display: "flex", flexDirection: "column", gap: 2, flexShrink: 0 }}>
-                        <button
-                          onClick={() => deleteLog(latest.id)}
-                          style={{
-                            background: "none",
-                            border: "none",
-                            color: "#333",
-                            cursor: "pointer",
-                            padding: 5,
-                            borderRadius: 6,
-                          }}
-                          title="Remove a glass"
-                        >
-                          <Trash2 size={14} />
-                        </button>
-                      </div>
-                    </div>
-                  );
-                })()}
-              </div>
-              );
-            });
-          })()
-        )}
-      </section>
+      {!loading && later.length > 0 && (
+        <div style={{ fontSize: 13, color: "var(--text-faint)", paddingTop: 12 }}>
+          {later.join(" and ")} later today
+        </div>
+      )}
+    </section>
   );
 }
