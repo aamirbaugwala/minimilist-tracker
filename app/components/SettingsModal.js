@@ -13,6 +13,7 @@ import { AlertTriangle, Info } from "lucide-react";
 import { calculateTargets, GOAL_PRESETS } from "../lib/nutrition";
 import HealthProfileFields from "./HealthProfileFields";
 import Sheet, { sheetInput, sheetLabel, primaryBtn } from "./Sheet";
+import BirthdayInput from "./BirthdayInput";
 
 const ACTIVITY = [
   { id: "sedentary", label: "Desk" },
@@ -137,11 +138,11 @@ export default function SettingsModal({
         ) : (
           <>
             <div style={section}>
-              <div style={{ display: "grid", gridTemplateColumns: "repeat(3, minmax(0, 1fr))", gap: 8 }}>
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(2, minmax(0, 1fr))", gap: 8 }}>
                 {num("weight", "Weight", "kg")}
                 {num("height", "Height", "cm")}
-                {num("age", "Age")}
               </div>
+              <BirthdayInput compact value={p.birth_date} legacyAge={p.age} onChange={(birth_date) => set({ birth_date })} />
               <Segmented label="Sex" options={[{ id: "male", label: "Male" }, { id: "female", label: "Female" }]} value={p.gender} onChange={(g) => set({ gender: g })} />
             </div>
 

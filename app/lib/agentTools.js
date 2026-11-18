@@ -33,6 +33,7 @@ import { FLATTENED_DB, FOOD_CATEGORIES } from "../food-data";
 import { planMeals, mealsLeft } from "./mealPlanner";
 import { foodTag, activeConditionIds } from "./foodTags";
 import { calculateTargets } from "./nutrition";
+import { profileAge } from "./age";
 import { deriveConditions, conditionsFromProfile, mergeConditions } from "./conditions";
 import { matchFood, baseName, isWaterPhrase, waterGlasses } from "./voiceLog";
 import { resolveQuantity } from "./foodUnits";
@@ -333,10 +334,13 @@ export async function executeTool(toolName, args, userId, db, ctx = {}) {
     const cached = cacheGet(userId, "get_user_profile");
     if (cached) return cached;
 
-    const { data } = await db.from("user_profiles")
-      .select("weight, height, age, gender, activity, goal, calorie_adjustment, protein_priority, target_calories, username, dietary_pattern, allergies, health_conditions")
-      .eq("user_id", userId).single();
-    if (!data) return { result: "No profile found." };
+    // select("*") so this works before and after the birth_date column exists;
+    // only the fields Coach needs are passed on (never tokens or email).
+    const { data: row } = await db.from("user_profiles").select("*").eq("user_id", userId).single();
+    if (!row) return { result: "No profile found." };
+    const keep = ["weight", "height", "gender", "activity", "goal", "calorie_adjustment", "protein_priority", "target_calories", "username", "dietary_pattern", "allergies", "health_conditions"];
+    const data = Object.fromEntries(keep.map((k) => [k, row[k]]));
+    data.age = profileAge(row); // from birthday when set, so it's always current
 
     const result = { profile: data };
     cacheSet(userId, "get_user_profile", result);

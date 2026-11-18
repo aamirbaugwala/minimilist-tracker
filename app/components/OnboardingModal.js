@@ -14,6 +14,8 @@ import { calculateTargets, GOAL_PRESETS } from "../lib/nutrition";
 import { conditionsFromProfile } from "../lib/conditions";
 import HealthProfileFields from "./HealthProfileFields";
 import { sheetInput, sheetLabel, primaryBtn, secondaryBtn } from "./Sheet";
+import BirthdayInput from "./BirthdayInput";
+import { isValidBirthDate } from "../lib/age";
 
 const STEPS = ["Basics", "Goal", "Health", "Review"];
 const GOAL_TITLE = { lose: "Lose fat", gain: "Build muscle", maintain: "Maintain", recomp: "Lose fat, gain muscle" };
@@ -81,13 +83,13 @@ export default function OnboardingModal({ initialProfile, username, onComplete }
   const [step, setStep] = useState(0);
   const [saving, setSaving] = useState(false);
   const [p, setP] = useState({
-    weight: "", height: "", age: "", gender: "male", activity: "sedentary",
+    weight: "", height: "", age: "", birth_date: "", gender: "male", activity: "sedentary",
     goal: "maintain", calorie_adjustment: 0, protein_priority: "balanced",
     health_conditions: [], dietary_pattern: "", allergies: [],
     ...initialProfile,
   });
   const set = (patch) => setP((prev) => ({ ...prev, ...patch }));
-  const basicsDone = p.weight && p.height && p.age;
+  const basicsDone = p.weight && p.height && isValidBirthDate(p.birth_date);
   const preview = calculateTargets(p, conditionsFromProfile(p));
 
   const finish = async () => {
@@ -124,11 +126,10 @@ export default function OnboardingModal({ initialProfile, username, onComplete }
         <div style={{ marginTop: 22, display: "flex", flexDirection: "column", gap: 16, flex: 1 }}>
           {step === 0 && (
             <>
-              <div style={{ display: "grid", gridTemplateColumns: "repeat(3, minmax(0, 1fr))", gap: 10 }}>
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(2, minmax(0, 1fr))", gap: 10 }}>
                 {[
                   ["weight", "Weight", "kg", "70"],
                   ["height", "Height", "cm", "172"],
-                  ["age", "Age", "", "28"],
                 ].map(([k, l, u, ph]) => (
                   <label key={k} style={sheetLabel}>
                     {l}{u ? ` (${u})` : ""}
@@ -136,6 +137,7 @@ export default function OnboardingModal({ initialProfile, username, onComplete }
                   </label>
                 ))}
               </div>
+              <BirthdayInput value={p.birth_date} legacyAge={p.age} onChange={(birth_date) => set({ birth_date })} />
               <div role="radiogroup" aria-label="Sex" style={{ display: "grid", gridTemplateColumns: "repeat(2, minmax(0, 1fr))", padding: 3, borderRadius: 12, background: "var(--surface)", border: "1px solid var(--border)" }}>
                 {["male", "female"].map((g) => (
                   <button key={g} role="radio" aria-checked={p.gender === g} onClick={() => set({ gender: g })} style={{ height: 38, border: "none", borderRadius: 9, background: p.gender === g ? "var(--surface-highlight)" : "none", color: p.gender === g ? "var(--text)" : "var(--text-muted)", fontFamily: "inherit", fontSize: 14, fontWeight: p.gender === g ? 600 : 400, textTransform: "capitalize", cursor: "pointer" }}>
@@ -230,7 +232,7 @@ export default function OnboardingModal({ initialProfile, username, onComplete }
               disabled={step === 0 && !basicsDone}
               style={{ ...primaryBtn, flex: 1, opacity: step === 0 && !basicsDone ? 0.5 : 1, cursor: step === 0 && !basicsDone ? "not-allowed" : "pointer" }}
             >
-              {step === 0 && !basicsDone ? "Fill in weight, height and age" : step === 2 ? "Continue (or skip)" : "Continue"}
+              {step === 0 && !basicsDone ? "Fill in weight, height and birthday" : step === 2 ? "Continue (or skip)" : "Continue"}
             </button>
           ) : (
             <button onClick={finish} disabled={saving} style={{ ...primaryBtn, flex: 1, display: "flex", alignItems: "center", justifyContent: "center", gap: 8 }}>

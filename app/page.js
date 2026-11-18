@@ -35,7 +35,7 @@ import { EditLogSheet, CustomFoodSheet, MealBuilderSheet, SnapSheet, AccountSetu
 import { computeStreak, weekOf } from "./lib/streak";
 import { useNotifications } from "./hooks/useNotifications";
 import QuickAddRow from "./components/QuickAddRow";
-import { saveProfileGoal, saveUsername } from "./lib/profileActions";
+import { saveProfileGoal, saveUsername, upsertProfile } from "./lib/profileActions";
 import { defaultMeal, MEALS } from "./lib/mealPeriod";
 import { dayKey } from "./lib/day";
 import { uuid } from "./lib/uuid";
@@ -703,6 +703,7 @@ export default function Home() {
       weight: draft.weight ? Number(draft.weight) : null,
       height: draft.height ? Number(draft.height) : null,
       age: draft.age ? Number(draft.age) : null,
+      ...(draft.birth_date ? { birth_date: draft.birth_date } : {}),
       gender: draft.gender,
       activity: draft.activity,
       goal: draft.goal,
@@ -713,9 +714,7 @@ export default function Home() {
       allergies: draft.allergies || [],
       updated_at: new Date(),
     };
-    const { error } = await supabase
-      .from("user_profiles")
-      .upsert(payload, { onConflict: "user_id" });
+    const { error } = await upsertProfile(payload, { onConflict: "user_id" });
     if (error) {
       alert("Could not save your setup — please try again.");
       return;

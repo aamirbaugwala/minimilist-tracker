@@ -33,6 +33,8 @@
  * AND the dashboard-style nested keys (targetCals, targetMacros, waterTarget)
  * so every consumer can use whichever shape it prefers — no migration needed.
  */
+import { profileAge } from "./age";
+
 
 const ACTIVITY_MULTIPLIERS = {
   sedentary: 1.2,
@@ -112,7 +114,7 @@ export function calculateTargets(profile, conditions = []) {
 
   const weight   = Number(profile.weight);
   const height   = Number(profile.height) || 170;
-  const age      = Number(profile.age)    || 30;
+  const age      = profileAge(profile)    || 30;
   const adj      = Number(profile.calorie_adjustment) || 0;
   const priority = profile.protein_priority || "balanced";
 

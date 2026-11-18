@@ -150,6 +150,7 @@ export default function MePage() {
         <Group title="Health">
           <Row label="Profile & goals" hint="Body stats, goal, macro priorities" onClick={() => openSettings("profile")} />
           <Row label="Medical reports" hint={reportsHint} onClick={() => router.push("/medical")} />
+          <Row label="Summary for your doctor" hint="Markers, targets and the last 14 days, as a PDF" onClick={() => router.push("/medical/summary")} />
         </Group>
 
         <Group title="App">
@@ -182,6 +183,7 @@ export default function MePage() {
 
         <Group title="Account">
           <Row label="Username & password" hint={session?.user?.email} onClick={() => openSettings("security")} />
+          <Row label="Your data & privacy" hint="What we store · download · delete" onClick={() => router.push("/me/privacy")} />
           <Row
             label="Log out"
             danger

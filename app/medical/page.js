@@ -173,9 +173,14 @@ export default function MedicalPage() {
         subtitle="Blood work → food advice"
         actions={
           reports.length > 0 && (
-            <button onClick={() => router.push("/medical/trends")} style={headerActionStyle}>
-              <Activity size={14} /> Trends
-            </button>
+            <div style={{ display: "flex", gap: 8 }}>
+              <button onClick={() => router.push("/medical/summary")} style={headerActionStyle}>
+                <FileText size={14} /> For doctor
+              </button>
+              <button onClick={() => router.push("/medical/trends")} style={headerActionStyle}>
+                <Activity size={14} /> Trends
+              </button>
+            </div>
           )
         }
       />

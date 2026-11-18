@@ -26,6 +26,7 @@ import { GoogleGenerativeAI } from "@google/generative-ai";
 import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { recordLlmUsage } from "../../lib/llmCost";
+import { profileAge } from "../../lib/age";
 
 function getSupabaseForUser(accessToken) {
   return createClient(
@@ -77,7 +78,7 @@ export async function POST(req) {
         .order("date", { ascending: true }),
       db
         .from("user_profiles")
-        .select("weight, height, age, gender, activity, goal, target_calories, username")
+        .select("*")
         .eq("user_id", userId)
         .single(),
       db
@@ -113,7 +114,7 @@ export async function POST(req) {
 
     // Compute calorie target
     let targetCals = profile.target_calories ? Number(profile.target_calories) : (() => {
-      const bmr = 10 * profile.weight + 6.25 * profile.height - 5 * profile.age + (profile.gender === "male" ? 5 : -161);
+      const bmr = 10 * profile.weight + 6.25 * profile.height - 5 * (profileAge(profile) || 30) + (profile.gender === "male" ? 5 : -161);
       const mults = { sedentary: 1.2, light: 1.375, moderate: 1.55, active: 1.725 };
       const tdee = bmr * (mults[profile.activity] || 1.2);
       return Math.round(profile.goal === "lose" ? tdee - 500 : profile.goal === "gain" ? tdee + 300 : tdee);
