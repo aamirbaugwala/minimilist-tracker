@@ -44,6 +44,8 @@ const EXTRACTION_SCHEMA = {
           name: { type: "STRING" },
           quantity: { type: "NUMBER" },
           unit: { type: "STRING" },
+          // Per-item meal when the sentence spans meals ("eggs for breakfast and dal for lunch").
+          meal: { type: "STRING" },
         },
         required: ["name", "quantity"],
       },
@@ -69,7 +71,8 @@ Rules for items (only when intent is "log"):
 - unit = the spoken unit if any ("piece","bowl","glass","plate","cup","slice"), else "".
 - NEVER invent a food the user did not clearly mention. If unsure, leave items empty and set intent to "question".
 
-If the user names a meal (breakfast / lunch / snack / dinner), set meal to that (capitalised, "Snacks" for snack); otherwise meal = "".`;
+If the user names ONE meal for everything (breakfast / lunch / snack / dinner), set the top-level meal to it (capitalised, "Snacks" for snack); otherwise meal = "".
+If different foods belong to different meals ("two eggs for breakfast and dal for lunch"), set each item's own meal the same way and leave the top-level meal "". An item with no meal of its own uses the top-level one.`;
 
 export async function POST(req) {
   try {
@@ -161,7 +164,7 @@ export async function POST(req) {
       userId,
       meal: finalMeal,
       date: clientDate || now.toISOString().slice(0, 10),
-      created_at: now.toISOString(),
+      createdAt: now.toISOString(), // buildLogRows reads createdAt (created_at was silently dropped)
     });
 
     // ── 4. Insert (resilient to the meal column not being migrated yet) ───────
@@ -192,7 +195,8 @@ export async function POST(req) {
 
     return NextResponse.json({
       intent: "log",
-      meal: finalMeal,
+      // "Breakfast & Lunch" when the sentence covered more than one meal.
+      meal: MEAL_LABELS.filter((m) => rows.some((r) => r.meal === m)).join(" & ") || finalMeal,
       logged,
       ids: logged.length ? rows.map((r) => r.id) : [],
       unmatched,

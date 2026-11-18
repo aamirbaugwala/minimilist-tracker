@@ -110,6 +110,18 @@ export function matchFood(name, db) {
 export const isWaterPhrase = (name) =>
   /^(a |one )?(glass(es)?|cup(s)?|bottle(s)?)?\s*(of\s+)?water$/i.test(String(name || "").trim());
 
+// Water rows count GLASSES (250 ml). Convert a spoken amount into glasses so
+// "500 ml of water" is 2 glasses (not 500) and "1 litre" is 4 (not 1).
+export const GLASS_ML = 250;
+export function waterGlasses(quantity, unit, name = "") {
+  const q = Number(quantity) > 0 ? Number(quantity) : 1;
+  const u = `${unit || ""} ${name || ""}`.toLowerCase();
+  if (/\b(ml|millilit(?:re|er)s?)\b/.test(u)) return q / GLASS_ML;
+  if (/\b(l|ltrs?|lit(?:re|er)s?)\b/.test(u)) return (q * 1000) / GLASS_ML;
+  if (/\bbottles?\b/.test(u)) return (q * 1000) / GLASS_ML; // a 1 L bottle
+  return q; // glasses / cups / bare count
+}
+
 /**
  * Turn extracted { name, quantity } items into food_logs rows.
  * - Matches each to the DB; unmatched names are reported, never invented.
@@ -118,7 +130,10 @@ export const isWaterPhrase = (name) =>
  * Returns { rows, matched, unmatched }.
  */
 export function buildLogRows(items, db, { userId, meal, date, createdAt } = {}) {
-  // key -> { qty (natural display count), servings (macros multiplier) }
+  // "meal|key" -> { key, meal, qty (natural display count), servings (macros multiplier) }
+  // Items can carry their own meal ("eggs for breakfast and dal for lunch").
+  const MEAL_OK = ["Breakfast", "Lunch", "Snacks", "Dinner"];
+  const mealOf = (it) => (MEAL_OK.includes(it?.meal) ? it.meal : meal);
   const byKey = new Map();
   const unmatched = [];
   let waterQty = 0; // hydration, tracked separately from food
@@ -127,7 +142,7 @@ export function buildLogRows(items, db, { userId, meal, date, createdAt } = {}) 
     const name = (it?.name || "").trim();
     if (!name) continue;
     if (isWaterPhrase(name)) {
-      waterQty += Number(it?.quantity) > 0 ? Number(it.quantity) : 1;
+      waterQty += waterGlasses(it?.quantity, it?.unit, name);
       continue;
     }
     const key = matchFood(name, db);
@@ -138,8 +153,10 @@ export function buildLogRows(items, db, { userId, meal, date, createdAt } = {}) 
     // Interpret the spoken quantity in the food's natural unit (foodUnits.js):
     // "5 almonds" → 0.5 servings but qty 5; "2 rotis" → 2 servings, qty 2.
     const { qty, servings } = resolveQuantity({ quantity: it?.quantity, unit: it?.unit, foodKey: key });
-    const prev = byKey.get(key) || { qty: 0, servings: 0 };
-    byKey.set(key, { qty: prev.qty + qty, servings: prev.servings + servings });
+    const itemMeal = mealOf(it);
+    const slot = `${itemMeal}|${key}`;
+    const prev = byKey.get(slot) || { key, meal: itemMeal, qty: 0, servings: 0 };
+    byKey.set(slot, { ...prev, qty: prev.qty + qty, servings: prev.servings + servings });
   }
 
   const rows = [];
@@ -147,14 +164,14 @@ export function buildLogRows(items, db, { userId, meal, date, createdAt } = {}) 
 
   // Hydration: the app stores water as a "Water" row measured in glasses.
   if (waterQty > 0) {
-    const qty = Math.max(1, Math.round(waterQty));
+    const qty = Math.min(20, Math.max(1, Math.round(waterQty))); // glasses, sane cap
     const row = { user_id: userId, name: "Water", qty, calories: 0, protein: 0, carbs: 0, fats: 0, fiber: 0, meal, date, created_at: createdAt };
     Object.keys(row).forEach((k) => row[k] === undefined && delete row[k]);
     rows.push(row);
     matched.push({ name: "Water", qty, calories: 0, protein: 0 });
   }
 
-  for (const [key, agg] of byKey) {
+  for (const { key, meal: itemMeal, ...agg } of byKey.values()) {
     const servings = clampServings(agg.servings); // scales the per-serving macros
     const qty = Math.round(agg.qty * 100) / 100; // shown in the natural unit
     const item = db[key] || {};
@@ -170,14 +187,14 @@ export function buildLogRows(items, db, { userId, meal, date, createdAt } = {}) 
       carbs: r1((item.carbs || 0) * servings),
       fats: r1((item.fats || 0) * servings),
       fiber: r1((item.fiber || 0) * servings),
-      meal,
+      meal: itemMeal,
       date,
       created_at: createdAt,
     };
     // Drop undefined optional fields so callers can omit meta.
     Object.keys(row).forEach((k) => row[k] === undefined && delete row[k]);
     rows.push(row);
-    matched.push({ name: displayName, qty, calories: row.calories, protein: row.protein });
+    matched.push({ name: displayName, qty, calories: row.calories, protein: row.protein, meal: itemMeal });
   }
 
   return { rows, matched, unmatched };

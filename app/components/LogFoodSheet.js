@@ -100,7 +100,7 @@ function FoodRow({ name, item, qty, tag, onAdd, onDec, onInc, sub }) {
 
 export default function LogFoodSheet({
   onClose,
-  onCommit, // (entries[], meal) => void   entries: { name, qty, per, isWeb }
+  onCommit, // (entries[]) => void   entries: { name, qty, per, isWeb, meal }
   autoFocusSearch,
   selectedMeal,
   setSelectedMeal,
@@ -120,7 +120,7 @@ export default function LogFoodSheet({
   onScan,
 }) {
   const panelRef = useRef(null);
-  const [cart, setCart] = useState(() => new Map()); // key → { name, qty, per, isWeb }
+  const [cart, setCart] = useState(() => new Map()); // "Meal|food" → { name, qty, per, isWeb, meal }
   // null = not chosen yet → derived each render (Recent once recents exist, else
   // Browse). Deciding once at mount picked Browse when the sheet was opened
   // before recents had loaded, and it never switched back.
@@ -138,13 +138,17 @@ export default function LogFoodSheet({
   const tagFor = useCallback((name, item) => foodTag(name, per(item), active), [active]);
 
   // ── cart helpers
+  // The cart is keyed by meal + food: switching the meal picker mid-way keeps
+  // what was already picked under its own meal (2 for Breakfast, 2 for Lunch),
+  // and the same food can be picked for two meals.
   const keyOf = (name) => String(name).toLowerCase();
-  const qtyOf = (name) => cart.get(keyOf(name))?.qty || 0;
+  const cartKey = (name, meal = selectedMeal) => `${meal}|${keyOf(name)}`;
+  const qtyOf = (name) => cart.get(cartKey(name))?.qty || 0;
   const setQty = (name, item, qty, isWeb = false) =>
     setCart((prev) => {
       const next = new Map(prev);
-      if (qty <= 0) next.delete(keyOf(name));
-      else next.set(keyOf(name), { name, qty, per: per(item), isWeb });
+      if (qty <= 0) next.delete(cartKey(name));
+      else next.set(cartKey(name), { name, qty, per: per(item), isWeb, meal: selectedMeal });
       return next;
     });
   const addMany = (items) =>
@@ -153,15 +157,21 @@ export default function LogFoodSheet({
       items.forEach(({ name, qty = 1 }) => {
         const item = foodDb[keyOf(name)];
         if (!item) return;
-        const cur = next.get(keyOf(name));
-        next.set(keyOf(name), { name, qty: (cur?.qty || 0) + (Number(qty) || 1), per: per(item), isWeb: false });
+        const cur = next.get(cartKey(name));
+        next.set(cartKey(name), { name, qty: (cur?.qty || 0) + (Number(qty) || 1), per: per(item), isWeb: false, meal: selectedMeal });
       });
       return next;
     });
   const totals = useMemo(() => {
     let kcal = 0;
-    cart.forEach((e) => (kcal += e.per.calories * e.qty));
-    return { count: cart.size, kcal: Math.round(kcal) };
+    const byMeal = {};
+    cart.forEach((e) => {
+      kcal += e.per.calories * e.qty;
+      byMeal[e.meal] = (byMeal[e.meal] || 0) + 1;
+    });
+    // In meal order, e.g. "Breakfast 2 · Lunch 2"
+    const meals = MEALS.map((m) => m.label).filter((m) => byMeal[m]).map((m) => `${m} ${byMeal[m]}`);
+    return { count: cart.size, kcal: Math.round(kcal), meals };
   }, [cart]);
 
   // ── open/close: history entry so Android back closes (or asks), body lock
@@ -219,7 +229,7 @@ export default function LogFoodSheet({
 
   const commit = () => {
     if (!cart.size) return;
-    onCommit([...cart.values()], selectedMeal);
+    onCommit([...cart.values()]); // each entry carries its own meal
     closeNow();
   };
 
@@ -452,19 +462,25 @@ export default function LogFoodSheet({
               {suggestionRows.map((s) => {
                 const kcal = s.items.reduce((sum, i) => sum + per(foodDb[keyOf(i.name)]).calories * (Number(i.qty) || 1), 0);
                 const prot = s.items.reduce((sum, i) => sum + per(foodDb[keyOf(i.name)]).protein * (Number(i.qty) || 1), 0);
-                const allPicked = s.items.every((i) => qtyOf(i.name) > 0);
                 const single = s.items.length === 1 ? foodDb[keyOf(s.items[0].name)] : null;
+                // How many whole combos are in the cart (each "+" adds the full set).
+                const combos = Math.floor(Math.min(...s.items.map((i) => qtyOf(i.name) / (Number(i.qty) || 1))) + 1e-9);
                 return (
                   <FoodRow
                     key={s.id || s.name}
                     name={s.items.map((i) => splitName(i.name).title).join(" + ")}
                     item={single || {}}
-                    qty={s.items.length === 1 ? qtyOf(s.items[0].name) : allPicked ? 1 : 0}
+                    qty={s.items.length === 1 ? qtyOf(s.items[0].name) : combos}
                     tag={single ? tagFor(s.items[0].name, single) : null}
                     sub={`${Math.round(kcal)} kcal · P ${Math.round(prot)}`}
                     onAdd={() => addMany(s.items)}
                     onInc={() => addMany(s.items)}
-                    onDec={() => s.items.forEach((i) => setQty(i.name, foodDb[keyOf(i.name)], stepDown(qtyOf(i.name))))}
+                    onDec={() =>
+                      single
+                        ? setQty(s.items[0].name, single, stepDown(qtyOf(s.items[0].name)))
+                        : // "−" takes off one whole combo, mirroring "+" — never leaves half servings behind.
+                          s.items.forEach((i) => setQty(i.name, foodDb[keyOf(i.name)], Math.max(0, qtyOf(i.name) - (Number(i.qty) || 1))))
+                    }
                   />
                 );
               })}
@@ -511,7 +527,9 @@ export default function LogFoodSheet({
                 {totals.count ? (
                   <>
                     <span style={{ fontWeight: 600 }}>{totals.count} {totals.count === 1 ? "item" : "items"}</span>
-                    <span style={{ color: "var(--text-muted)" }}> · {totals.kcal} kcal</span>
+                    <span style={{ color: "var(--text-muted)" }}>
+                      {totals.meals.length > 1 ? ` · ${totals.meals.join(" · ")}` : ""} · {totals.kcal} kcal
+                    </span>
                   </>
                 ) : (
                   <span style={{ color: "var(--text-muted)" }}>Pick foods to add</span>

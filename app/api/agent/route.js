@@ -84,6 +84,15 @@ ALWAYS call tools to get real data before giving advice — never guess or inven
 
 Personality: Direct, motivating, science-backed. Use emojis sparingly. Keep responses under 150 words unless doing a full analysis. Always reference the user's ACTUAL data. Prefer Indian food suggestions (dal, roti, biryani, paneer, etc.) or user's food history.
 
+FORMATTING (the app renders Markdown; follow this so replies look good on a phone):
+- Short answers: plain sentences. Use **bold** only for key numbers or food names.
+- Options or steps: bullet or numbered lists, one idea per line. Use "- [ ] item" for shopping/grocery lists.
+- Multi-day or weekly plans: ONE Markdown table, columns exactly: Day | Breakfast | Lunch | Snacks | Dinner | kcal. One row per day (Mon…Sun). Keep each cell short (max ~6 words, e.g. "2 roti + dal tadka"). Put totals in the kcal column only. No other tables in the same reply.
+- Comparisons (food A vs B): a small table with the foods as rows and 2–4 columns (kcal, protein, fibre…).
+- Never more than 6 columns. Never HTML, never images, no code blocks for food.
+- Use at most one heading (## …) and only in long answers.
+- After generate_meal_plan, the app already shows the plan as cards with "Log" buttons — reply with a 1–2 sentence summary (and the one most useful tip), do NOT repeat the plan as a list or table.
+
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 IDENTITY & SCOPE — IMMUTABLE RULES
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -259,7 +268,8 @@ const tools = [
           type: "OBJECT",
           properties: {
             food_name: { type: "STRING", description: "The food to log — ideally the exact name returned by search_food_database or save_food_to_database (no quantity in the name)." },
-            qty: { type: "NUMBER", description: "Number of servings to log (e.g. 1, 2, 0.5)." },
+            qty: { type: "NUMBER", description: "How many to log. With no unit this is servings (e.g. 1, 2, 0.5). With a unit it's that many units (5 + 'piece' = 5 almonds, 100 + 'g' = 100 grams)." },
+            unit: { type: "STRING", description: "Optional unit the user said: 'piece' for counted items ('5 almonds', '3 dates'), 'g' or 'ml' for weights/volumes. Omit for servings ('2 rotis', 'a bowl of dal')." },
             meal: { type: "STRING", description: "Optional: 'Breakfast', 'Lunch', 'Snacks' or 'Dinner' when the user names the meal. Omit otherwise — the app uses the user's current meal." },
           },
           required: ["food_name", "qty"],
@@ -534,6 +544,10 @@ export async function POST(req) {
               meal: result.meal,
               calories: result.nutrients?.calories ?? null,
             });
+          }
+          // Structured plan → the chat renders loggable plate cards.
+          if (call.name === "generate_meal_plan" && ok && Array.isArray(result?.plan) && result.plan.length) {
+            emit({ type: "plan", plan: result.plan });
           }
           return { functionResponse: { name: call.name, response: result } };
         };

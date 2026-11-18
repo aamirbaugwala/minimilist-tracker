@@ -4,6 +4,7 @@
  * (alerts, closing modals) to the caller.
  */
 
+import { dayKey } from "./day";
 import { supabase } from "../supabase";
 
 /** Save the goal/body profile and snapshot it into goal_history. */
@@ -33,7 +34,7 @@ export async function saveProfileGoal(userId, profile) {
     calorie_adjustment: adjustment,
     protein_priority: priority,
     target_calories: target,
-    effective_from: new Date().toISOString().slice(0, 10),
+    effective_from: dayKey(), // the app's 4 am local day
   });
 
   return { ok: true };

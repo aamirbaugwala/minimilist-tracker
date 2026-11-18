@@ -34,7 +34,8 @@ import { planMeals, mealsLeft } from "./mealPlanner";
 import { foodTag, activeConditionIds } from "./foodTags";
 import { calculateTargets } from "./nutrition";
 import { deriveConditions, conditionsFromProfile, mergeConditions } from "./conditions";
-import { matchFood, baseName } from "./voiceLog";
+import { matchFood, baseName, isWaterPhrase, waterGlasses } from "./voiceLog";
+import { resolveQuantity } from "./foodUnits";
 import { filterFoodsForProfile } from "./dietFilter";
 import { cacheGet, cacheSet, cacheInvalidate } from "./agentCache";
 import { computeStreak } from "./streak";
@@ -298,7 +299,7 @@ export async function executeTool(toolName, args, userId, db, ctx = {}) {
       plan: plan.map((m) => ({
         meal: m.meal,
         targetCalories: m.target,
-        items: m.items.map((i) => ({ food: i.food, qty: i.qty, calories: i.calories, protein: `${i.protein}g` })),
+        items: m.items.map((i) => ({ food: i.food, qty: i.qty, calories: i.calories, protein: `${i.protein}g`, macros: { protein: i.protein, carbs: i.carbs, fats: i.fats, fiber: i.fiber } })),
         totals: { calories: m.totals.calories, protein: `${m.totals.protein}g`, fiber: `${m.totals.fiber}g` },
         why: m.why,
       })),
@@ -313,7 +314,7 @@ export async function executeTool(toolName, args, userId, db, ctx = {}) {
         healthFlagsUsed: [...active],
       },
       howToPresent:
-        "Present each meal as a short plate (e.g. 'Dinner: 2 roti + dal tadka + cucumber raita — 520 kcal, 22 g protein'), mention one 'why' if there is one, and offer to log a meal when they eat it. Don't add foods that aren't in the plan.",
+        "In the chat, the app shows this plan as cards with 'Log' buttons: reply with a 1–2 sentence summary and the single most useful tip — do not list the plan again. In a voice reply, say it briefly, one short line per meal. Don't add foods that aren't in the plan.",
     };
   }
 
@@ -348,6 +349,26 @@ export async function executeTool(toolName, args, userId, db, ctx = {}) {
     const qty = Math.max(0.1, Math.min(Number(args.qty) || 1, 20)); // clamp 0.1–20 servings
     if (!requested) return { logged: false, error: "No food name provided." };
 
+    // Water is hydration, stored as a "Water" row counted in glasses (same as
+    // the home tile and voice). Without this it was unmatched, then saved as a
+    // custom food "water" that no water total ever counted.
+    if (isWaterPhrase(requested)) {
+      // "500 ml" / "1 litre" / "2 glasses" → 250 ml glasses, like voice.
+      const glasses = Math.min(20, Math.max(1, Math.round(waterGlasses(Number(args.qty) || 1, args.unit, requested))));
+      const meal =
+        (MEAL_LABELS.includes(args.meal) && args.meal) ||
+        (MEAL_LABELS.includes(ctx.mealHint) && ctx.mealHint) ||
+        null;
+      const row = {
+        id: crypto.randomUUID(), source: "coach", user_id: userId, date: today,
+        name: "Water", qty: glasses, calories: 0, protein: 0, carbs: 0, fats: 0, fiber: 0,
+        ...(meal ? { meal } : {}),
+      };
+      const err = await insertFoodLogs(db, row);
+      if (err) return { logged: false, error: `Failed to log: ${err.message}. Nothing was saved.` };
+      return { logged: true, id: row.id, food: "Water", qty: glasses, meal, message: `✅ Logged ${glasses} glass${glasses === 1 ? "" : "es"} of water (250 ml each).` };
+    }
+
     // Same matcher as voice logging: built-in + custom foods, plural-tolerant,
     // and it returns null rather than guess a wrong food.
     const foodDb = await getFoodDb(ctx, db, userId);
@@ -367,18 +388,25 @@ export async function executeTool(toolName, args, userId, db, ctx = {}) {
       (MEAL_LABELS.includes(args.meal) && args.meal) ||
       (MEAL_LABELS.includes(ctx.mealHint) && ctx.mealHint) ||
       null; // null → the app files it by time of day
+    // With a unit, read the number in that unit exactly as voice does:
+    // "5 almonds" (piece) → half a 10-almond serving; "100 g chicken" → 1 serving
+    // of a 100 g entry. Without one, qty is servings.
+    const { servings, qty: shownQty } = args.unit
+      ? resolveQuantity({ quantity: args.qty, unit: args.unit, foodKey: match })
+      : { servings: qty, qty };
+    const sv = Math.max(0.05, Math.min(servings, 20));
     const logEntry = {
       id: crypto.randomUUID(), // returned so the Coach receipt can offer an exact Undo
       source: "coach",
       user_id: userId,
       date: today,
       name: match,
-      qty,
-      calories: Math.round((item.calories || 0) * qty),
-      protein: r1((item.protein || 0) * qty),
-      carbs: r1((item.carbs || 0) * qty),
-      fats: r1((item.fats || 0) * qty),
-      fiber: r1((item.fiber || 0) * qty),
+      qty: Math.round(shownQty * 100) / 100,
+      calories: Math.round((item.calories || 0) * sv),
+      protein: r1((item.protein || 0) * sv),
+      carbs: r1((item.carbs || 0) * sv),
+      fats: r1((item.fats || 0) * sv),
+      fiber: r1((item.fiber || 0) * sv),
       ...(meal ? { meal } : {}),
     };
 
@@ -389,7 +417,7 @@ export async function executeTool(toolName, args, userId, db, ctx = {}) {
       logged: true,
       id: logEntry.id,
       food: match,
-      qty,
+      qty: logEntry.qty,
       meal,
       nutrients: {
         calories: logEntry.calories,
@@ -398,7 +426,7 @@ export async function executeTool(toolName, args, userId, db, ctx = {}) {
         fats: `${logEntry.fats}g`,
         fiber: `${logEntry.fiber}g`,
       },
-      message: `✅ Logged ${qty}x ${match} (${logEntry.calories} kcal)${meal ? ` to ${meal}` : ""}.`,
+      message: `✅ Logged ${logEntry.qty}${args.unit && /piece|pc/i.test(args.unit) ? "" : "x"} ${match} (${logEntry.calories} kcal)${meal ? ` to ${meal}` : ""}.`,
     };
   }
 

@@ -140,7 +140,7 @@ export async function POST(req) {
       userId,
       meal: finalMeal,
       date: clientDate,
-      created_at: now.toISOString(),
+      createdAt: now.toISOString(),
     });
 
     // Return display-ready items with FINAL macros (already qty-multiplied).

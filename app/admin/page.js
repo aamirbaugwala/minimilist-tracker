@@ -1,5 +1,6 @@
 "use client";
 
+import { dayKey } from "../lib/day";
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import TrafficPanel from "../components/admin/TrafficPanel";
@@ -149,7 +150,7 @@ export default function AdminDashboard() {
       setAllPushSubs(safePushSubs);
 
       // ── Build unified user stats map ──────────────────────────────────────
-      const today = new Date().toISOString().slice(0, 10);
+      const today = dayKey();
       const statsMap = {};
 
       safeUsers.forEach((u) => {
@@ -556,7 +557,7 @@ export default function AdminDashboard() {
                         {formatRelativeTime(user.lastLogin)}
                       </> : "No login data"}
                     </span>
-                    <span style={{ fontSize: "0.7rem", color: user.lastActive === new Date().toISOString().slice(0, 10) ? "var(--accent-text)" : "var(--text-faint)" }}>
+                    <span style={{ fontSize: "0.7rem", color: user.lastActive === dayKey() ? "var(--accent-text)" : "var(--text-faint)" }}>
                       {user.lastActive || "—"}
                     </span>
                   </div>

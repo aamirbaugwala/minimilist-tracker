@@ -200,6 +200,7 @@ export default function RecipesPage() {
   const [openId, setOpenId] = useState(null);
   const [logged, setLogged] = useState({}); // recipe key → { rowId, meal }
   const [meal] = useState(() => defaultMeal());
+  const pendingInsertsRef = useRef({}); // rowId -> in-flight insert (for Undo)
 
   const textareaRef = useRef(null);
 
@@ -314,7 +315,12 @@ export default function RecipesPage() {
       fiber: r0(ps.fiber),
     };
     setLogged((prev) => ({ ...prev, [key]: { rowId: row.id, meal } }));
-    const error = await insertFoodLogs(supabase, row);
+    // Undo waits for this insert: a delete that runs first matches 0 rows and
+    // the insert then lands, leaving a row the UI says was undone.
+    const pending = insertFoodLogs(supabase, row);
+    pendingInsertsRef.current[row.id] = pending;
+    const error = await pending;
+    delete pendingInsertsRef.current[row.id];
     if (error) {
       setLogged((prev) => {
         const next = { ...prev };
@@ -333,6 +339,7 @@ export default function RecipesPage() {
       delete next[key];
       return next;
     });
+    await pendingInsertsRef.current[entry.rowId]?.catch(() => {});
     const { error } = await supabase.from("food_logs").delete().eq("id", entry.rowId).eq("user_id", session.user.id);
     if (error) {
       setLogged((prev) => ({ ...prev, [key]: entry }));

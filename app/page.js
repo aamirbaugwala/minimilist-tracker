@@ -123,6 +123,7 @@ export default function Home() {
   const totalXpRef = useRef(0);
   const lastAddRef = useRef(null); // last batch, for Undo
   const pendingRef = useRef({}); // tempId -> Promise<realId> (insert reconcile)
+  const recentMacrosRef = useRef({}); // recent name -> per-unit macros of its last log
   const floatSeq = useRef(0);
   const toastTimer = useRef(null);
   const questPrevRef = useRef(null); // completed quest ids, to detect new ones
@@ -441,7 +442,10 @@ export default function Home() {
     if (!error) {
       const enrichedLogs = data.map((log) => {
         if (log.name === "Water") return { ...log, fiber: 0 };
-        if (log.fiber && log.fiber > 0) return log;
+        // Only backfill legacy rows (no fiber, or saved before `source` existed).
+        // A 0 on a current row is real — re-deriving it by name × qty (qty may
+        // be pieces, not servings) made totals jump after a refresh.
+        if (log.fiber > 0 || (log.fiber != null && log.source)) return log;
         // Use COMBINED_DB
         let dbItem = COMBINED_DB[log.name.toLowerCase()];
         if (!dbItem) {
@@ -467,11 +471,28 @@ export default function Home() {
 
     const { data: history } = await supabase
       .from("food_logs")
-      .select("name")
+      .select("name, qty, calories, protein, carbs, fats, fiber")
       .eq("user_id", session.user.id)
       .order("created_at", { ascending: false })
       .limit(10);
     if (history) {
+      // Voice/Snap/recipe rows are stored under names that aren't food-DB keys
+      // ("almonds", a recipe title). Remember each recent's per-unit macros from
+      // its latest row so Quick add re-logs what was actually logged instead of
+      // a substring guess (or 0 kcal).
+      const perUnit = {};
+      history.forEach((h) => {
+        const q = Number(h.qty) || 1;
+        if (h.name && !perUnit[h.name])
+          perUnit[h.name] = {
+            calories: (Number(h.calories) || 0) / q,
+            protein: (Number(h.protein) || 0) / q,
+            carbs: (Number(h.carbs) || 0) / q,
+            fats: (Number(h.fats) || 0) / q,
+            fiber: (Number(h.fiber) || 0) / q,
+          };
+      });
+      recentMacrosRef.current = perUnit;
       const uniqueRecents = [...new Set(history.map((h) => h.name))];
       setRecents(uniqueRecents);
     }
@@ -610,6 +631,39 @@ export default function Home() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [session]);
 
+  // A home screen left open (or backgrounded as a PWA) across 4 am kept showing
+  // yesterday's logs as "today" until a full reload; and the meal picker kept
+  // the meal from whenever the page mounted. Re-check on focus and every minute:
+  // a new logical day refetches today; a new meal period moves the picker on
+  // (an explicit pick inside the same period is left alone).
+  const loadedDayRef = useRef(localDateKey());
+  const mealPeriodRef = useRef(defaultMeal());
+  useEffect(() => {
+    if (!session) return;
+    const tick = () => {
+      const day = localDateKey();
+      if (day !== loadedDayRef.current) {
+        loadedDayRef.current = day;
+        lastAddRef.current = null; // Undo shouldn't reach into yesterday
+        fetchData(true);
+        calculateStreak();
+      }
+      const period = defaultMeal();
+      if (period !== mealPeriodRef.current) {
+        mealPeriodRef.current = period;
+        setSelectedMeal(period);
+      }
+    };
+    const onVisible = () => document.visibilityState === "visible" && tick();
+    const timer = setInterval(tick, 60_000);
+    document.addEventListener("visibilitychange", onVisible);
+    return () => {
+      clearInterval(timer);
+      document.removeEventListener("visibilitychange", onVisible);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [session]);
+
   // Send admins to the portal instead of the tracker — but only ONCE per browser
   // session. Redirecting on every mount would make the admin page's "Back to App"
   // button bounce straight back here, trapping them in a loop.
@@ -672,7 +726,7 @@ export default function Home() {
       activity: draft.activity,
       calorie_adjustment: Number(draft.calorie_adjustment ?? 0),
       protein_priority: draft.protein_priority || "balanced",
-      effective_from: new Date().toISOString().slice(0, 10),
+      effective_from: localDateKey(), // the app's 4 am day, like every log
     });
     setUserProfile((prev) => ({ ...prev, ...payload }));
     setShowOnboarding(false);
@@ -709,7 +763,7 @@ export default function Home() {
   const handleLogWeight = async () => {
     if (!weightInput) return;
     setIsLoggingWeight(true);
-    const today = new Date().toISOString().slice(0, 10);
+    const today = localDateKey(); // the app's 4 am local day, not the UTC date
     const numWeight = Number(weightInput);
 
     try {
@@ -944,10 +998,12 @@ export default function Home() {
     const dateKey = localDateKey(); // local calendar day, not UTC
     setSaveError("");
 
-    // File everything in this batch under the meal the user has selected.
-    const meal = selectedMeal || defaultMeal(createdAt);
+    // Each item can carry its own meal (the food sheet's cart can hold picks
+    // for several meals); otherwise it goes under the meal that's selected.
+    const fallbackMeal = selectedMeal || defaultMeal(createdAt);
     const newId = uuid;
     const rows = itemsToAdd.map((item) => {
+      const meal = MEALS.some((m) => m.label === item.meal) ? item.meal : fallbackMeal;
       const quantity = Number(item.qty) || 1;
       const base = perUnitMacros(item);
       return {
@@ -1003,13 +1059,7 @@ export default function Home() {
     const last = lastAddRef.current;
     if (!last) return;
     const ids = [...last.idSet]; // snapshot; may be temp or reconciled
-    const idsSet = new Set(ids);
-    setLogs((prev) => prev.filter((l) => !idsSet.has(l.id)));
-    ids.forEach((id) => {
-      resolveRowId(id)
-        .then((realId) => supabase.from("food_logs").delete().eq("id", realId))
-        .catch(() => {});
-    });
+    ids.forEach((id) => deleteLog(id));
     awardXp(-last.xp);
     lastAddRef.current = null;
     setToast(null);
@@ -1022,11 +1072,23 @@ export default function Home() {
       setQuery("");
     }
   };
+  // Optimistic remove; supabase reports failures in `error` (it doesn't
+  // reject), so check it and put the row back rather than silently diverging.
   const deleteLog = (id) => {
-    setLogs((prev) => prev.filter((l) => l.id !== id));
+    let removed = null;
+    setLogs((prev) => {
+      removed = prev.find((l) => l.id === id) || removed;
+      return prev.filter((l) => l.id !== id);
+    });
+    const restore = (err) => {
+      console.error("Delete failed:", err);
+      setSaveError(`Couldn't remove "${removed?.name || "that item"}": ${err?.message || err}`);
+      if (removed) setLogs((prev) => (prev.some((l) => l.id === id) ? prev : [removed, ...prev]));
+    };
     resolveRowId(id)
       .then((realId) => supabase.from("food_logs").delete().eq("id", realId))
-      .catch(() => {});
+      .then(({ error } = {}) => error && restore(error))
+      .catch(restore);
   };
 
   const openEditModal = (log) => {
@@ -1160,7 +1222,10 @@ export default function Home() {
   // packaged-food web search are also saved to custom foods (as before).
   const commitPicks = (entries, source = "sheet") => {
     entries.filter((e) => e.isWeb).forEach((e) => saveCustomFoodToDb({ name: e.name, ...e.per }));
-    handleLocalAdd(entries.map((e) => ({ name: e.name, qty: e.qty, ...e.per })), source);
+    // One batch (one Undo), each entry filed under the meal it was picked for.
+    // isWeb travels too: perUnitMacros must not swap a 0-kcal packaged food for a
+    // name-alike from the built-in DB.
+    handleLocalAdd(entries.map((e) => ({ name: e.name, qty: e.qty, ...e.per, meal: e.meal, isWeb: !!e.isWeb })), source);
   };
 
   // Log yesterday's meal again, filed under that meal, with its exact macros.
@@ -1297,15 +1362,25 @@ export default function Home() {
         if (i !== idx) return it;
         const oldQty = Number(it.qty) || 1;
         const newQty = Math.max(0.25, Math.round((oldQty + delta) * 100) / 100);
-        const ratio = newQty / oldQty;
+        // Scale from the ORIGINAL per-unit macros, not the last rounded values,
+        // so + / − round-trips don't compound rounding (protein 0.4 → 0 forever).
+        const base = it._perUnit || {
+          calories: (it.calories || 0) / oldQty,
+          protein: (it.protein || 0) / oldQty,
+          carbs: (it.carbs || 0) / oldQty,
+          fats: (it.fats || 0) / oldQty,
+          fiber: (it.fiber || 0) / oldQty,
+        };
+        const r1 = (n) => Math.round(n * 10) / 10;
         return {
           ...it,
+          _perUnit: base,
           qty: newQty,
-          calories: Math.round((it.calories || 0) * ratio),
-          protein: Math.round((it.protein || 0) * ratio),
-          carbs: Math.round((it.carbs || 0) * ratio),
-          fats: Math.round((it.fats || 0) * ratio),
-          fiber: Math.round((it.fiber || 0) * ratio),
+          calories: Math.round(base.calories * newQty),
+          protein: r1(base.protein * newQty),
+          carbs: r1(base.carbs * newQty),
+          fats: r1(base.fats * newQty),
+          fiber: r1(base.fiber * newQty),
         };
       }),
     );
@@ -1635,7 +1710,14 @@ export default function Home() {
             recents={recents}
             foodDb={COMBINED_DB}
             selectedMeal={selectedMeal}
-            onAdd={(name) => addFood(name, 1, null, "quick_add")}
+            onAdd={(name) =>
+              addFood(
+                name,
+                1,
+                COMBINED_DB[name.toLowerCase()] ? null : recentMacrosRef.current[name] || null,
+                "quick_add",
+              )
+            }
             onMore={() => openLoggerForMeal()}
           />
           </div>

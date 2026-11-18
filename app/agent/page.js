@@ -6,7 +6,11 @@ import { supabase } from "../supabase";
 import { dayKey } from "../lib/day";
 import { defaultMeal } from "../lib/mealPeriod";
 import { compressImage } from "../lib/image";
-import { Send, Loader2, Trash2, Copy, Check, Mic, ChefHat, ImageIcon, X, Undo2 } from "lucide-react";
+import { Send, Loader2, Trash2, Copy, Check, Mic, ChefHat, ImageIcon, X, Undo2, Square, ArrowDown, RotateCcw } from "lucide-react";
+import CoachMarkdown from "../components/coach/CoachMarkdown";
+import PlanCard from "../components/coach/PlanCard";
+import { insertFoodLogs } from "../lib/foodLogInsert";
+import { uuid } from "../lib/uuid";
 
 // What the coach did, in plain words (shown as one quiet line under a reply).
 const TOOL_WORDS = {
@@ -33,32 +37,15 @@ const STARTERS = [
   "Am I losing weight?",
 ];
 
-// Light markdown: **bold**, bullets, blank lines.
-function RenderMessage({ text, streaming }) {
-  const lines = text.split("\n");
-  return (
-    <div style={{ lineHeight: 1.6 }}>
-      {lines.map((line, i) => {
-        const t = line.trim();
-        const bullet = t.startsWith("* ") || t.startsWith("- ");
-        const body = bullet ? t.slice(2) : line;
-        const parts = body.split(/(\*\*[^*]+\*\*)/g).map((part, j) =>
-          part.startsWith("**") && part.endsWith("**") ? <strong key={j} style={{ fontWeight: 600 }}>{part.slice(2, -2)}</strong> : part,
-        );
-        if (bullet) {
-          return (
-            <div key={i} style={{ display: "flex", gap: 10, margin: "4px 0" }}>
-              <span style={{ color: "var(--text-faint)", flexShrink: 0 }}>•</span>
-              <span>{parts}</span>
-            </div>
-          );
-        }
-        if (t === "") return <div key={i} style={{ height: 8 }} />;
-        return <div key={i}>{parts}</div>;
-      })}
-      {streaming && <span className="coach-caret" />}
-    </div>
-  );
+// "Today" / "Yesterday" / "Mon 16 Nov" for a message's day.
+function dayLabel(iso, todayKey) {
+  if (!iso) return null;
+  const k = dayKey(iso);
+  if (k === todayKey) return "Today";
+  const y = new Date(`${todayKey}T00:00:00Z`);
+  y.setUTCDate(y.getUTCDate() - 1);
+  if (k === y.toISOString().slice(0, 10)) return "Yesterday";
+  return new Date(`${k}T00:00:00`).toLocaleDateString("en-IN", { weekday: "short", day: "numeric", month: "short" });
 }
 
 function ToolLine({ tools }) {
@@ -136,6 +123,13 @@ export default function AgentPage() {
   const sendMessageRef       = useRef(null);
   const bottomRef = useRef(null);
   const inputRef = useRef(null);
+  const scrollRef = useRef(null);
+  const nearBottomRef = useRef(true);
+  const [awayFromBottom, setAwayFromBottom] = useState(false);
+  const abortRef = useRef(null);
+  const lastSentRef = useRef(null); // { text, image } — for "Try again"
+  const [planBusy, setPlanBusy] = useState(null);
+  const [todayKey] = useState(() => dayKey());
 
   // ── COPY MESSAGE ───────────────────────────────────────────────────────────
   const copyMessage = (text, index) => {
@@ -286,6 +280,7 @@ export default function AgentPage() {
               role:      m.role,
               content:   m.content,
               toolsUsed: m.tools_used || [],
+              createdAt: m.created_at,
             })));
           }
         }
@@ -299,8 +294,22 @@ export default function AgentPage() {
 
   // ── AUTO-SCROLL ────────────────────────────────────────────────────────────
   useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: "smooth" });
+    // Follow new text only if the reader is already at the bottom; otherwise
+    // leave them where they are (a "New reply" pill offers the jump).
+    if (nearBottomRef.current) bottomRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
   }, [messages, loading]);
+  const onChatScroll = () => {
+    const el = scrollRef.current;
+    if (!el) return;
+    const near = el.scrollHeight - el.scrollTop - el.clientHeight < 140;
+    nearBottomRef.current = near;
+    if (near === awayFromBottom) setAwayFromBottom(!near);
+  };
+  const jumpToBottom = () => {
+    nearBottomRef.current = true;
+    setAwayFromBottom(false);
+    bottomRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
+  };
 
   // ── PERSIST HISTORY ────────────────────────────────────────────────────────
   // History is now saved server-side in Supabase by the API route.
@@ -324,20 +333,27 @@ export default function AgentPage() {
   };
 
   // ── SEND MESSAGE ───────────────────────────────────────────────────────────
-  const sendMessage = async (text) => {
-    const userText = (text || input).trim();
+  // `retryImage` is only passed by "Try again" (resend the same photo).
+  const sendMessage = async (text, retryImage) => {
+    const userText = (typeof text === "string" ? text : input).trim();
+    const imageToSend = retryImage !== undefined ? retryImage : selectedImage;
     // Use loadingRef.current (not state) so voice callbacks always read the live value
-    if ((!userText && !selectedImage) || loadingRef.current) return;
-    const imageToSend = selectedImage;
+    if ((!userText && !imageToSend) || loadingRef.current) return;
+    lastSentRef.current = { text: userText, image: imageToSend || null };
     setInput("");
     setSelectedImage(null);
     setError("");
+    nearBottomRef.current = true; // your own message: follow the reply
+    setAwayFromBottom(false);
+    const controller = new AbortController();
+    abortRef.current = controller;
+    const now = new Date().toISOString();
 
     // Add user bubble + empty model placeholder immediately
     setMessages((prev) => [
       ...prev,
-      { role: "user",  content: userText, imagePreview: imageToSend?.preview || null },
-      { role: "model", content: "", toolsUsed: [], streaming: true },
+      { role: "user",  content: userText, imagePreview: imageToSend?.preview || null, createdAt: now },
+      { role: "model", content: "", toolsUsed: [], streaming: true, createdAt: now },
     ]);
     setLoading(true);
     loadingRef.current = true;
@@ -349,6 +365,7 @@ export default function AgentPage() {
     try {
       const res = await fetch("/api/agent", {
         method: "POST",
+        signal: controller.signal,
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           message:     userText || "What food is in this image? Analyze the nutrition.",
@@ -393,6 +410,16 @@ export default function AgentPage() {
                 const arr  = [...prev];
                 const last = { ...arr[arr.length - 1] };
                 last.toolsUsed = [...(last.toolsUsed || []), event.name];
+                arr[arr.length - 1] = last;
+                return arr;
+              });
+
+            } else if (event.type === "plan") {
+              // Structured meal plan → loggable plate cards on this reply.
+              setMessages((prev) => {
+                const arr  = [...prev];
+                const last = { ...arr[arr.length - 1] };
+                last.plan = event.plan;
                 arr[arr.length - 1] = last;
                 return arr;
               });
@@ -463,10 +490,24 @@ export default function AgentPage() {
         }
       }
 
-    } catch {
-      setError("Network error. Please check your connection.");
-      setMessages((prev) => prev.slice(0, -2));
+    } catch (err) {
+      if (err?.name === "AbortError") {
+        // Stopped by the user: keep what arrived so far.
+        setMessages((prev) => {
+          const arr = [...prev];
+          const last = { ...arr[arr.length - 1] };
+          last.streaming = false;
+          last.stopped = true;
+          if (!last.content) last.content = "_Stopped._";
+          arr[arr.length - 1] = last;
+          return arr;
+        });
+      } else {
+        setError("Couldn’t reach Coach. Check your connection.");
+        setMessages((prev) => prev.slice(0, -2));
+      }
     } finally {
+      abortRef.current = null;
       setLoading(false);
       loadingRef.current = false;
       // In voice mode, focus stays on voice — don't steal focus to textarea
@@ -494,6 +535,50 @@ export default function AgentPage() {
     const { error: delErr } = await supabase.from("food_logs").delete().in("id", ids).eq("user_id", session.user.id);
     if (delErr) {
       mark(false);
+      setError("Couldn’t undo that — remove it from Today instead.");
+    }
+  };
+
+  const stopReply = () => abortRef.current?.abort();
+  const retryLast = () => {
+    const last = lastSentRef.current;
+    if (last) sendMessage(last.text, last.image);
+  };
+
+  // ── Log a planned meal (from a PlanCard) ──────────────────────────────────
+  const setPlanState = (msgIndex, meal, value) =>
+    setMessages((prev) => prev.map((m, i) => (i === msgIndex ? { ...m, planLogged: { ...(m.planLogged || {}), [meal]: value } } : m)));
+  const logPlanMeal = async (msgIndex, m) => {
+    if (!session || planBusy) return;
+    setPlanBusy(m.meal);
+    const createdAt = new Date().toISOString();
+    const rows = m.items.map((it) => ({
+      id: uuid(),
+      user_id: session.user.id,
+      date: dayKey(),
+      created_at: createdAt,
+      meal: m.meal,
+      source: "coach",
+      name: it.food,
+      qty: it.qty,
+      calories: Math.round(it.calories || 0),
+      protein: Math.round(it.macros?.protein ?? (parseFloat(it.protein) || 0)),
+      carbs: Math.round(it.macros?.carbs || 0),
+      fats: Math.round(it.macros?.fats || 0),
+      fiber: Math.round(it.macros?.fiber || 0),
+    }));
+    const err = await insertFoodLogs(supabase, rows);
+    setPlanBusy(null);
+    if (err) setError(`Couldn’t log ${m.meal}: ${err.message}`);
+    else setPlanState(msgIndex, m.meal, { ids: rows.map((r) => r.id) });
+  };
+  const undoPlanMeal = async (msgIndex, meal) => {
+    const entry = messages[msgIndex]?.planLogged?.[meal];
+    if (!entry?.ids?.length) return;
+    setPlanState(msgIndex, meal, { ...entry, undone: true });
+    const { error: delErr } = await supabase.from("food_logs").delete().in("id", entry.ids).eq("user_id", session.user.id);
+    if (delErr) {
+      setPlanState(msgIndex, meal, entry);
       setError("Couldn’t undo that — remove it from Today instead.");
     }
   };
@@ -536,7 +621,7 @@ export default function AgentPage() {
       </header>
 
       {/* ── MESSAGES ── */}
-      <div style={{ flex: 1, overflowY: "auto", padding: "8px 20px 12px", display: "flex", flexDirection: "column", gap: 18, borderTop: "1px solid var(--border)" }}>
+      <div ref={scrollRef} onScroll={onChatScroll} style={{ flex: 1, overflowY: "auto", padding: "8px 20px 12px", display: "flex", flexDirection: "column", gap: 18, borderTop: "1px solid var(--border)", position: "relative" }}>
         {isEmpty && (
           <div style={{ margin: "auto 0", padding: "24px 0" }}>
             <div style={{ fontSize: 20, fontWeight: 600, letterSpacing: -0.2 }}>Ask about your day</div>
@@ -555,8 +640,16 @@ export default function AgentPage() {
 
         {messages.map((msg, i) => {
           const isUser = msg.role === "user";
+          // Day separator when the day changes (history carries created_at).
+          const label = dayLabel(msg.createdAt, todayKey);
+          const prevLabel = i > 0 ? dayLabel(messages[i - 1].createdAt, todayKey) : null;
+          const sep = label && label !== prevLabel && (i > 0 || label !== "Today") ? (
+            <div key={`sep-${i}`} role="separator" style={{ display: "flex", alignItems: "center", gap: 10, fontSize: 12, color: "var(--text-faint)" }}>
+              <span style={{ flex: 1, height: 1, background: "var(--border)" }} /> {label} <span style={{ flex: 1, height: 1, background: "var(--border)" }} />
+            </div>
+          ) : null;
           if (isUser) {
-            return (
+            return [sep,
               <div key={i} style={{ display: "flex", justifyContent: "flex-end" }}>
                 <div style={{ maxWidth: "85%", padding: "10px 14px", borderRadius: "18px 18px 6px 18px", background: "var(--surface-highlight)", fontSize: 15, lineHeight: 1.5, wordBreak: "break-word" }}>
                   {msg.imagePreview && (
@@ -565,27 +658,30 @@ export default function AgentPage() {
                   )}
                   {msg.content}
                 </div>
-              </div>
-            );
+              </div>,
+            ];
           }
-          return (
-            <div key={i} style={{ maxWidth: "100%", fontSize: 15, wordBreak: "break-word" }}>
+          return [sep,
+            <div key={i} style={{ maxWidth: "100%", fontSize: 15, minWidth: 0 }}>
               <ToolLine tools={msg.toolsUsed} />
               {msg.receipts?.length > 0 && <Receipt items={msg.receipts} onUndo={(ids) => undoLogs(i, ids)} />}
+              {msg.plan?.length > 0 && (
+                <PlanCard plan={msg.plan} logged={msg.planLogged} busy={planBusy} onLog={(m) => logPlanMeal(i, m)} onUndo={(meal) => undoPlanMeal(i, meal)} />
+              )}
               {msg.streaming && !msg.content ? (
                 <div style={{ display: "flex", alignItems: "center", gap: 8, color: "var(--text-muted)", fontSize: 14 }}>
                   <Loader2 size={15} className="animate-spin" /> {msg.toolsUsed?.length ? "Working on it…" : "Thinking…"}
                 </div>
               ) : (
-                <RenderMessage text={msg.content} streaming={msg.streaming} />
+                <CoachMarkdown text={msg.content} streaming={msg.streaming} />
               )}
               {!msg.streaming && msg.content && (
                 <button onClick={() => copyMessage(msg.content, i)} style={{ marginTop: 6, display: "inline-flex", alignItems: "center", gap: 5, background: "none", border: "none", padding: "4px 0", color: copiedIndex === i ? "var(--accent-text)" : "var(--text-faint)", fontFamily: "inherit", fontSize: 12, cursor: "pointer" }}>
                   {copiedIndex === i ? <Check size={13} /> : <Copy size={13} />} {copiedIndex === i ? "Copied" : "Copy"}
                 </button>
               )}
-            </div>
-          );
+            </div>,
+          ];
         })}
 
         {loading && !messages.some((m) => m.streaming) && (
@@ -595,12 +691,26 @@ export default function AgentPage() {
         )}
 
         {error && (
-          <div role="alert" style={{ padding: "12px 14px", borderRadius: 12, background: "var(--danger-soft)", color: "var(--danger)", fontSize: 14 }}>
-            {error}
+          <div role="alert" style={{ display: "flex", alignItems: "center", gap: 10, padding: "12px 14px", borderRadius: 12, background: "var(--danger-soft)", color: "var(--danger)", fontSize: 14 }}>
+            <span style={{ flex: 1 }}>{error}</span>
+            {lastSentRef.current && !loading && (
+              <button onClick={retryLast} style={{ display: "flex", alignItems: "center", gap: 6, background: "none", border: "none", padding: 4, color: "var(--danger)", fontFamily: "inherit", fontSize: 14, fontWeight: 600, cursor: "pointer", flexShrink: 0 }}>
+                <RotateCcw size={15} /> Try again
+              </button>
+            )}
           </div>
         )}
         <div ref={bottomRef} />
       </div>
+
+      {/* New reply while scrolled up → one tap back down */}
+      {awayFromBottom && (loading || messages.length > 0) && (
+        <div style={{ position: "relative", height: 0 }}>
+          <button onClick={jumpToBottom} style={{ position: "absolute", left: "50%", bottom: 10, transform: "translateX(-50%)", display: "flex", alignItems: "center", gap: 6, padding: "8px 14px", borderRadius: 99, border: "1px solid var(--border)", background: "var(--surface-highlight)", color: "var(--text)", fontFamily: "inherit", fontSize: 13, fontWeight: 600, cursor: "pointer", boxShadow: "0 8px 24px -10px rgba(0,0,0,0.5)", zIndex: 2 }}>
+            <ArrowDown size={14} /> {loading ? "New reply" : "Latest"}
+          </button>
+        </div>
+      )}
 
       {/* ── INPUT ── */}
       <div style={{ padding: "8px 16px 12px", flexShrink: 0, background: "var(--bg)" }}>
@@ -640,14 +750,25 @@ export default function AgentPage() {
             style={{ flex: 1, alignSelf: "center", background: "transparent", border: "none", outline: "none", color: "var(--text)", fontSize: 16, resize: "none", lineHeight: 1.5, padding: "6px 0", minHeight: 24, maxHeight: 120, fontFamily: "inherit" }}
           />
           <input ref={imageInputRef} type="file" accept="image/*" onChange={handleImagePick} style={{ display: "none" }} />
-          <button
-            onClick={() => sendMessage()}
-            disabled={!canSend}
-            aria-label="Send"
-            style={{ width: 40, height: 40, borderRadius: 12, border: "none", background: canSend ? "var(--accent)" : "var(--surface-highlight)", color: canSend ? "var(--on-accent)" : "var(--text-faint)", display: "grid", placeItems: "center", cursor: canSend ? "pointer" : "not-allowed", flexShrink: 0 }}
-          >
-            {loading ? <Loader2 size={18} className="animate-spin" /> : <Send size={18} />}
-          </button>
+          {loading ? (
+            <button
+              onClick={stopReply}
+              aria-label="Stop the reply"
+              title="Stop"
+              style={{ width: 40, height: 40, borderRadius: 12, border: "1px solid var(--border)", background: "var(--surface-highlight)", color: "var(--text)", display: "grid", placeItems: "center", cursor: "pointer", flexShrink: 0 }}
+            >
+              <Square size={14} fill="currentColor" />
+            </button>
+          ) : (
+            <button
+              onClick={() => sendMessage()}
+              disabled={!canSend}
+              aria-label="Send"
+              style={{ width: 40, height: 40, borderRadius: 12, border: "none", background: canSend ? "var(--accent)" : "var(--surface-highlight)", color: canSend ? "var(--on-accent)" : "var(--text-faint)", display: "grid", placeItems: "center", cursor: canSend ? "pointer" : "not-allowed", flexShrink: 0 }}
+            >
+              <Send size={18} />
+            </button>
+          )}
         </div>
       </div>
 
