@@ -326,7 +326,7 @@ const tools = [
       },
       {
         name: "save_food_to_database",
-        description: "Saves a food item with its nutritional data to the user's custom food database so it can be logged later. Call this automatically for EVERY food item you mention in a meal plan that does NOT already exist in the internal food database. Provide your best estimated macros per serving based on standard nutritional knowledge.",
+        description: "Saves a food item with its nutritional data to the user's custom food database so it can be logged later. Call this automatically for EVERY food item you mention in a meal plan that does NOT already exist in the internal food database. Provide your best estimated macros per serving based on standard nutritional knowledge, plus what the serving is (portion) and its weight in grams when you can. Name the food without the portion (e.g. 'grilled paneer', not 'grilled paneer (150g)').",
         parameters: {
           type: "OBJECT",
           properties: {
@@ -336,6 +336,8 @@ const tools = [
             carbs: { type: "NUMBER", description: "Estimated carbohydrates in grams per serving." },
             fats: { type: "NUMBER", description: "Estimated fats in grams per serving." },
             fiber: { type: "NUMBER", description: "Estimated fiber in grams per serving." },
+            portion: { type: "STRING", description: "What one serving is, e.g. '1 bowl', '1 pc', '2 slices'. Optional." },
+            grams: { type: "NUMBER", description: "Weight of that serving in grams (ml for drinks), if you can estimate it. Lets the user log any amount by weight. Optional." },
           },
           required: ["name", "calories", "protein", "carbs", "fats", "fiber"],
         },

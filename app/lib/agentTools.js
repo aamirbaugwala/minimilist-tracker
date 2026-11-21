@@ -30,6 +30,10 @@
 
 import { insertFoodLogs } from "./foodLogInsert";
 import { FLATTENED_DB, FOOD_CATEGORIES } from "../food-data";
+import { getCatalog } from "./foodCatalog";
+import { buildCatalog, isUuid, portionKey, defaultPortion } from "./foodModel";
+import { matchOne } from "./foodSearch";
+import { createMyFood, specFrom } from "./myFoods";
 import { planMeals, mealsLeft } from "./mealPlanner";
 import { foodTag, activeConditionIds } from "./foodTags";
 import { calculateTargets } from "./nutrition";
@@ -61,23 +65,20 @@ export const stripLeadingQty = (s) =>
 
 const r1 = (n) => Math.round((Number(n) || 0) * 10) / 10;
 
-/** Built-in foods + this user's custom foods (lower-cased names), once per request. */
+/**
+ * The food catalog for this request: built-in foods + this user's own
+ * (lib/foodCatalog), once per request. ctx.foodDb is its flat lookup (every
+ * portion name and old name → macros); ctx.catalog is the catalog itself.
+ */
 export async function getFoodDb(ctx, db, userId) {
   if (ctx.foodDb) return ctx.foodDb;
-  const combined = { ...FLATTENED_DB };
   try {
-    const { data } = await db
-      .from("custom_foods")
-      .select("name, calories, protein, carbs, fats, fiber")
-      .eq("user_id", userId);
-    (data || []).forEach((c) => {
-      if (c?.name) combined[c.name.toLowerCase()] = c;
-    });
+    ctx.catalog = await getCatalog(db, userId);
+    ctx.foodDb = ctx.catalog.db;
   } catch {
-    /* custom foods are a bonus — built-ins still work */
+    ctx.foodDb = { ...FLATTENED_DB }; // catalog unavailable — old list still works
   }
-  ctx.foodDb = combined;
-  return combined;
+  return ctx.foodDb;
 }
 
 /** Medical conditions (reports + self-reported) and the latest "avoid" list. */
@@ -226,7 +227,7 @@ export async function executeTool(toolName, args, userId, db, ctx = {}) {
     return {
       found: true,
       food: match,
-      source: FLATTENED_DB[match] ? "built-in" : "custom",
+      source: ctx.catalog?.lookup.get(match)?.food.owner_id ? "custom" : "built-in",
       confidence: exact ? "exact" : "estimated",
       per_serving: {
         calories: item.calories,
@@ -283,11 +284,13 @@ export async function executeTool(toolName, args, userId, db, ctx = {}) {
     // the latest report's "avoid" list.
     const foodDb = await getFoodDb(ctx, db, userId);
     const rules = { dietaryPattern: profile.dietary_pattern, allergies: profile.allergies || [], mustAvoid: ctx.mustAvoid || [] };
-    const all = Object.entries(foodDb).filter(([name, item]) => name !== "water" && (item?.calories || 0) > 0);
+    // One candidate per food (its default portion), not every portion / old name.
+    const listDb = ctx.catalog?.defaults || foodDb;
+    const all = Object.entries(listDb).filter(([name, item]) => name !== "water" && (item?.calories || 0) > 0);
     const allowed = filterFoodsForProfile(all, rules);
     const active = activeConditionIds(ctx.conditions);
     const { plan, gapAfter } = planMeals({
-      candidates: allowed.map(([name, item]) => [name, item, CATEGORY_OF[name] || null]),
+      candidates: allowed.map(([name, item]) => [name, item, ctx.catalog?.categoryOf[name] || CATEGORY_OF[name] || null]),
       remaining,
       meals,
       history,
@@ -404,6 +407,8 @@ export async function executeTool(toolName, args, userId, db, ctx = {}) {
       source: "coach",
       user_id: userId,
       date: today,
+      ...(isUuid(item.food_id) ? { food_id: item.food_id } : {}),
+      ...(item.portion ? { portion: item.portion, ...(item.amount ? { amount: Math.round(item.amount * sv * 10) / 10 } : {}) } : {}),
       name: match,
       qty: Math.round(shownQty * 100) / 100,
       calories: Math.round((item.calories || 0) * sv),
@@ -574,47 +579,46 @@ export async function executeTool(toolName, args, userId, db, ctx = {}) {
     const name = (args.name || "").toLowerCase().trim();
     if (!name) return { error: "No food name provided." };
 
-    // Already known (built-in or custom) under this exact name? Point the model
-    // at the existing entry instead of creating a near-duplicate.
+    // Already known (built-in or yours) under this name, an alias or the same
+    // words? Point the model at it instead of creating a near-duplicate.
     const foodDb = await getFoodDb(ctx, db, userId);
-    const existingKey = foodDb[name]
-      ? name
-      : Object.keys(foodDb).find((k) => baseName(k).toLowerCase() === name);
-    if (existingKey) {
+    const known = ctx.catalog ? matchOne(ctx.catalog, name) : null;
+    const knownKey = known ? portionKey(known.food, known.portion) : foodDb[name] ? name : null;
+    const sameFood = known && (known.food.name.toLowerCase() === name || (known.food.aliases || []).some((a) => a.toLowerCase() === name) || foodDb[name]);
+    if (knownKey && (sameFood || !ctx.catalog)) {
       return {
         already_exists: true,
-        food: existingKey,
-        message: `"${existingKey}" already exists — use that exact name with log_food_item.`,
+        food: knownKey,
+        message: `"${knownKey}" already exists — use that exact name with log_food_item.`,
       };
     }
 
-    const newFood = {
-      user_id: userId,
-      name,
-      calories: Math.round(Number(args.calories) || 0),
-      protein: r1(args.protein),
-      carbs: r1(args.carbs),
-      fats: r1(args.fats),
-      fiber: r1(args.fiber),
-    };
-
-    const { error: insertError } = await db.from("custom_foods").insert([newFood]);
-    if (insertError) return { error: `Failed to save food: ${insertError.message}` };
+    // Portion: the model may give "1 bowl" and its weight; otherwise per serving.
+    const per = { calories: Math.round(Number(args.calories) || 0), protein: r1(args.protein), carbs: r1(args.carbs), fats: r1(args.fats), fiber: r1(args.fiber) };
+    const spec = specFrom({ name, per, portionLabel: args.portion || undefined, grams: args.grams, source: "ai" });
+    const res = await createMyFood(db, userId, spec);
+    if (!res.ok) return { error: `Failed to save food: ${res.error}` };
 
     // Make it visible to log_food_item / search later in this same request.
-    foodDb[name] = newFood;
+    if (ctx.catalog) {
+      ctx.catalog = buildCatalog([...ctx.catalog.all, res.food]);
+      ctx.foodDb = ctx.catalog.db;
+    } else {
+      foodDb[name] = per;
+    }
+    const savedKey = ctx.catalog ? portionKey(res.food, defaultPortion(res.food)) : name;
 
     return {
       saved: true,
-      food: name,
+      food: savedKey,
       nutrients: {
-        calories: newFood.calories,
-        protein: `${newFood.protein}g`,
-        carbs: `${newFood.carbs}g`,
-        fats: `${newFood.fats}g`,
-        fiber: `${newFood.fiber}g`,
+        calories: per.calories,
+        protein: `${per.protein}g`,
+        carbs: `${per.carbs}g`,
+        fats: `${per.fats}g`,
+        fiber: `${per.fiber}g`,
       },
-      message: `✅ "${name}" saved to the user's custom foods. To log it, call log_food_item with food_name "${name}".`,
+      message: `✅ "${res.food.name}" saved to the user's foods. To log it, call log_food_item with food_name "${savedKey}".`,
     };
   }
 

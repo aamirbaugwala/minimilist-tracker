@@ -476,6 +476,12 @@ export default function AdminDashboard() {
           <div>
             <h1 style={{ fontSize: "2rem", fontWeight: 800 }}>Admin Portal</h1>
             <p style={{ color: "var(--text-faint)", marginTop: 2 }}>Full user activity tracking</p>
+            <button
+              onClick={() => router.push("/admin/foods")}
+              style={{ marginTop: 10, display: "inline-flex", alignItems: "center", gap: 6, height: 34, padding: "0 12px", borderRadius: 10, border: "1px solid var(--border)", background: "var(--surface)", color: "var(--text)", fontFamily: "inherit", fontSize: 13, fontWeight: 600, cursor: "pointer" }}
+            >
+              <Database size={14} /> Foods: built-in list, review, gaps
+            </button>
           </div>
 
           {/* Global stats pills */}

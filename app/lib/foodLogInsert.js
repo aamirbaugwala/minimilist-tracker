@@ -2,7 +2,8 @@
  * insertFoodLogs(db, rows) → error | null
  *
  * The one way every path writes food_logs (Today, Coach, voice, recipes).
- * Optional columns added by later migrations (meal, source) are dropped and
+ * Optional columns added by later migrations (meal, source, food_id, portion,
+ * amount) are dropped and
  * the insert retried if this database doesn't have them yet, so the app keeps
  * working before docs/*.sql has been run — it just records less.
  *
@@ -10,7 +11,8 @@
  * shortcut · custom · snap · repeat · barcode · coach · voice · recipe.
  */
 
-const OPTIONAL = ["source", "meal"];
+// food_id / portion / amount come from docs/foods-schema.sql.
+const OPTIONAL = ["source", "meal", "food_id", "portion", "amount"];
 // Columns found missing in this process, so we don't pay a failed request on
 // every save until the migration runs (resets on reload / server restart).
 const knownMissing = new Set();

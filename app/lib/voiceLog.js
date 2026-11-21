@@ -9,6 +9,8 @@
  */
 
 import { resolveQuantity } from "./foodUnits";
+import { matchOne } from "./foodSearch";
+import { portionKey, isUuid } from "./foodModel";
 
 // Base food name without the serving descriptor: "roti (chapati, 1 pc)" → "roti"
 export function baseName(key) {
@@ -67,6 +69,11 @@ const AMBIGUOUS = new Set(["coffee"]);
 export function matchFood(name, db) {
   const n = String(name || "").toLowerCase().trim().replace(/\s+/g, " ");
   if (!n || !db) return null;
+  // A catalog lookup (foodModel.buildCatalog) → the shared, alias-aware matcher.
+  if (db.__catalog) {
+    const hit = matchOne(db.__catalog, n);
+    return hit ? portionKey(hit.food, hit.portion) : null;
+  }
   const keys = Object.keys(db);
   const base = (k) => baseName(k).toLowerCase();
 
@@ -178,8 +185,14 @@ export function buildLogRows(items, db, { userId, meal, date, createdAt } = {}) 
     // Store the clean base name ("almonds", not "almonds (10 pcs)") so the log
     // reads "5× Almonds" rather than "5× the 10-piece serving".
     const displayName = baseName(key) || key;
+    // Which food + portion (catalog lookups carry them), for grouping by food.
+    const link = {};
+    if (isUuid(item.food_id)) link.food_id = item.food_id;
+    if (item.portion) link.portion = item.portion;
+    if (item.amount) link.amount = Math.round(Number(item.amount) * servings * 10) / 10;
     const row = {
       user_id: userId,
+      ...link,
       name: displayName,
       qty,
       calories: Math.round((item.calories || 0) * servings),

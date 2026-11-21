@@ -1,0 +1,420 @@
+slug,name,portion,grams_or_ml,basis,confidence,method,legacy_key,kcal_per_portion,kcal_per_100
+chocolate-brownie,Chocolate brownie,1 pc,60,g,medium,estimate,"brownie (chocolate, 1 pc)",250,417
+chocolate-cake,Chocolate cake,1 slice,80,g,medium,estimate,"cake (chocolate, 1 slice)",350,438
+red-velvet-cake,Red velvet cake,1 slice,90,g,medium,estimate,"cake (red velvet, 1 slice)",380,422
+sponge-cake,Sponge cake,1 slice,60,g,medium,estimate,"cake (sponge, 1 slice)",220,367
+chocolate-bar,Chocolate bar,1 pc,45,g,high,estimate,"chocolate bar (small, 1 pc)",250,556
+croissant,Croissant,1 pc,60,g,high,estimate,"croissant (plain, 1 pc)",270,450
+vanilla-cupcake,Vanilla cupcake,1 pc,55,g,medium,estimate,"cupcake (vanilla, 1 pc)",200,364
+chocolate-donut,Chocolate donut,1 pc,70,g,medium,estimate,"donut (chocolate, 1 pc)",300,429
+ice-cream-cone,Ice cream cone,1 pc,90,g,medium,estimate,"ice cream (cone, 1 pc)",220,244
+ice-cream,Ice cream,1 pc,70,g,medium,estimate,"ice cream (scoop, 1 pc)",200,286
+blueberry-muffin,Blueberry muffin,1 pc,110,g,medium,estimate,"muffin (blueberry, 1 pc)",320,291
+pancake,Pancake,1 pc,70,g,medium,estimate,"pancake (plain, 1 pc)",150,214
+waffle,Waffle,1 pc,75,g,medium,estimate,"waffle (plain, 1 pc)",300,400
+aam-panna,Aam panna,1 glass,250,ml,medium,estimate,aam panna (1 glass),90,36
+apple-juice,Apple juice,200 ml,200,ml,high,from name,apple juice (200ml),95,48
+badam-milk,Badam milk,1 glass,250,ml,medium,estimate,badam milk (1 glass),220,88
+black-coffee,Black coffee,1 cup,150,ml,medium,estimate,"black coffee (no sugar, 1 cup)",5,3
+buttermilk-chaas,Buttermilk (chaas),1 glass,250,ml,medium,estimate,buttermilk / chaas (1 glass),40,16
+chai-with-sugar,Chai with sugar,1 cup,150,ml,medium,estimate,"chai (with sugar, 1 cup)",100,67
+chai-without-sugar,Chai without sugar,1 cup,150,ml,medium,estimate,"chai (without sugar, 1 cup)",60,40
+coconut-water,Coconut water,200 ml,200,ml,high,from name,coconut water (200ml),40,20
+cola,Cola,330 ml,330,ml,high,from name,cola (330ml),140,42
+cold-coffee,Cold coffee,1 glass,250,ml,medium,estimate,cold coffee (1 glass),200,80
+energy-drink,Energy drink,250 ml,250,ml,high,from name,energy drink (250ml),110,44
+falooda,Falooda,1 glass,300,ml,medium,estimate,falooda (1 glass),350,117
+green-tea,Green tea,1 cup,200,ml,medium,estimate,green tea (1 cup),2,1
+iced-tea,Iced tea,1 glass,250,ml,medium,estimate,iced tea (1 glass),90,36
+jaljeera,Jaljeera,1 glass,250,ml,medium,estimate,jaljeera (1 glass),40,16
+salted-lassi,Salted lassi,1 glass,250,ml,medium,estimate,"lassi (salted, 1 glass)",120,48
+sweet-lassi,Sweet lassi,1 glass,250,ml,medium,estimate,"lassi (sweet, 1 glass)",200,80
+lemonade,Lemonade,1 glass,250,ml,medium,estimate,lemonade (1 glass),100,40
+chocolate-milk-no-sugar,"Chocolate milk, no sugar",200 ml,200,ml,high,from name,"milk (chocolate, no sugar, 200ml)",120,60
+chocolate-milk-with-sugar,"Chocolate milk, with sugar",200 ml,200,ml,high,from name,"milk (chocolate, with sugar, 200ml)",180,90
+full-cream-milk,Full cream milk,200 ml,200,ml,high,from name,"milk (full cream, 200ml)",150,75
+rose-milk,Rose milk,200 ml,200,ml,high,from name,"milk (rose, 200ml)",160,80
+strawberry-milk-no-sugar,"Strawberry milk, no sugar",200 ml,200,ml,high,from name,"milk (strawberry, no sugar, 200ml)",110,55
+strawberry-milk-with-sugar,"Strawberry milk, with sugar",200 ml,200,ml,high,from name,"milk (strawberry, with sugar, 200ml)",160,80
+toned-milk,Toned milk,200 ml,200,ml,high,from name,"milk (toned, 200ml)",120,60
+orange-juice,Orange juice,200 ml,200,ml,high,from name,orange juice (200ml),90,45
+banana-shake,Banana shake,200 ml,200,ml,high,from name,"shake (banana, 200ml)",200,100
+mango-shake,Mango shake,200 ml,200,ml,high,from name,"shake (mango, 200ml)",220,110
+sugarcane-juice,Sugarcane juice,200 ml,200,ml,high,from name,sugarcane juice (200ml),180,90
+bhatura,Bhatura,1 pc,80,g,medium,estimate,bhatura (1 pc),280,350
+brown-bread,Brown bread,1 slice,30,g,high,estimate,"bread (brown, 1 slice)",70,233
+garlic-bread,Garlic bread,1 slice,40,g,medium,estimate,"bread (garlic, 1 slice)",120,300
+milk-bread,Milk bread,1 slice,30,g,high,estimate,"bread (milk, 1 slice)",75,250
+multigrain-bread,Multigrain bread,1 slice,30,g,high,estimate,"bread (multigrain, 1 slice)",80,267
+white-bread,White bread,1 slice,30,g,high,estimate,"bread (white, 1 slice)",75,250
+whole-wheat-bread,Whole wheat bread,1 slice,30,g,high,estimate,"bread (whole wheat, 1 slice)",75,250
+butter-naan,Butter naan,1 pc,100,g,medium,estimate,"naan (butter, 1 pc)",340,340
+garlic-naan,Garlic naan,1 pc,100,g,medium,estimate,"naan (garlic, 1 pc)",350,350
+plain-naan,Plain naan,1 pc,90,g,medium,estimate,"naan (plain, 1 pc)",280,311
+aloo-paratha,Aloo paratha,1 pc,120,g,medium,estimate,"paratha (aloo, 1 pc)",320,267
+gobi-paratha,Gobi paratha,1 pc,120,g,medium,estimate,"paratha (gobi, 1 pc)",290,242
+paneer-paratha,Paneer paratha,1 pc,120,g,medium,estimate,"paratha (paneer, 1 pc)",360,300
+plain-paratha,Plain paratha,1 pc,70,g,medium,estimate,"paratha (plain, 1 pc)",240,343
+warqi-paratha,Warqi paratha,1 pc,80,g,medium,estimate,"paratha (warqi, 1 pc)",250,313
+pav,Pav,1 pc,40,g,high,estimate,pav (1 pc),120,300
+puri,Puri,1 pc,25,g,medium,estimate,puri (1 pc),140,560
+roomali-roti,Roomali roti,1 pc,50,g,medium,estimate,roomali roti (1 pc),150,300
+chapati,Chapati,1 pc,40,g,high,estimate,"roti (chapati, 1 pc)",120,300
+phulka,Phulka,1 pc,30,g,high,estimate,"roti (phulka, 1 pc)",80,267
+whole-wheat-roti,Whole wheat roti,1 pc,40,g,high,estimate,"roti (whole wheat, 1 pc)",100,250
+sheermal,Sheermal,1 pc,90,g,medium,estimate,sheermal (1 pc),300,333
+methi-thepla,Methi thepla,1 pc,40,g,medium,estimate,"thepla (methi, 1 pc)",210,525
+cheese,Cheese,1 slice,20,g,high,estimate,"cheese (slice/cube, 1 pc)",113,565
+curd-dahi,Curd (dahi),100 g,100,g,high,from name,curd / yogurt (100g),100,100
+boiled-egg,Boiled egg,1 pc,50,g,high,estimate,"egg (boiled, 1 pc)",78,156
+egg-bhurji,Egg bhurji,1 plate,150,g,medium,estimate,"egg (bhurji, 1 plate)",260,173
+omelette,Omelette,2 eggs,120,g,medium,estimate,"egg (omelette, 2 eggs)",240,200
+egg-whites,Egg whites,4 pcs,132,g,high,estimate,egg whites (4 pcs),68,52
+paneer,Paneer,50 g,50,g,high,from name,"paneer (raw, 50g)",132,264
+paneer,Paneer,100 g,100.4,g,high,from old calories,"paneer (raw, 100g)",265,264
+almonds,Almonds,10 pcs,12,g,high,estimate,almonds (10 pcs),70,583
+dried-apricots,Dried apricots,2 pcs,16,g,high,estimate,"apricots (dried, 2 pcs)",34,213
+cashews,Cashews,10 pcs,15,g,high,estimate,cashews (10 pcs),90,600
+dates-dried,"Dates, dried",2 pcs,16,g,medium,estimate,"dates (dried, 2 pcs)",46,288
+figs-dried-anjeer,"Figs, dried (anjeer)",2 pcs,16,g,medium,estimate,"figs (dried, 2 pcs)",42,263
+mixed-nuts,Mixed nuts,1 tbsp,9,g,medium,estimate,mixed nuts (1 tbsp),60,667
+peanuts,Peanuts,1 tbsp,9,g,high,estimate,peanuts (1 tbsp),52,578
+pistachios,Pistachios,10 pcs,7,g,high,estimate,pistachios (10 pcs),40,571
+raisins,Raisins,1 tbsp,9,g,high,estimate,raisins (1 tbsp),30,333
+walnuts,Walnuts,5 halves,10,g,high,estimate,walnuts (5 halves),65,650
+cheese-burger,Cheese burger,1 pc,150,g,medium,estimate,"burger (cheese, 1 pc)",500,333
+chicken-burger,Chicken burger,1 pc,180,g,medium,estimate,"burger (chicken, 1 pc)",450,250
+veg-burger,Veg burger,1 pc,160,g,medium,estimate,"burger (veg, 1 pc)",350,219
+falafel-wrap,Falafel wrap,1 pc,250,g,medium,estimate,falafel wrap (1 pc),450,180
+fish-and-chips,Fish & chips,1 plate,350,g,low,estimate,fish & chips (1 plate),700,200
+french-fries,French fries,1 medium,117,g,high,estimate,"french fries (medium, 1 serving)",365,312
+fried-chicken-breast,Fried chicken breast,1 pc,160,g,medium,estimate,"fried chicken (breast, 1 pc)",390,244
+fried-chicken-drumstick,Fried chicken drumstick,1 pc,90,g,medium,estimate,"fried chicken (drumstick, 1 pc)",220,244
+hot-wings,Hot wings,2 pcs,70,g,medium,estimate,"fried chicken (hot wings, 2 pcs)",280,400
+chicken-nuggets,Chicken nuggets,6 pcs,100,g,high,estimate,"fried chicken (nuggets, 6 pcs)",280,280
+hot-dog,Hot dog,1 pc,100,g,medium,estimate,hot dog (1 pc),290,290
+hummus-and-pita,Hummus & pita,1 serving,150,g,low,estimate,hummus & pita (1 serving),350,233
+instant-noodles,Instant noodles,1 pack,70,g,high,estimate,"noodles (instant, 1 pack)",380,543
+pasta-in-red-sauce,Pasta in red sauce,1 cup,220,g,medium,estimate,"pasta (red sauce, 1 cup)",320,145
+pasta-in-white-sauce,Pasta in white sauce,1 cup,220,g,medium,estimate,"pasta (white sauce, 1 cup)",450,205
+margherita-pizza,Margherita pizza,1 slice,100,g,medium,estimate,"pizza (margherita, 1 slice)",250,250
+pepperoni-pizza,Pepperoni pizza,1 slice,110,g,medium,estimate,"pizza (pepperoni, 1 slice)",320,291
+veggie-pizza,Veggie pizza,1 slice,110,g,medium,estimate,"pizza (veggie, 1 slice)",280,255
+quesadilla,Quesadilla,1 pc,180,g,medium,estimate,quesadilla (1 pc),320,178
+caesar-salad,Caesar salad,1 bowl,200,g,low,estimate,"salad (caesar, 1 bowl)",350,175
+greek-salad,Greek salad,1 bowl,200,g,low,estimate,"salad (greek, 1 bowl)",200,100
+bombay-masala-sandwich,Bombay masala sandwich,1 pc,180,g,medium,estimate,"sandwich (bombay masala, 1 pc)",400,222
+cheese-chutney-sandwich,Cheese chutney sandwich,1 pc,120,g,medium,estimate,"sandwich (cheese chutney, 1 pc)",280,233
+chicken-sandwich,Chicken sandwich,1 pc,180,g,medium,estimate,"sandwich (chicken, 1 pc)",320,178
+club-sandwich,Club sandwich,1 pc,250,g,medium,estimate,"sandwich (club, 1 pc)",550,220
+corn-and-cheese-sandwich,Corn & cheese sandwich,1 pc,170,g,medium,estimate,"sandwich (corn & cheese, 1 pc)",320,188
+egg-sandwich,Egg sandwich,1 pc,150,g,medium,estimate,"sandwich (egg, 1 pc)",300,200
+grilled-cheese-sandwich,Grilled cheese sandwich,1 pc,130,g,medium,estimate,"sandwich (grilled cheese, 1 pc)",350,269
+paneer-sandwich,Paneer sandwich,1 pc,180,g,medium,estimate,"sandwich (paneer, 1 pc)",340,189
+tandoori-chicken-sandwich,Tandoori chicken sandwich,1 pc,200,g,medium,estimate,"sandwich (tandoori chicken, 1 pc)",350,175
+vegetable-sandwich,Vegetable sandwich,1 pc,150,g,medium,estimate,"sandwich (vegetable, 1 pc)",220,147
+shawarma-roll,Shawarma roll,1 pc,250,g,medium,estimate,shawarma roll (1 pc),500,200
+sushi,Sushi,6 pcs,180,g,medium,estimate,sushi (6 pcs),300,167
+tacos,Tacos,2 pcs,200,g,medium,estimate,tacos (2 pcs),350,175
+apple,Apple,1 medium,182,g,high,estimate,"apple (medium, 1 pc)",95,52
+apple,Apple,1 slice,23,g,medium,from old calories,"apple (slice, 1 pc)",12,52
+apricot,Apricot,1 pc,35,g,high,estimate,apricot (1 pc),17,49
+avocado,Avocado,½ avocado,100,g,high,estimate,"avocado (half, 1 pc)",160,160
+banana,Banana,1 medium,118,g,high,estimate,"banana (medium, 1 pc)",105,89
+banana,Banana,1 slice,5.6,g,medium,from old calories,"banana (slice, 1 pc)",5,89
+blueberry,Blueberry,10 pcs,15,g,high,estimate,blueberry (10 pcs),9,60
+chikoo-sapota,Chikoo (sapota),1 pc,100,g,medium,estimate,chikoo / sapota (1 pc),83,83
+cranberry,Cranberry,10 pcs,11,g,high,estimate,cranberry (10 pcs),5,45
+currant,Currant,10 pcs,5,g,medium,estimate,currant (10 pcs),6,120
+custard-apple,Custard apple,1 pc,150,g,medium,estimate,custard apple (1 pc),94,63
+dates-fresh-khajur,"Dates, fresh (khajur)",1 pc,10,g,medium,estimate,"dates / khajur (fresh, 1 pc)",23,230
+dragon-fruit,Dragon fruit,100 g,100,g,high,from name,dragon fruit (100g),60,60
+fig-fresh,"Fig, fresh",1 pc,50,g,high,estimate,"fig (fresh, 1 pc)",37,74
+amla-indian-gooseberry,Amla (Indian gooseberry),1 pc,30,g,medium,estimate,gooseberry / amla (1 pc),20,67
+black-grapes,Black grapes,10 pcs,50,g,high,estimate,"grapes (black, 10 pcs)",35,70
+green-grapes,Green grapes,10 pcs,50,g,high,estimate,"grapes (green, 10 pcs)",34,68
+guava,Guava,1 pc,100,g,medium,estimate,guava (1 pc),68,68
+guava,Guava,1 slice,10.3,g,medium,from old calories,"guava (slice, 1 pc)",7,68
+jackfruit,Jackfruit,1 cup,165,g,high,estimate,jackfruit (1 cup),155,94
+kiwi,Kiwi,1 pc,75,g,high,estimate,kiwi (1 pc),42,56
+longan,Longan,10 pcs,32,g,high,estimate,longan (10 pcs),17,53
+lychee,Lychee,5 pcs,50,g,high,estimate,lychee (5 pcs),30,60
+mango,Mango,1 medium,200,g,medium,estimate,"mango (medium, 1 pc)",200,100
+mango,Mango,1 slice,20,g,medium,from old calories,"mango (slice, 1 pc)",20,100
+mulberry,Mulberry,10 pcs,15,g,medium,estimate,mulberry (10 pcs),8,53
+muskmelon,Muskmelon,1 cup,160,g,high,estimate,muskmelon (1 cup cubes),54,34
+nectarine,Nectarine,1 pc,140,g,high,estimate,nectarine (1 pc),60,43
+orange,Orange,1 medium,130,g,high,estimate,"orange (medium, 1 pc)",62,48
+orange,Orange,1 wedge,16.8,g,medium,from old calories,"orange (wedge, 1 pc)",8,48
+papaya,Papaya,1 cup,145,g,high,estimate,papaya (1 cup cubes),43,30
+papaya,Papaya,1 cube,13.5,g,medium,from old calories,"papaya (cube, 1 pc)",4,30
+passion-fruit,Passion fruit,1 pc,18,g,high,estimate,passion fruit (1 pc),17,94
+peach,Peach,1 pc,150,g,high,estimate,peach (1 pc),60,40
+pear,Pear,1 pc,178,g,high,estimate,pear (1 pc),100,56
+persimmon,Persimmon,1 pc,168,g,high,estimate,persimmon (1 pc),118,70
+pineapple,Pineapple,1 slice,85,g,high,estimate,pineapple (1 slice),42,49
+plum,Plum,1 pc,66,g,high,estimate,plum (1 pc),30,45
+pomegranate,Pomegranate,1 medium,174,g,medium,estimate,"pomegranate (medium, 1 pc)",234,134
+pomegranate,Pomegranate,1 tbsp,8.9,g,medium,from old calories,"pomegranate (spoon, 1 tbsp)",12,135
+raspberry,Raspberry,10 pcs,20,g,high,estimate,raspberry (10 pcs),10,50
+starfruit,Starfruit,1 pc,91,g,high,estimate,starfruit (1 pc),28,31
+strawberry,Strawberry,5 pcs,60,g,high,estimate,strawberry (5 pcs),20,33
+sweet-lime-mosambi,Sweet lime (mosambi),1 pc,150,g,medium,estimate,sweet lime / mosambi (1 pc),43,29
+tamarind,Tamarind,10 g,10,g,high,from name,tamarind (10g),24,240
+watermelon,Watermelon,1 cup,150,g,high,estimate,watermelon (1 cup cubes),46,31
+watermelon,Watermelon,1 slice,97.7,g,medium,from old calories,"watermelon (slice, 1 pc)",30,31
+boiled-chicken,Boiled chicken,150 g,150,g,high,from name,"chicken (boiled, 150g)",248,165
+peanut-butter,Peanut butter,1 tbsp,16,g,high,estimate,peanut butter (1 tbsp),95,594
+protein-bar,Protein bar,1 pc,60,g,medium,estimate,protein bar (1 pc),210,350
+sprouts-salad,Sprouts salad,1 bowl,150,g,low,estimate,"salad (sprouts, 1 bowl)",150,100
+tofu,Tofu,100 g,100,g,high,from name,"tofu (raw, 100g)",144,144
+whey-protein,Whey protein,1 scoop,30,g,high,estimate,whey protein (1 scoop),120,400
+veg-american-chopsuey,Veg American chopsuey,1 plate,300,g,low,estimate,"american chopsuey (veg, 1 plate)",550,183
+chicken-lollipop,Chicken lollipop,4 pcs,160,g,medium,estimate,chicken lollipop (4 pcs),450,281
+chilli-chicken,Chilli chicken,1 plate,250,g,low,estimate,chilli chicken (1 plate),480,192
+chicken-fried-rice,Chicken fried rice,1 plate,300,g,low,estimate,"fried rice (chicken, 1 plate)",500,167
+egg-fried-rice,Egg fried rice,1 plate,300,g,low,estimate,"fried rice (egg, 1 plate)",450,150
+chicken-schezwan-fried-rice,Chicken schezwan fried rice,1 plate,300,g,low,estimate,"fried rice (schezwan chicken, 1 plate)",520,173
+veg-schezwan-fried-rice,Veg schezwan fried rice,1 plate,300,g,low,estimate,"fried rice (schezwan veg, 1 plate)",450,150
+veg-fried-rice,Veg fried rice,1 plate,300,g,low,estimate,"fried rice (veg, 1 plate)",400,133
+gobi-manchurian-dry,Gobi manchurian (dry),8 pcs,160,g,medium,estimate,"manchurian (gobi dry, 8 pcs)",320,200
+veg-manchurian-dry,Veg manchurian (dry),6 pcs,150,g,medium,estimate,"manchurian (veg dry, 6 pcs)",300,200
+veg-manchurian-gravy,Veg manchurian (gravy),1 bowl,200,g,low,estimate,"manchurian (veg gravy, 1 bowl)",350,175
+chicken-hakka-noodles,Chicken hakka noodles,1 plate,300,g,low,estimate,"noodles (hakka chicken, 1 plate)",520,173
+veg-hakka-noodles,Veg hakka noodles,1 plate,300,g,low,estimate,"noodles (hakka veg, 1 plate)",450,150
+veg-schezwan-noodles,Veg schezwan noodles,1 plate,300,g,low,estimate,"noodles (schezwan veg, 1 plate)",480,160
+paneer-chilli,Paneer chilli,1 plate,250,g,low,estimate,paneer chilli (1 plate),450,180
+chicken-hot-and-sour-soup,Chicken hot & sour soup,1 bowl,250,g,medium,estimate,"soup (hot & sour chicken, 1 bowl)",120,48
+veg-hot-and-sour-soup,Veg hot & sour soup,1 bowl,250,g,medium,estimate,"soup (hot & sour veg, 1 bowl)",90,36
+chicken-sweet-corn-soup,Chicken sweet corn soup,1 bowl,250,g,medium,estimate,"soup (sweet corn chicken, 1 bowl)",160,64
+veg-sweet-corn-soup,Veg sweet corn soup,1 bowl,250,g,medium,estimate,"soup (sweet corn veg, 1 bowl)",130,52
+chicken-spring-rolls,Chicken spring rolls,2 pcs,120,g,medium,estimate,"spring rolls (chicken, 2 pcs)",280,233
+veg-spring-rolls,Veg spring rolls,2 pcs,120,g,medium,estimate,"spring rolls (veg, 2 pcs)",240,200
+aloo-gobi,Aloo gobi,1 bowl,200,g,low,estimate,aloo gobi (1 bowl),220,110
+aloo-matar,Aloo matar,1 bowl,200,g,low,estimate,aloo matar (1 bowl),240,120
+baingan-bharta,Baingan bharta,1 bowl,200,g,low,estimate,baingan bharta (1 bowl),180,90
+bharli-vangi,Bharli vangi,1 bowl,200,g,low,estimate,bharli vangi (1 bowl),250,125
+bhindi-fry,Bhindi fry,1 bowl,150,g,low,estimate,bhindi fry (1 bowl),200,133
+bhindi-masala,Bhindi masala,1 bowl,200,g,low,estimate,bhindi masala (1 bowl),210,105
+chana-masala,Chana masala,1 bowl,200,g,low,estimate,chana masala (1 bowl),300,150
+chole-chickpea-curry,Chole (chickpea curry),1 bowl,200,g,low,estimate,chole / chickpeas (1 bowl),320,160
+dal-fry,Dal fry,1 bowl,200,g,low,estimate,dal fry (1 bowl),240,120
+dal-khichdi,Dal khichdi,1 bowl,250,g,low,estimate,dal khichdi (1 bowl),340,136
+dal-makhani,Dal makhani,1 bowl,200,g,low,estimate,dal makhani (1 bowl),420,210
+dal-tadka,Dal tadka,1 bowl,200,g,low,estimate,dal tadka (1 bowl),280,140
+kadai-paneer,Kadai paneer,1 bowl,200,g,low,estimate,kadai paneer (1 bowl),400,200
+kadhi,Kadhi,1 bowl,200,g,low,estimate,kadhi (1 bowl),200,100
+karela-sabzi,Karela sabzi,1 bowl,150,g,low,estimate,karela sabzi (1 bowl),160,107
+lauki-chana-dal,Lauki chana dal,1 bowl,200,g,low,estimate,lauki chana dal (1 bowl),190,95
+matar-mushroom,Matar mushroom,1 bowl,200,g,low,estimate,matar mushroom (1 bowl),220,110
+mix-veg,Mix veg,1 bowl,200,g,low,estimate,mix veg (1 bowl),240,120
+palak-paneer,Palak paneer,1 bowl,200,g,low,estimate,palak paneer (1 bowl),360,180
+paneer-bhurji,Paneer bhurji,1 bowl,150,g,low,estimate,paneer bhurji (1 bowl),300,200
+paneer-butter-masala,Paneer butter masala,1 bowl,200,g,low,estimate,paneer butter masala (1 bowl),480,240
+paneer-tikka,Paneer tikka,1 plate,200,g,low,estimate,paneer tikka (1 plate),280,140
+rajma-kidney-bean-curry,Rajma (kidney bean curry),1 bowl,200,g,low,estimate,rajma / kidney beans (1 bowl),300,150
+sambar,Sambar,1 bowl,200,g,low,estimate,sambar (1 bowl),150,75
+tinda-sabzi,Tinda sabzi,1 bowl,200,g,low,estimate,tinda sabzi (1 bowl),130,65
+zunka-bhakri,Zunka bhakri,1 plate,250,g,low,estimate,zunka bhakri (1 plate),420,168
+aloo-chi-bhaji,Aloo chi bhaji,1 bowl,150,g,low,estimate,aloo chi bhaji (1 bowl),180,120
+aloo-tikki,Aloo tikki,2 pcs,140,g,medium,estimate,aloo tikki (2 pcs),240,171
+batata-vada,Batata vada,1 pc,70,g,medium,estimate,batata vada (1 pc),220,314
+bhel-puri,Bhel puri,1 plate,150,g,low,estimate,bhel puri (1 plate),280,187
+chole-bhature,Chole bhature,1 plate,350,g,low,estimate,chole bhature (1 plate),600,171
+corn-chaat,Corn chaat,1 bowl,150,g,low,estimate,corn chaat (1 bowl),150,100
+veg-cutlet,Veg cutlet,2 pcs,120,g,medium,estimate,"cutlet (veg, 2 pcs)",250,208
+dabeli,Dabeli,1 pc,120,g,medium,estimate,dabeli (1 pc),280,233
+dahi-puri,Dahi puri,6 pcs,180,g,medium,estimate,dahi puri (6 pcs),280,156
+dhokla,Dhokla,2 pcs,80,g,medium,estimate,dhokla (2 pcs),140,175
+masala-dosa,Masala dosa,1 pc,200,g,medium,estimate,"dosa (masala, 1 pc)",380,190
+moong-dal-dosa,Moong dal dosa,1 pc,100,g,medium,estimate,"dosa (moong dal, 1 pc)",150,150
+plain-dosa,Plain dosa,1 pc,90,g,medium,estimate,"dosa (plain, 1 pc)",180,200
+idli,Idli,1 pc,40,g,high,estimate,idli (1 pc),60,150
+kachori,Kachori,1 pc,60,g,medium,estimate,kachori (1 pc),240,400
+kanda-poha,Kanda poha,1 bowl,150,g,low,estimate,kanda poha (1 bowl),270,180
+kothimbir-vadi,Kothimbir vadi,1 plate,120,g,low,estimate,kothimbir vadi (1 plate),180,150
+mirchi-bajji,Mirchi bajji,2 pcs,100,g,medium,estimate,mirchi bajji (2 pcs),180,180
+misal-pav,Misal pav,1 plate,350,g,low,estimate,misal pav (1 plate),580,166
+moong-dal-chilla,Moong dal chilla,2 pcs,150,g,medium,estimate,moong dal chilla (2 pcs),220,147
+oats,Oats,40 g,40,g,high,from name,"oats (plain, 40g)",150,375
+oats-with-fruits-and-nuts,Oats with fruits & nuts,1 bowl,250,g,low,estimate,"oats (with fruits & nuts, 1 bowl)",270,108
+oats-with-milk,Oats with milk,1 bowl,250,g,low,estimate,"oats (with milk, 1 bowl)",220,88
+pakora,Pakora,4 pcs,80,g,medium,estimate,pakora (4 pcs),250,313
+pani-puri,Pani puri,6 pcs,150,g,medium,estimate,pani puri (6 pcs),150,100
+pav-bhaji,Pav bhaji,1 plate,350,g,low,estimate,pav bhaji (1 plate),600,171
+poha,Poha,1 bowl,150,g,low,estimate,poha (1 bowl),270,180
+ragda-pattice,Ragda pattice,1 plate,300,g,low,estimate,ragda pattice (1 plate),350,117
+sabudana-khichdi,Sabudana khichdi,1 bowl,200,g,low,estimate,sabudana khichdi (1 bowl),480,240
+sabudana-vada,Sabudana vada,1 pc,60,g,medium,estimate,sabudana vada (1 pc),260,433
+samosa,Samosa,1 pc,100,g,medium,estimate,"samosa (veg, 1 pc)",260,260
+samosa-pav,Samosa pav,1 pc,140,g,medium,estimate,samosa pav (1 pc),350,250
+sev-puri,Sev puri,6 pcs,150,g,medium,estimate,sev puri (6 pcs),320,213
+sprouts-chaat,Sprouts chaat,1 bowl,150,g,low,estimate,sprouts chaat (1 bowl),120,80
+thalipeeth,Thalipeeth,1 pc,100,g,medium,estimate,thalipeeth (1 pc),240,240
+rava-upma,Rava upma,1 bowl,200,g,low,estimate,"upma (rava, 1 bowl)",250,125
+medu-vada,Medu vada,1 pc,50,g,medium,estimate,"vada (urad dal, 1 pc)",160,320
+vada-pav,Vada pav,1 pc,150,g,medium,estimate,vada pav (1 pc),300,200
+butter-chicken,Butter chicken,1 bowl,200,g,low,estimate,butter chicken (1 bowl),520,260
+chicken-65,Chicken 65,1 plate,200,g,low,estimate,chicken 65 (1 plate),450,225
+grilled-chicken-breast,Grilled chicken breast,100 g,100,g,high,from name,"chicken breast (grilled, 100g)",165,165
+chicken-changezi,Chicken changezi,1 bowl,200,g,low,estimate,chicken changezi (1 bowl),420,210
+chicken-curry,Chicken curry,1 bowl,200,g,low,estimate,chicken curry (1 bowl),380,190
+chicken-korma,Chicken korma,1 bowl,200,g,low,estimate,chicken korma (1 bowl),450,225
+chicken-roll,Chicken roll,1 pc,200,g,medium,estimate,chicken roll (1 pc),450,225
+chicken-tikka,Chicken tikka,4 pcs,160,g,medium,estimate,chicken tikka (4 pcs),240,150
+crab-curry,Crab curry,1 bowl,200,g,low,estimate,crab curry (1 bowl),350,175
+egg-roll,Egg roll,1 pc,180,g,medium,estimate,egg roll (1 pc),400,222
+fish-curry,Fish curry,1 bowl,200,g,low,estimate,fish curry (1 bowl),340,170
+fish-fry,Fish fry,1 plate,150,g,low,estimate,fish fry (1 plate),280,187
+fish-tikka,Fish tikka,1 plate,180,g,low,estimate,fish tikka (1 plate),230,128
+chicken-reshmi-kebab,Chicken reshmi kebab,2 pcs,100,g,medium,estimate,"kebab (chicken reshmi, 2 pcs)",240,240
+chicken-seekh-kebab,Chicken seekh kebab,2 pcs,100,g,medium,estimate,"kebab (chicken seekh, 2 pcs)",250,250
+galouti-kebab,Galouti kebab,2 pcs,80,g,medium,estimate,"kebab (galouti, 2 pcs)",260,325
+mutton-seekh-kebab,Mutton seekh kebab,2 pcs,100,g,medium,estimate,"kebab (mutton seekh, 2 pcs)",290,290
+shami-kebab,Shami kebab,2 pcs,100,g,medium,estimate,"kebab (shami, 2 pcs)",220,220
+chicken-kheema,Chicken kheema,1 bowl,200,g,low,estimate,"kheema (chicken, 1 bowl)",400,200
+mutton-kheema,Mutton kheema,1 bowl,200,g,low,estimate,"kheema (mutton, 1 bowl)",480,240
+murgh-musallam,Murgh musallam,1 serving,350,g,low,estimate,murgh musallam (1 serving),550,157
+mutton-curry,Mutton curry,1 bowl,200,g,low,estimate,mutton curry (1 bowl),500,250
+mutton-korma,Mutton korma,1 bowl,200,g,low,estimate,mutton korma (1 bowl),520,260
+mutton-rogan-josh,Mutton rogan josh,1 bowl,200,g,low,estimate,mutton rogan josh (1 bowl),500,250
+nihari,Nihari,1 bowl,250,g,low,estimate,nihari (1 bowl),450,180
+prawn-curry,Prawn curry,1 bowl,200,g,low,estimate,prawn curry (1 bowl),350,175
+tandoori-chicken-leg,Tandoori chicken leg,1 pc,150,g,medium,estimate,"tandoori chicken (leg, 1 pc)",300,200
+chicken-malai-tikka,Chicken malai tikka,4 pcs,160,g,medium,estimate,"tikka (chicken malai, 4 pcs)",360,225
+chicken-cutlet,Chicken cutlet,1 pc,80,g,medium,estimate,"cutlet (chicken, 1 pc)",180,225
+dahi-vada,Dahi vada,2 pcs,200,g,medium,estimate,dahi vada (2 pcs),250,125
+fruit-chaat,Fruit chaat,1 bowl,150,g,low,estimate,fruit chaat (1 bowl),120,80
+mutton-haleem,Mutton haleem,1 bowl,250,g,low,estimate,"haleem (mutton, 1 bowl)",450,180
+mutton-kanji,Mutton kanji,1 bowl,250,g,low,estimate,"kanji (mutton, 1 bowl)",210,84
+chicken-russian-kebab,Chicken Russian kebab,1 pc,90,g,medium,estimate,"kebab (chicken russian, 1 pc)",220,244
+ragda,Ragda,1 bowl,200,g,low,estimate,ragda (1 bowl),220,110
+chicken-samosa,Chicken samosa,1 pc,100,g,medium,estimate,"samosa (chicken, 1 pc)",220,220
+mutton-samosa,Mutton samosa,1 pc,100,g,medium,estimate,"samosa (mutton, 1 pc)",240,240
+sheer-khurma,Sheer khurma,1 bowl,150,g,low,estimate,sheer khurma (1 bowl),350,233
+chicken-biryani,Chicken biryani,1 bowl,250,g,low,estimate,"biryani (chicken, 1 bowl)",600,240
+egg-biryani,Egg biryani,1 bowl,250,g,low,estimate,"biryani (egg, 1 bowl)",450,180
+hyderabadi-biryani,Hyderabadi biryani,1 bowl,250,g,low,estimate,"biryani (hyderabadi, 1 bowl)",620,248
+kolkata-biryani,Kolkata biryani,1 bowl,250,g,low,estimate,"biryani (kolkata, 1 bowl)",580,232
+malabar-biryani,Malabar biryani,1 bowl,250,g,low,estimate,"biryani (malabar, 1 bowl)",600,240
+mushroom-biryani,Mushroom biryani,1 bowl,250,g,low,estimate,"biryani (mushroom, 1 bowl)",380,152
+mutton-biryani,Mutton biryani,1 bowl,250,g,low,estimate,"biryani (mutton, 1 bowl)",650,260
+paneer-biryani,Paneer biryani,1 bowl,250,g,low,estimate,"biryani (paneer, 1 bowl)",480,192
+prawn-biryani,Prawn biryani,1 bowl,250,g,low,estimate,"biryani (prawn, 1 bowl)",500,200
+soya-biryani,Soya biryani,1 bowl,250,g,low,estimate,"biryani (soya, 1 bowl)",420,168
+veg-biryani,Veg biryani,1 bowl,250,g,low,estimate,"biryani (veg, 1 bowl)",400,160
+bisi-bele-bath,Bisi bele bath,1 bowl,250,g,low,estimate,bisi bele bath (1 bowl),380,152
+curd-rice,Curd rice,1 bowl,200,g,low,estimate,curd rice (1 bowl),280,140
+ghee-rice,Ghee rice,1 bowl,200,g,low,estimate,ghee rice (1 bowl),350,175
+jeera-rice,Jeera rice,1 bowl,200,g,low,estimate,jeera rice (1 bowl),240,120
+veg-khichdi,Veg khichdi,1 bowl,250,g,low,estimate,"khichdi (veg mix, 1 bowl)",260,104
+lemon-rice,Lemon rice,1 bowl,200,g,low,estimate,lemon rice (1 bowl),280,140
+chicken-pulao,Chicken pulao,1 bowl,200,g,low,estimate,"pulao (chicken, 1 bowl)",450,225
+veg-pulao,Veg pulao,1 bowl,200,g,low,estimate,"pulao (veg, 1 bowl)",250,125
+brown-rice-cooked,"Brown rice, cooked",100 g,100,g,high,from name,"rice (brown, cooked 100g)",111,111
+white-rice-cooked,"White rice, cooked",100 g,100,g,high,from name,"rice (white, cooked 100g)",130,130
+tahari,Tahari,1 bowl,250,g,low,estimate,tahari (1 bowl),360,144
+anarsa,Anarsa,1 pc,30,g,medium,estimate,anarsa (1 pc),120,400
+balushahi,Balushahi,1 pc,50,g,medium,estimate,balushahi (1 pc),220,440
+cham-cham,Cham cham,1 pc,50,g,medium,estimate,cham cham (1 pc),150,300
+gujiya,Gujiya,1 pc,50,g,medium,estimate,gujiya (1 pc),200,400
+gulab-jamun,Gulab jamun,1 pc,50,g,medium,estimate,gulab jamun (1 pc),150,300
+imarti,Imarti,1 pc,50,g,medium,estimate,imarti (1 pc),150,300
+jalebi,Jalebi,100 g,100,g,high,from name,jalebi (100g),300,300
+kaju-katli,Kaju katli,1 pc,15,g,high,estimate,kaju katli (1 pc),60,400
+kalakand,Kalakand,1 pc,40,g,medium,estimate,kalakand (1 pc),130,325
+karanji,Karanji,1 pc,40,g,medium,estimate,karanji (1 pc),180,450
+kharvas,Kharvas,1 pc,50,g,medium,estimate,kharvas (1 pc),80,160
+kheer,Kheer,1 bowl,150,g,low,estimate,kheer (1 bowl),280,187
+besan-ladoo,Besan ladoo,1 pc,40,g,medium,estimate,"ladoo (besan, 1 pc)",220,550
+motichoor-ladoo,Motichoor ladoo,1 pc,40,g,medium,estimate,"ladoo (motichoor, 1 pc)",180,450
+malpua,Malpua,1 pc,60,g,medium,estimate,malpua (1 pc),200,333
+modak,Modak,1 pc,50,g,medium,estimate,modak (1 pc),100,200
+mysore-pak,Mysore pak,1 pc,30,g,medium,estimate,mysore pak (1 pc),180,600
+patisa,Patisa,1 pc,30,g,medium,estimate,patisa (1 pc),130,433
+peda,Peda,1 pc,30,g,high,estimate,peda (1 pc),80,267
+puran-poli,Puran poli,1 pc,100,g,medium,estimate,puran poli (1 pc),320,320
+rabri,Rabri,1 bowl,100,g,low,estimate,rabri (1 bowl),350,350
+rasgulla,Rasgulla,1 pc,50,g,medium,estimate,rasgulla (1 pc),100,200
+rasmalai,Rasmalai,1 pc,70,g,medium,estimate,rasmalai (1 pc),180,257
+sandesh,Sandesh,1 pc,40,g,medium,estimate,sandesh (1 pc),90,225
+shankarpali,Shankarpali,5 pcs,25,g,medium,estimate,shankarpali (5 pcs),150,600
+sheera,Sheera,1 bowl,150,g,low,estimate,sheera (1 bowl),350,233
+shrikhand,Shrikhand,1 bowl,150,g,low,estimate,shrikhand (1 bowl),300,200
+soan-papdi,Soan papdi,25 g,25,g,high,from name,soan papdi (25g),130,520
+asparagus,Asparagus,100 g,100,g,high,from name,asparagus (100g),20,20
+beetroot,Beetroot,1 medium,82,g,high,estimate,"beetroot (medium, 1 pc)",35,43
+brinjal,Brinjal,100 g,100,g,high,from name,brinjal (100g),25,25
+broccoli,Broccoli,100 g,100,g,high,from name,broccoli (100g),34,34
+cabbage,Cabbage,100 g,100,g,high,from name,cabbage (100g),25,25
+capsicum,Capsicum,1 medium,120,g,high,estimate,"capsicum (medium, 1 pc)",24,20
+carrot,Carrot,1 medium,61,g,high,estimate,"carrot (medium, 1 pc)",25,41
+cauliflower,Cauliflower,100 g,100,g,high,from name,cauliflower (100g),25,25
+corn-on-the-cob,Corn on the cob,½ cob,90,g,medium,estimate,"corn (half cob, 1 pc)",60,67
+cucumber,Cucumber,1 medium,200,g,high,estimate,"cucumber (medium, 1 pc)",16,8
+garlic,Garlic,5 cloves,15,g,high,estimate,garlic (5 cloves),22,147
+ginger,Ginger,1 inch,10,g,medium,estimate,ginger (1 inch),5,50
+lettuce,Lettuce,100 g,100,g,high,from name,lettuce (100g),15,15
+mushroom,Mushroom,100 g,100,g,high,from name,mushroom (100g),22,22
+okra-bhindi,Okra (bhindi),100 g,100,g,high,from name,okra / bhindi (100g),33,33
+onion,Onion,1 medium,110,g,high,estimate,"onion (medium, 1 pc)",44,40
+peas,Peas,50 g,50,g,high,from name,peas (50g),42,84
+potato,Potato,1 medium,170,g,high,estimate,"potato (medium, 1 pc)",110,65
+pumpkin,Pumpkin,100 g,100,g,high,from name,pumpkin (100g),26,26
+radish,Radish,1 medium,150,g,medium,estimate,"radish (medium, 1 pc)",16,11
+spinach-palak,Spinach (palak),100 g,100,g,high,from name,spinach / palak (100g),23,23
+sweet-potato,Sweet potato,100 g,100,g,high,from name,sweet potato (100g),86,86
+tomato,Tomato,1 medium,120,g,high,estimate,"tomato (medium, 1 pc)",22,18
+turnip,Turnip,1 medium,120,g,high,estimate,"turnip (medium, 1 pc)",34,28
+zucchini,Zucchini,100 g,100,g,high,from name,zucchini (100g),17,17
+soya-chunks-dry,Soya chunks (dry),30 g,30,g,medium,new food,,104,345
+soya-chunks-dry,Soya chunks (dry),50 g,50,g,medium,new food,,173,345
+roasted-makhana,Roasted makhana,1 bowl,25,g,medium,new food,,88,350
+roasted-makhana,Roasted makhana,1 cup,10,g,medium,new food,,35,350
+jowar-roti,Jowar roti,1 pc,50,g,medium,new food,,130,260
+bajra-roti,Bajra roti,1 pc,50,g,medium,new food,,145,290
+ragi-roti,Ragi roti,1 pc,50,g,medium,new food,,125,250
+grilled-paneer,Grilled paneer,100 g,100,g,medium,new food,,300,300
+grilled-paneer,Grilled paneer,1 plate,150,g,medium,new food,,450,300
+steel-cut-oats-dry,Steel-cut oats (dry),40 g,40,g,medium,new food,,152,379
+greek-yogurt-plain,Greek yogurt (plain),100 g,100,g,medium,new food,,73,73
+greek-yogurt-plain,Greek yogurt (plain),1 cup,200,g,medium,new food,,146,73
+low-fat-curd,Low-fat curd,1 cup,200,g,medium,new food,,112,56
+low-fat-curd,Low-fat curd,100 g,100,g,medium,new food,,56,56
+sprouted-moong,Sprouted moong,1 bowl,100,g,low,new food,,80,80
+moong-dal-cooked,Moong dal (cooked),1 bowl,200,g,medium,new food,,220,110
+masoor-dal-cooked,Masoor dal (cooked),1 bowl,200,g,medium,new food,,250,125
+toor-dal-cooked,Toor dal (cooked),1 bowl,200,g,medium,new food,,240,120
+ghee,Ghee,1 tsp,5,g,medium,new food,,45,900
+ghee,Ghee,1 tbsp,14,g,medium,new food,,126,900
+butter,Butter,1 tsp,5,g,medium,new food,,36,717
+butter,Butter,1 tbsp,14,g,medium,new food,,100,717
+cooking-oil,Cooking oil,1 tsp,4.5,g,medium,new food,,40,884
+cooking-oil,Cooking oil,1 tbsp,13.5,g,medium,new food,,119,884
+sugar,Sugar,1 tsp,4,g,medium,new food,,15,387
+honey,Honey,1 tsp,7,g,medium,new food,,21,304
+honey,Honey,1 tbsp,21,g,medium,new food,,64,304
+jaggery,Jaggery,1 pc,10,g,medium,new food,,38,383
+chia-seeds,Chia seeds,1 tbsp,12,g,medium,new food,,58,486
+flax-seeds,Flax seeds,1 tbsp,10,g,medium,new food,,53,534
+pumpkin-seeds,Pumpkin seeds,1 tbsp,9,g,medium,new food,,50,559
+sunflower-seeds,Sunflower seeds,1 tbsp,9,g,medium,new food,,53,584
+brazil-nut,Brazil nut,1 pc,5,g,medium,new food,,33,659
+dark-chocolate-70,Dark chocolate (70%),1 square,10,g,medium,new food,,60,598
+coffee-with-milk-and-sugar,Coffee with milk & sugar,1 cup,150,ml,medium,new food,,75,50
+banana-chips,Banana chips,1 pack,30,g,medium,new food,,156,519
+popcorn-air-popped,Popcorn (air-popped),1 cup,8,g,medium,new food,,31,387
+popcorn-air-popped,Popcorn (air-popped),1 bowl,25,g,medium,new food,,97,387
+roasted-chana,Roasted chana,1 handful,30,g,medium,new food,,111,369
+chana-chaat,Chana chaat,1 bowl,150,g,low,new food,,210,140
+sattu-drink,Sattu drink,1 glass,250,ml,low,new food,,120,48
+skimmed-milk,Skimmed milk,200 ml,200,ml,medium,new food,,70,35
+almond-milk-unsweetened,Almond milk (unsweetened),200 ml,200,ml,medium,new food,,30,15
+besan-chilla,Besan chilla,1 pc,80,g,low,new food,,160,200
+khakhra,Khakhra,1 pc,15,g,medium,new food,,63,420
+dalia-vegetable,Dalia (vegetable),1 bowl,200,g,low,new food,,190,95
+quinoa-cooked,Quinoa (cooked),1 cup,185,g,medium,new food,,222,120
+quinoa-cooked,Quinoa (cooked),100 g,100,g,medium,new food,,120,120
+peanut-chikki,Peanut chikki,1 pc,25,g,medium,new food,,130,520
+chicken-breast-raw,Chicken breast (raw),100 g,100,g,medium,new food,,120,120
+boiled-sweet-corn,Boiled sweet corn,1 cup,150,g,medium,new food,,144,96

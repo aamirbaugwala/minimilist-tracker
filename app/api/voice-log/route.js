@@ -17,6 +17,7 @@ import { GoogleGenerativeAI } from "@google/generative-ai";
 import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { FLATTENED_DB } from "../../food-data";
+import { getCatalog } from "../../lib/foodCatalog";
 import { defaultMeal, MEALS } from "../../lib/mealPeriod";
 import { buildLogRows, buildSpokenConfirmation } from "../../lib/voiceLog";
 import { recordLlmUsage } from "../../lib/llmCost";
@@ -137,17 +138,12 @@ export async function POST(req) {
 
     // ── 2. Build the DB (internal + the user's custom foods) ──────────────────
     const db = getSupabaseForUser(accessToken);
-    const combined = { ...FLATTENED_DB };
+    // Built-in foods + this user's own, with the shared matcher (lib/foodSearch).
+    let combined;
     try {
-      const { data: custom } = await db
-        .from("custom_foods")
-        .select("name, calories, protein, carbs, fats, fiber")
-        .eq("user_id", userId);
-      (custom || []).forEach((c) => {
-        if (c?.name) combined[c.name.toLowerCase()] = c;
-      });
+      combined = (await getCatalog(db, userId)).db;
     } catch {
-      /* custom foods are a bonus — internal DB still works */
+      combined = { ...FLATTENED_DB }; // catalog unavailable — old list still works
     }
 
     // ── 3. Deterministic matching + rows ──────────────────────────────────────

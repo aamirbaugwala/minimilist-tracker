@@ -7,6 +7,10 @@ import {
   Flame,
 } from "lucide-react";
 import { FLATTENED_DB } from "./food-data";
+import { getCatalog } from "./lib/foodCatalog";
+import { buildCatalog, defaultPortion, portionKey, portionMacros, isUuid } from "./lib/foodModel";
+import { searchFoods, similarFoods } from "./lib/foodSearch";
+import { createMyFood, specFrom, specFromNamedItem } from "./lib/myFoods";
 import { supabase } from "./supabase";
 import { calculateTargets } from "./lib/nutrition";
 import {
@@ -156,7 +160,9 @@ export default function Home() {
   const [editMeal, setEditMeal] = useState("Breakfast"); // move an entry to another meal
 
   // --- CUSTOM FOODS & MANUAL ENTRY STATE ---
-  const [customFoods, setCustomFoods] = useState([]);
+  // Food catalog: built-in foods + your own (lib/foodCatalog). Until it loads,
+  // lookups fall back to the bundled list so nothing waits on the network.
+  const [catalog, setCatalog] = useState(null);
   // Derived from the user's blood work; empty when they have no reports.
   // Conditions from blood reports; merged with self-reported ones below.
   const [biomarkerConditions, setBiomarkerConditions] = useState([]);
@@ -170,6 +176,9 @@ export default function Home() {
     carbs: "",
     fats: "",
     fiber: "",
+    mode: "portion", // "portion" (values for one portion) | "100g" (values per 100 g)
+    portion: "", // e.g. "1 bowl"
+    grams: "", // weight of that portion, optional
   });
 
   // --- NEW: WEIGHT TRACKING STATE ---
@@ -219,13 +228,11 @@ export default function Home() {
   const [isWebSearching, setIsWebSearching] = useState(false);
 
   // --- MERGE LOCAL DB WITH CUSTOM DB ---
-  const COMBINED_DB = useMemo(() => {
-    const combined = { ...FLATTENED_DB };
-    customFoods.forEach((cf) => {
-      combined[cf.name.toLowerCase()] = cf;
-    });
-    return combined;
-  }, [customFoods]);
+  // Lookup by any stored name (new "dal tadka (1 bowl)" or old "biryani (chicken, 1 bowl)").
+  const COMBINED_DB = useMemo(() => catalog?.db || FLATTENED_DB, [catalog]);
+  // One entry per food (its default portion), for suggestions and lists, so a
+  // food with several portions or old names isn't counted several times.
+  const LIST_DB = useMemo(() => catalog?.defaults || FLATTENED_DB, [catalog]);
 
 
   // --- FEATURE 1: SMART RECOMMENDATIONS (the food sheet's "Suggested" tab) ---
@@ -247,8 +254,8 @@ export default function Home() {
     if (remainingCals < 50) return [];
 
     const candidates = [];
-    if (COMBINED_DB) {
-      Object.entries(COMBINED_DB).forEach(([key, item]) => {
+    if (LIST_DB) {
+      Object.entries(LIST_DB).forEach(([key, item]) => {
         // Must fit in remaining calories (with slight buffer)
         if (item.calories <= remainingCals * 1.1) {
           let score = 0;
@@ -345,7 +352,7 @@ export default function Home() {
 
     // Fallback if empty (e.g. only 60 cals left) -> Find smallest items
     if (recommendations.length === 0) {
-      const smallSnacks = Object.entries(COMBINED_DB)
+      const smallSnacks = Object.entries(LIST_DB)
         .filter(([, val]) => val.calories <= remainingCals)
         .sort((a, b) => b[1].calories - a[1].calories) // Biggest possible filler
         .slice(0, 3);
@@ -381,12 +388,12 @@ export default function Home() {
         return;
       }
 
-      // Check COMBINED_DB instead of FLATTENED_DB
-      const localKeys = Object.keys(COMBINED_DB).filter((k) =>
-        k.includes(query.toLowerCase()),
-      );
+      // Only look online when nothing in the catalog matches.
+      const localHits = catalog
+        ? searchFoods(catalog, query, { limit: 1 }).length
+        : Object.keys(COMBINED_DB).filter((k) => k.includes(query.toLowerCase())).length;
 
-      if (localKeys.length === 0) {
+      if (localHits === 0) {
         setIsWebSearching(true);
         try {
           const response = await fetch(
@@ -397,7 +404,9 @@ export default function Home() {
           if (data.products && data.products.length > 0) {
             const mappedResults = data.products.map((p) => ({
               id: `web-${p._id}`,
-              name: p.product_name || query,
+              // Open Food Facts values are per 100 g — say so in the name, so
+              // logging "1" (and the saved custom food) clearly means 100 g.
+              name: `${(p.product_name || query).trim()} (100g)`,
               isWeb: true,
               calories: Math.round(p.nutriments?.["energy-kcal_100g"] || 0),
               protein: Math.round(p.nutriments?.proteins_100g || 0),
@@ -421,7 +430,7 @@ export default function Home() {
     }, 600);
 
     return () => clearTimeout(delayDebounceFn);
-  }, [query, COMBINED_DB]);
+  }, [query, COMBINED_DB, catalog]);
 
   // --- INIT ---
   const fetchData = async (isBackground = false) => {
@@ -551,8 +560,11 @@ export default function Home() {
       // First run: no profile, or no weight yet → auto-open the goal setter.
       if (!profile || !profile.weight) setShowOnboarding(true);
 
-      const { data: custom } = await supabase.from("custom_foods").select("*");
-      if (custom) setCustomFoods(custom);
+      // Built-in foods + only YOUR foods (other people's custom foods used to
+      // fill search with their duplicates). Non-blocking.
+      getCatalog(supabase, session.user.id)
+        .then(setCatalog)
+        .catch((err) => console.warn("Food catalog failed to load:", err));
 
       // Lifetime XP for the level bar (Phase 3). Absent row → level 1.
       const { data: gam } = await supabase
@@ -795,58 +807,45 @@ export default function Home() {
     }
   };
 
-  const saveCustomFoodToDb = async (item) => {
-    if (!session) return;
-    const exists = customFoods.find(
-      (cf) => cf.name.toLowerCase() === item.name.toLowerCase(),
-    );
-    if (exists) return;
-
-    const newFood = {
-      user_id: session.user.id,
-      name: item.name,
-      calories: Number(item.calories) || 0,
-      protein: Number(item.protein) || 0,
-      carbs: Number(item.carbs) || 0,
-      fats: Number(item.fats) || 0,
-      fiber: Number(item.fiber) || 0,
-    };
-
-    const { data, error } = await supabase
-      .from("custom_foods")
-      .insert([newFood])
-      .select();
-
-    if (!error && data) {
-      setCustomFoods((prev) => [...prev, data[0]]);
-    }
+  // Save a picked web / barcode food as YOUR food, unless it's already known
+  // under the same name or the same words.
+  const saveCustomFoodToDb = async (item, source = "web") => {
+    if (!session) return null;
+    if (catalog?.lookup.has(String(item.name || "").toLowerCase().trim())) return null;
+    const spec = specFromNamedItem(item, source);
+    if (catalog && similarFoods(catalog, spec.name, { limit: 1, minScore: 100 }).length) return null;
+    const res = await createMyFood(supabase, session.user.id, spec);
+    if (res.ok) setCatalog((c) => buildCatalog([...(c?.all || []), res.food]));
+    else console.warn("Couldn't save food:", res.error);
+    return res.ok ? res.food : null;
   };
 
-  const handleManualAddSubmit = (e) => {
+  const handleManualAddSubmit = async (e) => {
     e?.preventDefault?.();
-    if (!manualFood.name || !manualFood.calories)
-      return alert("Missing details!");
-
-    const formattedFood = {
-      ...manualFood,
-      calories: Number(manualFood.calories),
+    if (!manualFood.name || !manualFood.calories) return alert("Missing details!");
+    if (!session) return;
+    const per = {
+      calories: Number(manualFood.calories) || 0,
       protein: Number(manualFood.protein) || 0,
       carbs: Number(manualFood.carbs) || 0,
       fats: Number(manualFood.fats) || 0,
       fiber: Number(manualFood.fiber) || 0,
     };
-
-    saveCustomFoodToDb(formattedFood);
-    if (manualAddNow) addFood(formattedFood.name, 1, formattedFood, "custom");
-
-    setManualFood({
-      name: "",
-      calories: "",
-      protein: "",
-      carbs: "",
-      fats: "",
-      fiber: "",
+    const spec = specFrom({
+      name: manualFood.name,
+      per,
+      portionLabel: (manualFood.portion || "").trim() || undefined,
+      grams: manualFood.grams,
+      per100: manualFood.mode === "100g",
     });
+    const res = await createMyFood(supabase, session.user.id, spec);
+    if (!res.ok) return alert(`Couldn't save the food: ${res.error}`);
+    setCatalog((c) => buildCatalog([...(c?.all || []), res.food]));
+    if (manualAddNow) {
+      const dp = defaultPortion(res.food);
+      addFood(portionKey(res.food, dp), 1, { ...portionMacros(res.food, dp), food_id: res.food.id, portion: dp.label, amount: dp.amount }, "custom");
+    }
+    setManualFood({ name: "", calories: "", protein: "", carbs: "", fats: "", fiber: "", mode: "portion", portion: "", grams: "" });
     setIsManualEntryOpen(false);
     setQuery("");
   };
@@ -1005,8 +1004,18 @@ export default function Home() {
       const meal = MEALS.some((m) => m.label === item.meal) ? item.meal : fallbackMeal;
       const quantity = Number(item.qty) || 1;
       const base = perUnitMacros(item);
+      // Which food + portion this is (when the catalog knows it), so logs can
+      // be grouped by food even when the name changes later.
+      const ref = item.food_id ? item : COMBINED_DB[String(item.name || "").toLowerCase()];
+      const link = {};
+      if (ref && isUuid(ref.food_id)) link.food_id = ref.food_id;
+      if (ref?.portion) {
+        link.portion = ref.portion;
+        if (ref.amount) link.amount = Math.round(Number(ref.amount) * quantity * 10) / 10;
+      }
       return {
         id: newId(), // real UUID — becomes the DB primary key directly
+        ...link,
         name: item.name,
         qty: quantity,
         calories: Math.round(base.calories * quantity),
@@ -1038,6 +1047,8 @@ export default function Home() {
     const newId = uuid;
     const rows = items.map((item) => ({
       id: newId(),
+      ...(isUuid(item.food_id) ? { food_id: item.food_id } : {}),
+      ...(item.portion ? { portion: item.portion, ...(item.amount ? { amount: item.amount } : {}) } : {}),
       name: item.name,
       qty: Number(item.qty) || 1,
       calories: Math.round(item.calories || 0),
@@ -1220,11 +1231,11 @@ export default function Home() {
   // per-serving macros; handleLocalAdd multiplies by qty. Foods found via the
   // packaged-food web search are also saved to custom foods (as before).
   const commitPicks = (entries, source = "sheet") => {
-    entries.filter((e) => e.isWeb).forEach((e) => saveCustomFoodToDb({ name: e.name, ...e.per }));
+    entries.filter((e) => e.isWeb).forEach((e) => saveCustomFoodToDb({ name: e.name, ...e.per }, source === "barcode" ? "barcode" : "web"));
     // One batch (one Undo), each entry filed under the meal it was picked for.
     // isWeb travels too: perUnitMacros must not swap a 0-kcal packaged food for a
     // name-alike from the built-in DB.
-    handleLocalAdd(entries.map((e) => ({ name: e.name, qty: e.qty, ...e.per, meal: e.meal, isWeb: !!e.isWeb })), source);
+    handleLocalAdd(entries.map((e) => ({ name: e.name, qty: e.qty, ...e.per, ...(e.link || {}), meal: e.meal, isWeb: !!e.isWeb })), source);
   };
 
   // Log yesterday's meal again, filed under that meal, with its exact macros.
@@ -1473,9 +1484,9 @@ export default function Home() {
 
   const getBuilderSuggestions = () =>
     mealBuilderQuery
-      ? Object.keys(COMBINED_DB).filter((k) =>
-          k.includes(mealBuilderQuery.toLowerCase()),
-        )
+      ? catalog
+        ? searchFoods(catalog, mealBuilderQuery, { limit: 20 }).map((r) => portionKey(r.food, defaultPortion(r.food)))
+        : Object.keys(COMBINED_DB).filter((k) => k.includes(mealBuilderQuery.toLowerCase()))
       : recents;
 
   const handleSendCode = async (e) => {
@@ -1557,6 +1568,11 @@ export default function Home() {
           addNow={manualAddNow}
           setAddNow={setManualAddNow}
           meal={selectedMeal}
+          catalog={catalog}
+          onUseExisting={(food) => {
+            setIsManualEntryOpen(false);
+            setQuery(food.name);
+          }}
           onSubmit={handleManualAddSubmit}
           onClose={() => setIsManualEntryOpen(false)}
         />
@@ -1850,6 +1866,7 @@ export default function Home() {
           query={query}
           setQuery={setQuery}
           foodDb={COMBINED_DB}
+          catalog={catalog}
           recents={recents}
           savedMeals={savedMeals}
           suggestions={smartRecommendations}

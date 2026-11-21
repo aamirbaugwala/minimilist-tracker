@@ -12,6 +12,9 @@ import Link from "next/link";
 import { Search, Trash2 } from "lucide-react";
 import Sheet, { sheetInput, sheetLabel, primaryBtn, dangerBtn } from "./Sheet";
 import { MEALS } from "../lib/mealPeriod";
+import { useMemo } from "react";
+import { similarFoods } from "../lib/foodSearch";
+import { defaultPortion, portionLabel, portionMacros } from "../lib/foodModel";
 
 const r = (n) => Math.round(Number(n) || 0);
 const fmtQty = (q) => (q === 0.5 ? "½" : q === 1.5 ? "1½" : String(q));
@@ -98,7 +101,13 @@ export function EditLogSheet({ log, qty, setQty, meal, setMeal, onSave, onDelete
   );
 }
 
-export function CustomFoodSheet({ food, setFood, addNow, setAddNow, meal, onSubmit, onClose }) {
+export function CustomFoodSheet({ food, setFood, addNow, setAddNow, meal, catalog, onUseExisting, onSubmit, onClose }) {
+  const per100 = food.mode === "100g";
+  // "Is it one of these?" — close matches so a near-copy isn't created.
+  const matches = useMemo(
+    () => (catalog && (food.name || "").trim().length >= 3 ? similarFoods(catalog, food.name, { limit: 3 }) : []),
+    [catalog, food.name],
+  );
   const field = (key, label) => (
     <label key={key} style={{ ...sheetLabel, fontSize: 11, textAlign: "center", gap: 4 }}>
       {label}
@@ -109,6 +118,17 @@ export function CustomFoodSheet({ food, setFood, addNow, setAddNow, meal, onSubm
         style={{ ...sheetInput, height: 44, padding: 0, textAlign: "center", minWidth: 0 }}
       />
     </label>
+  );
+  const seg = (id, label) => (
+    <button
+      type="button"
+      role="radio"
+      aria-checked={(food.mode || "portion") === id}
+      onClick={() => setFood({ ...food, mode: id })}
+      style={{ flex: 1, height: 36, border: "none", borderRadius: 9, background: (food.mode || "portion") === id ? "var(--surface-highlight)" : "none", color: (food.mode || "portion") === id ? "var(--text)" : "var(--text-muted)", fontFamily: "inherit", fontSize: 14, fontWeight: (food.mode || "portion") === id ? 600 : 400, cursor: "pointer" }}
+    >
+      {label}
+    </button>
   );
   return (
     <Sheet
@@ -121,9 +141,53 @@ export function CustomFoodSheet({ food, setFood, addNow, setAddNow, meal, onSubm
           Name
           <input autoFocus value={food.name} onChange={(e) => setFood({ ...food, name: e.target.value })} placeholder="e.g. Mom’s methi thepla" style={sheetInput} />
         </label>
+
+        {matches.length > 0 && (
+          <div style={{ padding: "12px 14px", borderRadius: 14, background: "var(--surface)", border: "1px solid var(--border)" }}>
+            <div style={{ fontSize: 13, color: "var(--text-muted)", marginBottom: 6 }}>Is it one of these? You can pick its portion when you add it.</div>
+            {matches.map(({ food: f }) => {
+              const dp = defaultPortion(f);
+              return (
+                <div key={f.id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 0", borderTop: "1px solid var(--border)" }}>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontSize: 14, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                      {f.name}
+                      {f.owner_id && <span style={{ marginLeft: 6, fontSize: 11, color: "var(--text-faint)" }}>· yours</span>}
+                    </div>
+                    <div style={{ fontSize: 12, color: "var(--text-faint)" }}>
+                      {portionLabel(f, dp)} · {portionMacros(f, dp).calories} kcal
+                    </div>
+                  </div>
+                  <button type="button" onClick={() => onUseExisting(f)} style={{ height: 34, padding: "0 12px", borderRadius: 10, border: "1px solid var(--border)", background: "transparent", color: "var(--accent-text)", fontFamily: "inherit", fontSize: 13, fontWeight: 600, cursor: "pointer" }}>
+                    Use this
+                  </button>
+                </div>
+              );
+            })}
+          </div>
+        )}
+
+        <div role="radiogroup" aria-label="Nutrition is for" style={{ display: "flex", padding: 3, borderRadius: 12, background: "var(--bg)", border: "1px solid var(--border)" }}>
+          {seg("portion", "One portion")}
+          {seg("100g", "Per 100 g")}
+        </div>
+
+        <div style={{ display: "grid", gridTemplateColumns: per100 ? "1fr" : "1.4fr 1fr", gap: 8 }}>
+          {!per100 && (
+            <label style={{ ...sheetLabel, fontSize: 12, gap: 4 }}>
+              Portion
+              <input value={food.portion || ""} onChange={(e) => setFood({ ...food, portion: e.target.value })} placeholder="1 bowl" style={{ ...sheetInput, height: 44 }} />
+            </label>
+          )}
+          <label style={{ ...sheetLabel, fontSize: 12, gap: 4 }}>
+            {per100 ? "Usual portion (g), optional" : "Weight (g), optional"}
+            <input inputMode="decimal" value={food.grams || ""} onChange={(e) => setFood({ ...food, grams: e.target.value })} placeholder={per100 ? "e.g. 30" : "e.g. 200"} style={{ ...sheetInput, height: 44 }} />
+          </label>
+        </div>
+
         <div>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 8 }}>
-            <span style={{ fontSize: 13, color: "var(--text-muted)" }}>Per serving</span>
+            <span style={{ fontSize: 13, color: "var(--text-muted)" }}>{per100 ? "Per 100 g" : `Per ${(food.portion || "").trim() || "portion"}`}</span>
             <Link href="/agent" style={{ fontSize: 13, fontWeight: 600, color: "var(--accent-text)", textDecoration: "none" }}>Not sure? Ask Coach</Link>
           </div>
           <div style={{ display: "grid", gridTemplateColumns: "repeat(5, minmax(0, 1fr))", gap: 6 }}>
@@ -138,7 +202,7 @@ export function CustomFoodSheet({ food, setFood, addNow, setAddNow, meal, onSubm
           <input type="checkbox" checked={addNow} onChange={(e) => setAddNow(e.target.checked)} style={{ width: 20, height: 20, accentColor: "var(--accent)" }} />
           <span style={{ flex: 1 }}>Also add 1 to {meal} now</span>
         </label>
-        <div style={{ fontSize: 12, color: "var(--text-faint)", textAlign: "center" }}>Saved foods show up in search and Recent next time.</div>
+        <div style={{ fontSize: 12, color: "var(--text-faint)", textAlign: "center" }}>Only you see your foods. With a weight, you can also log any amount in grams.</div>
         <button type="submit" hidden aria-hidden="true" tabIndex={-1} />
       </form>
     </Sheet>

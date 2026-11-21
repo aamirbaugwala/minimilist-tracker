@@ -8,7 +8,9 @@
  * with picks asks before discarding (also on Android back).
  *
  *   Header  "Add to Lunch ▾" (meal picker) · close
- *   Search  local DB + custom foods; Open Food Facts results when no match
+ *   Search  the food catalog (built-in + your foods), ONE row per food with a
+ *           portion chip ("1 bowl · 200 g ▾" → every portion + any weight);
+ *           Open Food Facts results when nothing matches
  *   Tabs    Recent · Saved meals · Suggested · Browse (categories)
  *   Rows    name · serving · kcal · P, an optional medical tag, + / stepper
  *   Footer  "3 items · 450 kcal"  [Add 3 items]
@@ -24,6 +26,8 @@ import { FOOD_CATEGORIES } from "../food-data";
 import { MEALS } from "../lib/mealPeriod";
 import { exclusionReason } from "../lib/dietFilter";
 import { foodTag, activeConditionIds } from "../lib/foodTags";
+import { searchFoods, parseAmount } from "../lib/foodSearch";
+import { basisUnit, customPortion, defaultPortion, portionKey, portionLabel, portionMacros, resolveName } from "../lib/foodModel";
 
 // "dal fry (1 bowl)" → { title: "Dal fry", serving: "1 bowl" }
 function splitName(name) {
@@ -98,6 +102,91 @@ function FoodRow({ name, item, qty, tag, onAdd, onDec, onInc, sub }) {
   );
 }
 
+// One food with a chosen portion. The chip opens every portion of that food
+// plus "other amount" (any grams / ml / servings).
+function FoodPickRow({ food, portion, qty, tag, open, onToggle, onPick, onAdd, onDec, onInc }) {
+  const p = portionMacros(food, portion);
+  const unit = basisUnit(food);
+  const [other, setOther] = useState("");
+  return (
+    <li style={{ padding: "12px 0", borderBottom: "1px solid var(--border)" }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ fontSize: 15, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+            {food.name}
+            {food.owner_id && <span style={{ marginLeft: 6, fontSize: 11, color: "var(--text-faint)" }}>· yours</span>}
+          </div>
+          <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 4, flexWrap: "wrap" }}>
+            <button
+              onClick={onToggle}
+              aria-expanded={open}
+              aria-label={`Portion: ${portionLabel(food, portion)}. Change`}
+              style={{ ...btnReset, display: "inline-flex", alignItems: "center", gap: 3, padding: "2px 8px", borderRadius: 99, border: "1px solid var(--border)", color: "var(--text-muted)", fontSize: 12 }}
+            >
+              {portionLabel(food, portion)}
+              <ChevronDown size={12} style={{ transform: open ? "rotate(180deg)" : "none" }} />
+            </button>
+            <span style={{ fontSize: 12, color: "var(--text-faint)" }}>
+              {Math.round(p.calories)} kcal · P {Math.round(p.protein)}
+            </span>
+            {tag && (
+              <span style={{ fontSize: 11, fontWeight: 600, padding: "2px 8px", borderRadius: 99, background: tag.kind === "watch" ? "var(--warn-soft)" : "var(--accent-soft)", color: tag.kind === "watch" ? "var(--warn)" : "var(--accent-text)" }}>
+                {tag.text}
+              </span>
+            )}
+          </div>
+        </div>
+        {qty > 0 ? (
+          <Stepper qty={qty} onDec={onDec} onInc={onInc} label={food.name} />
+        ) : (
+          <button onClick={onAdd} aria-label={`Pick ${food.name}`} style={{ width: 36, height: 36, flexShrink: 0, borderRadius: 10, border: "1px solid var(--border)", background: "transparent", color: "var(--text)", display: "grid", placeItems: "center", cursor: "pointer" }}>
+            <Plus size={16} />
+          </button>
+        )}
+      </div>
+      {open && (
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginTop: 10 }}>
+          {food.portions.map((pt) => {
+            const on = pt.label === portion.label;
+            return (
+              <button
+                key={pt.label}
+                onClick={() => onPick(pt)}
+                aria-pressed={on}
+                style={{ ...btnReset, padding: "6px 10px", borderRadius: 99, border: `1px solid ${on ? "var(--accent)" : "var(--border)"}`, background: on ? "var(--accent-soft)" : "transparent", color: "var(--text)", fontSize: 13 }}
+              >
+                {portionLabel(food, pt)} · {portionMacros(food, pt).calories} kcal
+              </button>
+            );
+          })}
+          <form
+            onSubmit={(e) => {
+              e.preventDefault();
+              const n = Number(other);
+              if (n > 0) onPick(customPortion(food, n));
+              setOther("");
+            }}
+            style={{ display: "inline-flex", alignItems: "center", gap: 4, padding: "2px 4px 2px 10px", borderRadius: 99, border: "1px dashed var(--border)" }}
+          >
+            <input
+              inputMode="decimal"
+              value={other}
+              onChange={(e) => setOther(e.target.value)}
+              placeholder="Other"
+              aria-label={`Other amount in ${unit === "serving" ? "servings" : unit}`}
+              style={{ width: 52, border: "none", outline: "none", background: "transparent", color: "var(--text)", fontFamily: "inherit", fontSize: 13 }}
+            />
+            <span style={{ fontSize: 12, color: "var(--text-faint)" }}>{unit === "serving" ? "serv." : unit}</span>
+            <button type="submit" aria-label="Use this amount" style={{ ...btnReset, width: 26, height: 26, borderRadius: 99, color: "var(--accent-text)", display: "grid", placeItems: "center" }}>
+              <Check size={14} />
+            </button>
+          </form>
+        </div>
+      )}
+    </li>
+  );
+}
+
 export default function LogFoodSheet({
   onClose,
   onCommit, // (entries[]) => void   entries: { name, qty, per, isWeb, meal }
@@ -107,6 +196,7 @@ export default function LogFoodSheet({
   query,
   setQuery,
   foodDb,
+  catalog,
   recents,
   savedMeals,
   suggestions,
@@ -125,7 +215,9 @@ export default function LogFoodSheet({
   // Browse). Deciding once at mount picked Browse when the sheet was opened
   // before recents had loaded, and it never switched back.
   const [chosenTab, setTab] = useState(null);
-  const [category, setCategory] = useState(Object.keys(FOOD_CATEGORIES)[0]);
+  const [category, setCategory] = useState(null); // null → first category
+  const [portionFor, setPortionFor] = useState(() => new Map()); // food id → chosen portion
+  const [openPortions, setOpenPortions] = useState(null); // food id whose portion chips are open
   const [mealOpen, setMealOpen] = useState(false);
   const [confirmDiscard, setConfirmDiscard] = useState(false);
   const [showWhy, setShowWhy] = useState(false);
@@ -144,11 +236,11 @@ export default function LogFoodSheet({
   const keyOf = (name) => String(name).toLowerCase();
   const cartKey = (name, meal = selectedMeal) => `${meal}|${keyOf(name)}`;
   const qtyOf = (name) => cart.get(cartKey(name))?.qty || 0;
-  const setQty = (name, item, qty, isWeb = false) =>
+  const setQty = (name, item, qty, isWeb = false, link = null) =>
     setCart((prev) => {
       const next = new Map(prev);
       if (qty <= 0) next.delete(cartKey(name));
-      else next.set(cartKey(name), { name, qty, per: per(item), isWeb, meal: selectedMeal });
+      else next.set(cartKey(name), { name, qty, per: per(item), isWeb, meal: selectedMeal, link });
       return next;
     });
   const addMany = (items) =>
@@ -235,8 +327,12 @@ export default function LogFoodSheet({
 
   // ── lists
   const q = (query || "").trim().toLowerCase();
+  // Catalog search: one result per food (portions are chosen on the row).
+  const foodResults = useMemo(() => (catalog && q ? searchFoods(catalog, q, { limit: 40 }).map((r) => r.food) : null), [catalog, q]);
+  // "150g paneer" → start matching rows at 150 g.
+  const typedAmount = useMemo(() => parseAmount(query), [query]);
   const searchResults = useMemo(() => {
-    if (!q) return [];
+    if (!q || catalog) return [];
     // Rank by the food's name without its serving ("paneer (100g)" → "paneer"):
     // exact name first, then names that start with the query, then shorter.
     const base = (k) => k.split("(")[0].trim();
@@ -245,11 +341,52 @@ export default function LogFoodSheet({
       .filter((k) => k.includes(q))
       .sort((a, b) => rank(a) - rank(b) || base(a).length - base(b).length || a.length - b.length)
       .slice(0, 40);
-  }, [q, foodDb]);
+  }, [q, foodDb, catalog]);
 
-  const recentRows = (recents || []).filter((n) => n && n !== "Water" && foodDb[keyOf(n)]);
+  // Recent logs: a saved name, or a typed amount of a known food ("paneer (150 g)").
+  const recentRows = (recents || []).filter((n) => n && n !== "Water" && (foodDb[keyOf(n)] || (catalog && resolveName(catalog, n))));
   const tab = chosenTab ?? (recentRows.length ? "recent" : "browse");
-  const categoryRows = Object.keys(FOOD_CATEGORIES[category] || {}).filter((k) => foodDb[k]);
+  const myFoods = useMemo(() => (catalog ? catalog.foods.filter((f) => f.owner_id) : []), [catalog]);
+  const categoryList = catalog ? [...(myFoods.length ? ["My foods"] : []), ...catalog.categories] : Object.keys(FOOD_CATEGORIES);
+  const activeCategory = category && categoryList.includes(category) ? category : categoryList[0];
+  const categoryFoods = catalog
+    ? activeCategory === "My foods"
+      ? myFoods
+      : catalog.foods.filter((f) => !f.owner_id && f.category === activeCategory)
+    : null;
+  const categoryRows = catalog ? [] : Object.keys(FOOD_CATEGORIES[activeCategory] || {}).filter((k) => foodDb[k]);
+
+  // The portion a food row is showing: chosen > typed weight > default.
+  const portionOf = (food) => {
+    const chosen = portionFor.get(food.id);
+    if (chosen) return chosen;
+    if (typedAmount?.unit && basisUnit(food) === typedAmount.unit) return customPortion(food, typedAmount.count);
+    return defaultPortion(food);
+  };
+  const pickRow = (food, fixed = null) => {
+    const portion = fixed || portionOf(food);
+    const name = portionKey(food, portion);
+    const item = portionMacros(food, portion);
+    const link = { food_id: food.id, portion: portion.label, amount: portion.amount };
+    return (
+      <FoodPickRow
+        key={fixed ? name : food.id}
+        food={food}
+        portion={portion}
+        qty={qtyOf(name)}
+        tag={tagFor(name, item)}
+        open={openPortions === food.id}
+        onToggle={() => setOpenPortions((o) => (o === food.id ? null : food.id))}
+        onPick={(pt) => {
+          setPortionFor((m) => new Map(m).set(food.id, pt));
+          setOpenPortions(null);
+        }}
+        onAdd={() => setQty(name, item, 1, false, link)}
+        onInc={() => setQty(name, item, stepUp(qtyOf(name)), false, link)}
+        onDec={() => setQty(name, item, stepDown(qtyOf(name)), false, link)}
+      />
+    );
+  };
   const suggestionRows = (suggestions || []).filter(
     (s) => s.items?.length && s.items.every((i) => !exclusionReason(i.name, rules)),
   );
@@ -394,13 +531,13 @@ export default function LogFoodSheet({
 
           {q ? (
             <ul style={{ listStyle: "none", margin: 0, padding: 0 }}>
-              {searchResults.map(rowFor)}
-              {searchResults.length === 0 && isWebSearching && (
+              {foodResults ? foodResults.map((f) => pickRow(f)) : searchResults.map(rowFor)}
+              {(foodResults || searchResults).length === 0 && isWebSearching && (
                 <li style={{ display: "flex", alignItems: "center", gap: 8, padding: "18px 0", color: "var(--text-muted)", fontSize: 14 }}>
                   <Loader2 size={16} className="animate-spin" /> Searching packaged foods…
                 </li>
               )}
-              {searchResults.length === 0 && !isWebSearching &&
+              {(foodResults || searchResults).length === 0 && !isWebSearching &&
                 (webResults || []).map((w) => (
                   <FoodRow
                     key={`web-${w.name}`}
@@ -414,7 +551,7 @@ export default function LogFoodSheet({
                   />
                 ))}
               <li style={{ padding: "14px 0", fontSize: 14, color: "var(--text-muted)" }}>
-                {searchResults.length ? "Not what you meant? " : "Can’t find it? "}
+                {(foodResults || searchResults).length ? "Not what you meant? " : "Can’t find it? "}
                 <button onClick={() => onCustomFood(query)} style={{ ...btnReset, color: "var(--accent-text)", fontWeight: 600, fontSize: 14 }}>
                   Create “{query.trim()}”
                 </button>
@@ -422,7 +559,14 @@ export default function LogFoodSheet({
             </ul>
           ) : tab === "recent" ? (
             <ul style={{ listStyle: "none", margin: 0, padding: 0 }}>
-              {recentRows.length ? recentRows.map(rowFor) : emptyNote("Foods you log will show up here.")}
+              {recentRows.length
+                ? recentRows.map((n) => {
+                    // Known food → its real name and that portion ("Chicken biryani · 1 bowl"),
+                    // even for logs saved under an old name.
+                    const hit = catalog && resolveName(catalog, n);
+                    return hit ? pickRow(hit.food, hit.portion) : rowFor(n);
+                  })
+                : emptyNote("Foods you log will show up here.")}
             </ul>
           ) : tab === "saved" ? (
             <ul style={{ listStyle: "none", margin: 0, padding: 0 }}>
@@ -493,18 +637,18 @@ export default function LogFoodSheet({
           ) : (
             <>
               <div className="chip-scroll" style={{ display: "flex", gap: 8, overflowX: "auto", padding: "12px 0 4px", scrollbarWidth: "none" }}>
-                {Object.keys(FOOD_CATEGORIES).map((c) => (
+                {categoryList.map((c) => (
                   <button
                     key={c}
                     onClick={() => setCategory(c)}
-                    aria-pressed={category === c}
-                    style={{ flexShrink: 0, padding: "7px 12px", borderRadius: 99, border: `1px solid ${category === c ? "var(--accent)" : "var(--border)"}`, background: category === c ? "var(--accent-soft)" : "transparent", color: category === c ? "var(--text)" : "var(--text-muted)", fontFamily: "inherit", fontSize: 13, cursor: "pointer", whiteSpace: "nowrap" }}
+                    aria-pressed={activeCategory === c}
+                    style={{ flexShrink: 0, padding: "7px 12px", borderRadius: 99, border: `1px solid ${activeCategory === c ? "var(--accent)" : "var(--border)"}`, background: activeCategory === c ? "var(--accent-soft)" : "transparent", color: activeCategory === c ? "var(--text)" : "var(--text-muted)", fontFamily: "inherit", fontSize: 13, cursor: "pointer", whiteSpace: "nowrap" }}
                   >
                     {c}
                   </button>
                 ))}
               </div>
-              <ul style={{ listStyle: "none", margin: 0, padding: 0 }}>{categoryRows.map(rowFor)}</ul>
+              <ul style={{ listStyle: "none", margin: 0, padding: 0 }}>{categoryFoods ? categoryFoods.map((f) => pickRow(f)) : categoryRows.map(rowFor)}</ul>
             </>
           )}
         </div>
